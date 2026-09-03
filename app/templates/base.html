@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}Family OS{% endblock %}</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/family.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="topbar wrap">
+    <a class="brand" href="{{ url_for('home.home') }}">
+      <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="Family OS">
+      <span class="brand-meta">
+        <strong>Family OS</strong>
+        <small>{{ household_name or 'your household' }}</small>
+      </span>
+    </a>
+    {% if current_user.is_authenticated %}
+    <div class="who">
+      {{ current_user.name or current_user.username }} · {{ current_user.role }}
+      <div><a href="{{ url_for('auth.logout') }}">Sign out</a></div>
+    </div>
+    {% endif %}
+  </header>
+  <main class="wrap">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+  {% if current_user.is_authenticated %}
+  <nav class="nav">
+    <a href="{{ url_for('home.home') }}" class="{% if request.endpoint == 'home.home' %}active{% endif %}">Home</a>
+    <a href="{{ url_for('groceries.grocery_list') }}" class="{% if request.endpoint and 'grocer' in request.endpoint %}active{% endif %}">List</a>
+    <a class="scan-fab" href="{{ url_for('scan.scan_page') }}">SCAN</a>
+    <a href="{{ url_for('tools.index') }}" class="{% if request.endpoint and 'tool' in request.endpoint %}active{% endif %}">Tools</a>
+    <a href="{{ url_for('reminders.index') }}" class="{% if request.endpoint and 'reminder' in request.endpoint %}active{% endif %}">Due</a>
+  </nav>
+  {% endif %}
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

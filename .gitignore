@@ -1,0 +1,62 @@
+# =============================================
+# family.poweredby.top — Python/Flask .gitignore
+# =============================================
+
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+ENV/
+*.db
+*.sqlite3
+*.sqlite
+.env
+.env.*
+!.env.example
+logs/
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+instance/
+.webassets-cache
+*.pem
+*.key
+*.crt
+*.zip
+
+# Secrets / credentials — NEVER commit
+**/github_pat*
+**/*_token*
+**/secrets/
+.master_key
+
+# Local-only
+local_testing/
+_local/
+.local_tools/
+
+# Database volumes
+mariadb_data/
+mariadb_data_*/
+**/mysql_upgrade_info
+**/.my-healthcheck.cnf
+
+# Runtime / uploads (preserve on server; not in git)
+app/static/uploads/
+uploads/
+tmp/
+!tmp/.gitkeep
+!uploads/.gitkeep
+!logs/.gitkeep
+
+# Passenger / host restart touch file
+tmp/restart.txt

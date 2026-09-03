@@ -1,0 +1,31 @@
+# family.poweredby.top / docker-compose.yml
+# Dedicated MariaDB 10.11 for Family OS.
+# Host port 3312 (3310 = aegis family, 3311 = other local).
+# Data: ./mariadb_data  |  Start: docker compose up -d
+
+services:
+  family-mariadb:
+    image: mariadb:10.11
+    container_name: family-mariadb
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: FamilyRootPass2026!
+      MYSQL_DATABASE: family
+      MYSQL_USER: family_user
+      MYSQL_PASSWORD: FamilyUserPass2026!
+    ports:
+      - "3312:3306"
+    volumes:
+      - ./mariadb_data:/var/lib/mysql
+    command: [
+      '--character-set-server=utf8mb4',
+      '--collation-server=utf8mb4_unicode_ci',
+      '--innodb-buffer-pool-size=256M',
+      '--max-connections=200'
+    ]
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-u", "root", "-pFamilyRootPass2026!"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s

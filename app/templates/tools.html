@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Tools · Family OS{% endblock %}
+{% block content %}
+<h1>Tools</h1>
+<p class="muted">Scan a QR on the tool for oil type, notes, and maintenance.
+  {% if current_user.is_admin %} <a href="{{ url_for('items.new_item', type='tool') }}">Add a tool</a>{% endif %}
+</p>
+<div class="card">
+  {% for item in items %}
+    <a class="row" href="{{ url_for('items.detail', item_id=item.id) }}" style="color:inherit;text-decoration:none">
+      <div>
+        <strong>{{ item.name }}</strong>
+        <div class="muted">{{ item.tool.type or item.category or 'tool' }}
+          {% if item.tool and item.tool.oil_type %} · oil {{ item.tool.oil_type }}{% endif %}
+        </div>
+      </div>
+      <span class="badge">QR</span>
+    </a>
+  {% else %}
+    <p class="muted">No tools yet. Add one, print the QR, stick it on the mower.</p>
+  {% endfor %}
+</div>
+{% endblock %}

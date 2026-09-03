@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}New item · Family OS{% endblock %}
+{% block content %}
+<h1>Create item</h1>
+<form class="card" method="post" action="{{ url_for('items.create_item') }}">
+  <label>Type</label>
+  <select name="item_type" id="item-type">
+    {% for t in types %}
+      <option value="{{ t }}" {% if suggested==t %}selected{% endif %}>{{ t }}</option>
+    {% endfor %}
+  </select>
+  <label>Name</label>
+  <input name="name" value="{{ lookup.name or '' }}" required>
+  <label>Barcode / QR payload</label>
+  <input name="barcode" value="{{ barcode or lookup.barcode or '' }}">
+  <label>Category</label>
+  <input name="category" value="{{ lookup.category or '' }}">
+  <label>Tags (comma)</label>
+  <input name="tags">
+  <label>Notes</label>
+  <textarea name="notes"></textarea>
+
+  <div id="grocery-fields">
+    <h2>Grocery</h2>
+    <label>Quantity on hand</label>
+    <input name="quantity" value="1">
+    <label>Restock when at or below</label>
+    <input name="restock_threshold" value="1">
+    <label>Brand</label>
+    <input name="brand" value="{{ lookup.brand or '' }}">
+    <label>Size</label>
+    <input name="size" value="{{ lookup.size or '' }}">
+    <label>Unit</label>
+    <input name="unit" value="each">
+    <label>Location</label>
+    <input name="default_location" placeholder="Fridge door">
+  </div>
+
+  <div id="tool-fields" hidden>
+    <h2>Tool</h2>
+    <label>Kind</label>
+    <input name="tool_type" placeholder="mower, drill, chainsaw">
+    <label>Power source</label>
+    <input name="power_source" placeholder="gas, electric, battery">
+    <label>Oil type</label>
+    <input name="oil_type">
+    <label>Fuel type</label>
+    <input name="fuel_type">
+    <label>Usage / safety notes</label>
+    <textarea name="usage_notes" placeholder="Prime 3x before starting. This bolt is reverse-threaded."></textarea>
+    <label>Maintenance interval (hours)</label>
+    <input name="maintenance_interval_hours">
+  </div>
+
+  <div id="vehicle-fields" hidden>
+    <h2>Vehicle</h2>
+    <label>Make</label>
+    <input name="make">
+    <label>Model</label>
+    <input name="model">
+    <label>Year</label>
+    <input name="year">
+    <label>VIN</label>
+    <input name="vin">
+    <label>Oil type</label>
+    <input name="oil_type">
+    <label>Filter</label>
+    <input name="filter_type">
+    <label>Tire size</label>
+    <input name="tire_size">
+    <label>Battery</label>
+    <input name="battery_type">
+    <label>Current mileage</label>
+    <input name="current_mileage">
+    <label>Manual URL</label>
+    <input name="manual_url">
+  </div>
+
+  <div class="btn-row">
+    <button class="btn" type="submit">Save item</button>
+    <a class="btn secondary" href="{{ url_for('home.home') }}">Cancel</a>
+  </div>
+</form>
+<script>
+function syncType() {
+  const t = document.getElementById('item-type').value;
+  ['grocery','tool','vehicle'].forEach(function (kind) {
+    const box = document.getElementById(kind + '-fields');
+    const on = (kind === 'grocery' && t === 'grocery') || (kind === 'tool' && t === 'tool') || (kind === 'vehicle' && t === 'vehicle');
+    box.hidden = !on;
+    box.querySelectorAll('input,textarea,select').forEach(function (el) { el.disabled = !on; });
+  });
+}
+document.getElementById('item-type').addEventListener('change', syncType);
+syncType();
+</script>
+{% endblock %}

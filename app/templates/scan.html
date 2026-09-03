@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Scan · Family OS{% endblock %}
+{% block content %}
+<h1>Scan</h1>
+<p class="muted">Point the camera at a UPC (groceries) or a Family QR (tools & vehicles). No typing.</p>
+<div class="card">
+  <label>Action</label>
+  <select id="scan-action">
+    <option value="auto" {% if default_action=='auto' %}selected{% endif %}>Auto (consume groceries / open tools)</option>
+    <option value="consume" {% if default_action=='consume' %}selected{% endif %}>Consume / use one</option>
+    <option value="restock" {% if default_action=='restock' %}selected{% endif %}>Restock / just bought</option>
+  </select>
+  <div id="reader" style="margin-top: .8rem;"></div>
+  <p class="muted" id="scan-status">Waiting for camera…</p>
+  <form id="manual-form" class="btn-row">
+    <input name="barcode" id="manual-barcode" placeholder="Or type a barcode" autocomplete="off">
+    <button class="btn secondary" type="submit">Go</button>
+  </form>
+</div>
+<div id="scan-result" hidden></div>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="{{ url_for('static', filename='js/scan.js') }}"></script>
+{% endblock %}

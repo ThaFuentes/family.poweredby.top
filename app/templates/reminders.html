@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Reminders · Family OS{% endblock %}
+{% block content %}
+<h1>Reminders</h1>
+<div class="card">
+  {% for row in rows %}
+    <div class="row">
+      <div>
+        <strong>{{ row.title }}</strong>
+        <div class="muted">{{ row.type }}{% if row.due_at %} · due {{ row.due_at }}{% endif %} · {{ row.status }}</div>
+      </div>
+      {% if row.status == 'open' %}
+      <form method="post" action="{{ url_for('reminders.done', rid=row.id) }}">
+        <button class="btn secondary" type="submit">Done</button>
+      </form>
+      {% endif %}
+    </div>
+  {% else %}
+    <p class="muted">Nothing due.</p>
+  {% endfor %}
+</div>
+<form class="card" method="post" action="{{ url_for('reminders.add') }}">
+  <h2>Add reminder</h2>
+  <label>Title</label>
+  <input name="title" required>
+  <label>Type</label>
+  <input name="type" placeholder="oil_change">
+  <label>Due</label>
+  <input type="datetime-local" name="due_at">
+  <label>Linked item</label>
+  <select name="linked_item_id">
+    <option value="">— none —</option>
+    {% for it in items %}
+      <option value="{{ it.id }}">{{ it.name }}</option>
+    {% endfor %}
+  </select>
+  <label>Recurrence</label>
+  <input name="recurrence" placeholder="180d">
+  <div class="btn-row"><button class="btn" type="submit">Save</button></div>
+</form>
+{% endblock %}

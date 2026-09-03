@@ -1,0 +1,4 @@
+# family.poweredby.top — HostM Passenger
+PassengerAppRoot "/home/ua882038/public_html/family.poweredby.top"
+PassengerBaseURI "/"
+PassengerPython "/home/ua882038/virtualenv/public_html/family.poweredby.top/3.13/bin/python"

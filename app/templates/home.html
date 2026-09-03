@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Home · Family OS{% endblock %}
+{% block content %}
+<h1>Household</h1>
+<div class="grid">
+  <a class="tile tile-scan" href="{{ url_for('scan.scan_page') }}">
+    <span class="kicker">Camera</span>
+    <span class="label">SCAN ITEM</span>
+  </a>
+  <a class="tile" href="{{ url_for('groceries.index') }}">
+    <span class="kicker">Pantry</span>
+    <span class="label">Groceries</span>
+    <span class="count">{{ counts.groceries }} tracked · {{ counts.list }} on the list</span>
+  </a>
+  <a class="tile" href="{{ url_for('tools.index') }}">
+    <span class="kicker">Garage</span>
+    <span class="label">Tools</span>
+    <span class="count">{{ counts.tools }} tools</span>
+  </a>
+  <a class="tile" href="{{ url_for('vehicles.index') }}">
+    <span class="kicker">Driveway</span>
+    <span class="label">Vehicles</span>
+    <span class="count">{{ counts.vehicles }} vehicles</span>
+  </a>
+  <a class="tile" href="{{ url_for('reminders.index') }}">
+    <span class="kicker">Calendar</span>
+    <span class="label">Reminders</span>
+    <span class="count">{{ counts.reminders }} open</span>
+  </a>
+</div>
+{% if current_user.is_admin %}
+<p class="muted" style="margin-top:1.2rem">
+  <a href="{{ url_for('members.index') }}">Household members & invites</a>
+  · <a href="{{ url_for('items.new_item') }}">Add item without scanning</a>
+</p>
+{% endif %}
+{% endblock %}

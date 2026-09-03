@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Log maintenance · {{ item.name }}{% endblock %}
+{% block content %}
+<h1>Log maintenance</h1>
+<p class="muted">{{ item.name }}</p>
+<form class="card" method="post">
+  <label>Type</label>
+  <input name="type" value="{% if item.item_type=='vehicle' %}oil_change{% else %}service{% endif %}" required>
+  <label>Date</label>
+  <input type="date" name="date" required>
+  <label>Mileage or hours</label>
+  <input name="mileage_or_hours">
+  <label>Notes</label>
+  <textarea name="notes"></textarea>
+  <div class="btn-row">
+    <button class="btn" type="submit">Save log</button>
+    <a class="btn secondary" href="{{ url_for('items.detail', item_id=item.id, tab='maintenance') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

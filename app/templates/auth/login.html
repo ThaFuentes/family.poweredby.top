@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · Family OS</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/family.css') }}">
+</head>
+<body class="auth">
+  <div class="auth-page">
+    <div class="wrap">
+      <div style="text-align:center;margin-bottom:1rem">
+        <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="" style="width:72px;height:72px;border-radius:18px">
+        <h1>Family OS</h1>
+        <p class="muted">Your household’s private digital universe.</p>
+      </div>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+      <div class="card">
+        <form method="post">
+          <label>Username or email</label>
+          <input name="username" autocomplete="username" required>
+          <label>Password</label>
+          <input type="password" name="password" autocomplete="current-password" required>
+          <div class="btn-row">
+            <button class="btn block" type="submit">Sign in</button>
+          </div>
+        </form>
+      </div>
+      <p class="muted" style="text-align:center">
+        New household? <a href="{{ url_for('auth.register') }}">Create one</a>
+        · Joining family? use an invite code on register.
+      </p>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Members · Family OS{% endblock %}
+{% block content %}
+<h1>{{ household.name }}</h1>
+<form class="card" method="post" action="{{ url_for('members.rename_household') }}">
+  <label>Household name</label>
+  <input name="name" value="{{ household.name }}">
+  <div class="btn-row"><button class="btn" type="submit">Rename</button></div>
+</form>
+<div class="card">
+  <h2>People</h2>
+  {% for m in members %}
+    <div class="row">
+      <div>
+        <strong>{{ m.name }}</strong>
+        <div class="muted">{{ m.username }} · {{ m.role }}</div>
+      </div>
+      {% if m.id != current_user.id %}
+      <form method="post" action="{{ url_for('members.set_role', user_id=m.id) }}">
+        <select name="role" onchange="this.form.submit()">
+          {% for r in roles %}
+            <option value="{{ r }}" {% if m.role==r %}selected{% endif %}>{{ r }}</option>
+          {% endfor %}
+        </select>
+      </form>
+      {% endif %}
+    </div>
+  {% endfor %}
+</div>
+<div class="card">
+  <h2>Invites</h2>
+  <p class="muted">Child = scan only. Member = groceries + maintenance. Admin = full.</p>
+  <form method="post" action="{{ url_for('members.invite') }}" class="btn-row">
+    <select name="role">
+      <option value="member">member</option>
+      <option value="child">child</option>
+      <option value="admin">admin</option>
+    </select>
+    <button class="btn" type="submit">Make invite</button>
+  </form>
+  {% for inv in invites %}
+    <div class="row">
+      <div><strong>{{ inv.code }}</strong> <span class="muted">· {{ inv.role }} · expires {{ inv.expires_at }}</span></div>
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}

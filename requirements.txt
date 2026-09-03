@@ -1,0 +1,11 @@
+Pillow
+Werkzeug
+cryptography
+flask
+flask_login
+flask_sqlalchemy
+pymysql
+python-dotenv
+qrcode
+requests>=2.31.0
+sqlalchemy

@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ code }} · Family OS{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>{{ code }}</h1>
+  <p>{{ message }}</p>
+  <p><a class="btn" href="{{ url_for('home.home') }}">Home</a></p>
+</div>
+{% endblock %}

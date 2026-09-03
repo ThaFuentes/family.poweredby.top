@@ -1,0 +1,415 @@
+================================================================================
+POWEREDBYTOP SECURITY WRAPPER  —  what it actually covers
+Updated: 2026-09-01
+Honest. This is the Flask package `poweredbytop/` on Aegis, AegisX, and AX.
+It is NOT the whole product. App-layer items (roles, 2FA, ClamAV, email cap,
+officer phone lock, white-label Go-live) are listed at the end as NOT wrapper.
+================================================================================
+
+WHAT IT IS
+----------
+A request wrapper. create_app() sets SITE_MODE then calls init_security(app).
+Every HTTP request on that process then runs through the same hooks.
+
+    poweredbytop/__init__.py          init_security  (idempotent)
+    poweredbytop/config/site_profile.py   per-host cookie / CSP / home
+    poweredbytop/config/settings.py       rates, secrets, flags
+    poweredbytop/core/security.py         pipeline (hard 403 policy)
+    poweredbytop/auth/session.py          login-cookie bind + vetting
+    poweredbytop/security/csrf.py         CSRF + cross-site POST
+    poweredbytop/security/headers.py      CSP / HSTS / cache
+    poweredbytop/security/tenant_gate.py  Host + live tenant + Origin
+    poweredbytop/security/device_print.py DFP + device bans + trust
+    poweredbytop/security/sanitizer.py    control-char / script-ish strip
+    poweredbytop/security/decorators.py   optional per-route helpers
+    poweredbytop/firewall/tokens.py       HMAC request-proof (not login)
+    poweredbytop/throttling/rate_limit.py 180/IP/60s, soft
+    poweredbytop/reputation/scorer.py     score / grade / temp-ban
+    poweredbytop/security_build_db/       pbt_* tables
+    poweredbytop/models/connect_db.py     security DB connection
+
+Boot log on a correctly wired host MUST show:
+
+    SITE WRAPPER: mode=aegis  cookie=pbt_aegis_session
+    SITE WRAPPER: mode=aegisx cookie=pbt_aegisx_session
+    SITE WRAPPER: mode=ax     cookie=pbt_ax_session
+    SITE WRAPPER: mode=family cookie=pbt_family_session
+    CSRF global protection ON
+    POWEREDBYTOP FULL PIPELINE READY
+
+If mode=(unset) the wrapper fell back to cookie pbt_vetted_session.
+That is a misconfig. create_app() must set SITE_MODE first.
+
+init_security is idempotent. A second call is a no-op. create_app() is
+the only caller. passenger_wsgi.py and main.py must not call it again.
+
+
+AUTHORITY SPLIT  (one token is never full authority)
+----------------------------------------------------
+    Login cookie     this browser signed in as user X
+    CSRF token       this form/fetch is same-session, not forged
+    pbt_vetted       this request passed the pipeline
+    Firewall HMAC    optional request-proof, purpose-bound
+    Device print     browser family + language + platform (not a user id)
+
+PBT_TOKEN_SECRET is separate from Flask SECRET_KEY.
+Empty firewall token = ABSENT (normal browser), not "valid."
+A firewall token purpose=firewall cannot be replayed as csrf / login / session.
+
+
+PER-REQUEST ORDER
+-----------------
+Flask before_request, registration order:
+
+    1. App hooks first if registered before init_security
+       (Aegis/AX guest /  -> 302 poweredby.top)
+    2. Login-cookie bind     session.py  enforce_bound_session
+    3. CSRF + Origin         csrf.py     csrf_before_request
+    4. Full pipeline         security.py before_request_security
+    5. App white-label lock  enforce_request_tenant (live custom Host)
+    6. App role wall         ALLOWED_ROLES
+
+If the pipeline raises, the request is ALLOWED and the exception is logged.
+The site must not go blank because security code blew up.
+
+
+================================================================================
+1. SITE PROFILE
+================================================================================
+
+Same package, three product hosts. Bound from SITE_MODE.
+
+    mode     cookie                 audience              camera   PWA workers
+    aegis    pbt_aegis_session      sponsors + clients    off      no
+    aegisx   pbt_aegisx_session     officers / field      on       yes
+    ax       pbt_ax_session         platform owner        off      no
+
+Cookies: HttpOnly, SameSite=Lax, Secure on HTTPS, Domain NEVER set
+(host-only). Unique names so a copied SECRET_KEY cannot replay a cookie
+across aegis / aegisx / ax.
+
+guest_home_safe: GET / /main /home /landing never 403. Aegis/AX 302
+guests to poweredby.top. AegisX must still load the PWA shell.
+
+
+================================================================================
+2. PIPELINE  (core/security.py)  —  what 403s
+================================================================================
+
+HARD 403 (this PATH is refused; not a registered-user wall)
+
+    Known attack paths (prefix match)
+        /.env  /.git  /.git/config  /.git/HEAD
+        /console/  /actuator/  /actuator/env
+        /swagger  /swagger-ui  /swagger.json  /v2/api-docs  /v3/api-docs
+        /graphql  /api/graphql  /gql
+        /telescope/  /debug/  /trace.axd
+        /server-status  /wp-login.php  /xmlrpc.php
+        /.DS_Store  /config.json  /.vscode/  /@vite/env
+        (bare "/server" is intentionally NOT in this list)
+
+    Known attacker UA (substring, no bare word "bot")
+        sqlmap nikto nuclei httpx masscan zgrab curl/ wget/
+        l9scan leakix headlesschrome cms-checker palo alto
+        gptbot oai-searchbot python-urllib acunetix nessus openvas
+        wpscan burpsuite owasp zap netsparker invicti w3af
+        gobuster feroxbuster dirbuster commix whatweb
+
+        Established / fleet IPs: refuse the path, LOG only, no device ban.
+        Unknown IPs: 403.
+
+    Active DEVICE ban on an UNKNOWN visitor
+        Registered account, fleet staff, logged-in user: NOTICE only
+        (g.pbt_device_locked_notice). Login stays visible. No 403 wall.
+        AegisX officers are never kicked by office DFP lock.
+
+NEVER a site-wide 403 for
+
+    /static /favicon /pwa /health /healthz /robots.txt /sw.js
+    /manifest.webmanifest /brand/
+    /auth/* login 2fa logout reset forgot legal
+    /guard/login  /guard/  (login-ish)
+    /onboard
+    Guest homepage (profile.guest_home_safe)
+    Named recon scanners (SSL Labs, securityheaders, pentest-tools, …)
+        — log only, never 403
+    IPv6 privacy address rotating inside the same /64
+    Office NAT sharing an IP with a banned coworker (clean device allowed,
+        tighter throttle)
+    Fleet hops aegis <-> aegisx <-> ax
+    Wrapper exception (pipeline crash = allow)
+
+SOFT (log / throttle / flag; page still loads)
+
+    Rate limit ~180 req / IP / 60s, global 800
+    Logged-in product roles: do not treat as refresh-spam; score climbs
+    IP reputation ban + clean device: allow, g.rate_limited
+    Brute-force lock noted; login page still visible
+    PBT_TRUSTED_IPS: full pass, never 403
+
+After a pass: stamp g.pbt_vetted, mark session vetted, record good
+behavior, stamp Host + live tenant on g for the audit row.
+
+
+================================================================================
+3. LOGIN COOKIE BIND  (auth/session.py)
+================================================================================
+
+Cookie name from site profile (above). After a real login the cookie is
+stamped:
+
+    pbt_sess_uid      Flask-Login user id
+    pbt_sess_fam      browser class + Accept-Language + platform
+                      (NOT the full UA — patches must not kick people)
+    pbt_sess_fp       device print
+    pbt_sess_ip       client IP
+    pbt_sess_host     request Host
+    pbt_wl_tenant_id  live custom-host tenant only
+
+KEEP when
+    same browser, new IP (cell, CGNAT, office, IPv6 /64)
+    same network, browser update / second profile
+    www vs apex of the SAME hostname
+    default product hosts hopping (fleet)
+
+DROP (logout, that Host's login — not a 403 wall) when
+    cookie user id != loaded user
+    different browser class AND different network (stolen cookie)
+    cookie from company A's live custom Host used on company B's
+    cookie tenant id != this live Host's tenant
+
+First request after deploy with no stamp: stamp and keep (no mass logout).
+
+Vetting flag pbt_vetted is separate. TTL 86400. IP change inside /64
+refreshes stored IP. Real network change: re-vet, no reputation nuke.
+
+Brute force in the session: 5 fails -> jail 300s on that IP key.
+Does not hide the login page.
+
+
+================================================================================
+4. CSRF  (security/csrf.py)
+================================================================================
+
+Enforced on authenticated POST/PUT/PATCH/DELETE.
+Token in session, also accepted as
+    X-CSRF-Token header, X-CSRFToken, form csrf_token, JSON csrf_token.
+Auto-injected into HTML: meta csrf-token + hidden inputs + window.fetch wrap.
+
+Exempt from the TOKEN check (must still work on first visit)
+    login logout forgot reset register 2fa
+    /guard/login  /guard/2fa
+    static health pwa robots
+    Stripe / billing / webhooks
+    /onboard /subscribe /public/
+
+Cross-site POST still rejected even on login:
+    Sec-Fetch-Site: cross-site
+    or Origin host is a different company Host
+    Missing Origin / Origin: null = allowed (old browsers, some WebViews)
+    Webhooks skipped
+
+Office CSRF miss: 403 that POST. Logged-in: no reputation hit.
+
+OFFICERS (SITE_MODE=aegisx signed-in, or role=guard)
+    Stale token is FLAGGED only (csrf_field_stale, at most once / 5 min).
+    The request is ALLOWED. Dead-zone GPS / checklist / tour must not 403.
+    Token is not rotated mid-shift (8h TTL was killing page-load tokens
+    they cannot refresh).
+    Real cross-site POST is still rejected.
+    csrf_field_stale is not an attack counter on the threat map.
+
+
+================================================================================
+5. TENANT / HOST GATE  (security/tenant_gate.py)
+================================================================================
+
+Default product hosts (aegis / aegisx / ax / www / localhost) are NEVER
+tenant-locked. That is how the product is sold.
+
+Live custom Host only (enabled=True row + entitled sponsor):
+    Wrapper stamps g.pbt_request_host and g.pbt_wl_tenant_id
+    Session host/tenant mismatch on two different custom hosts: drop session
+    Pending / disabled Host does not lock login and does not paint brand
+
+Membership logout (wrong company on this live Host) is app white_label.
+The wrapper understands Host/tenant enough to bind the cookie and Origin.
+
+
+================================================================================
+6. DEVICE PRINTS  (security/device_print.py)
+================================================================================
+
+Tables: pbt_device_prints, pbt_device_bans, pbt_device_trust,
+        pbt_user_device_trust
+
+Print = hash(UA family + language + client-hints platform). NOT the office
+IP. Two people on the same NAT get different prints when UAs differ.
+
+Every request can record a sighting (path, method, user_id).
+Ban the print, not the whole NAT, for office-safe enforcement.
+
+Registered / staff on a banned print: notice to contact sponsor.
+Unknown visitor on a banned print: 403 (honeypot wall).
+Sponsors reset DFP from the app (app layer). Wrapper just stores trust.
+
+
+================================================================================
+7. HEADERS  (security/headers.py)
+================================================================================
+
+Every response:
+
+    Content-Security-Policy
+        default-src 'self'
+        script-src / style-src  'self' 'unsafe-inline' + cdn.jsdelivr + cdnjs
+        img-src 'self' data: blob: https:
+        font-src 'self' data: cdn
+        connect-src 'self' https:
+        media-src 'self' blob:
+        worker-src 'self' blob:     AegisX only (PWA)
+        object-src 'none'
+        base-uri 'self'
+        form-action 'self'
+        frame-ancestors 'self'      (in-app iframes must paint)
+    X-Frame-Options                 SAMEORIGIN  (or DENY if FRAME_ANCESTORS=none)
+    X-Content-Type-Options          nosniff
+    Referrer-Policy                 strict-origin-when-cross-origin
+    Permissions-Policy
+        geolocation=(self)
+        microphone=()
+        camera=()       Aegis + AX
+        camera=(self)   AegisX
+        payment=()
+    Strict-Transport-Security       production HTTPS (HSTS_DISABLED=1 on laptop)
+    Cross-Origin-Opener-Policy      same-origin-allow-popups
+    Cross-Origin-Resource-Policy    same-origin
+    X-Permitted-Cross-Domain-Policies  none
+    Cache-Control private,no-store  on signed-in HTML/JSON if not already set
+
+unsafe-inline is still required by existing templates. CSP is not a
+nonce-based XSS shield yet. Jinja autoescape is the primary XSS control.
+
+
+================================================================================
+8. RATE LIMIT  (throttling/rate_limit.py)
+================================================================================
+
+    PER_IP_RATE_LIMIT     180 / 60s
+    GLOBAL_RATE_LIMIT     800
+    Burst / jail constants exist; exceeding sets g.rate_limited.
+    Does NOT hard-403 by itself (BLOCK_ON_ANY_FAILURE is false).
+    Logged-in product roles and fleet roles are not treated as map
+    "rate limit" threats in teardown.
+
+
+================================================================================
+9. REPUTATION  (reputation/scorer.py)
+================================================================================
+
+Per-IP score + grade (trusted / good / normal / suspicious / temp_ban).
+Good traffic climbs. Bad events spend points.
+
+Soft reasons (csrf, rate_limit, session_bind_fail, token_attack on
+authenticated users) LOG but do not spend score for logged-in staff.
+csrf_field_stale never spends score.
+
+Established client: grade trusted/good, score >= 400, or
+positive_requests >= 20 (15 on some copies). Fleet staff count as
+established. Shared across the fleet on purpose (owner hopping hosts
+is normal, not scanning).
+
+IP ban: pipeline still allows a clean device (shared office).
+
+
+================================================================================
+10. FIREWALL HMAC  (firewall/tokens.py)
+================================================================================
+
+Optional. Bound to purpose + IP + timestamp. SHA-256 HMAC with
+PBT_TOKEN_SECRET.
+
+    absent  no token (normal)
+    ok      valid for this purpose+IP  — proof only, never login
+    bad     forged / expired / wrong purpose
+
+IPv6 /64 is the same client. Empty != valid.
+
+
+================================================================================
+11. SANITIZER + DECORATORS
+================================================================================
+
+sanitize_text: strip control chars / nulls, strip obvious
+<script> javascript: on*= <iframe> <object> <embed>, length cap.
+Does NOT strip quotes (names and notes).
+
+Decorators (opt-in per route, not global):
+    csrf_protected
+    require_sanitized_input(fields)
+    rate_limit_protected   (soft flag only)
+
+
+================================================================================
+12. AUDIT TABLES  (pbt_*)
+================================================================================
+
+Built on startup (CREATE IF NOT EXISTS, no DDL on every request):
+
+    pbt_traffic
+    pbt_security_events     IP, device_fp, user_id, path, method, UA,
+                            score, grade, notes (includes host= tenant=)
+    pbt_device_prints
+    pbt_device_bans
+    pbt_device_trust
+    pbt_user_device_trust
+    reputation table used by scorer
+
+Normal traffic: JSONL fallback (logs/traffic_log.jsonl), DB every Nth.
+Critical statuses always hit DB: blocked, rate_limited, attack,
+suspicious, banned, jail.
+
+MariaDB bulkhead + retries so logging cannot kill the worker.
+
+
+================================================================================
+13. ENV KEYS THE WRAPPER READS
+================================================================================
+
+    SECRET_KEY                 Flask cookie sign (unique per host)
+    PBT_TOKEN_SECRET           firewall HMAC only (64+ random)
+    PBT_TRUSTED_IPS            operator IPs, comma-separated
+    DEBUG_MODE / REQUIRE_HTTPS / SESSION_COOKIE_SECURE
+    CSRF_DISABLED              emergency only
+    HSTS_DISABLED              laptop HTTP
+    CSP_POLICY / CSP_REPORT_ONLY
+    FRAME_ANCESTORS            default self
+    SITE_MODE                  set in create_app, not .env required
+
+Never put a PAT or secret in this file.
+
+
+================================================================================
+14. WHAT THE WRAPPER DOES NOT COVER
+    (app layer — still real, just not this package)
+================================================================================
+
+    Role walls (sponsor vs owner vs guard)          app/__init__.py
+    Login who-belongs-on-this-host                  auth routes
+    Email 2FA policy                                twofa_policy.py
+    Officer phone lock (UserDevice)                 guard_auth_helper
+    Office computer trust + email confirm           office_device.py
+    White-label Go-live / Cloudflare / allow-list   white_label.py
+    ClamAV on uploads                               clamav_scanner.py
+    Mailgun/SendGrid daily cap + SMTP overflow      email_helper.py
+    GPS / checklists / tours / notes / maps         officer routes
+    Client must not see LIVE officer map            maps routes
+    Passwords / issued permanent credentials        User model
+    Account lock after 5 fails (15 min)             auth routes
+
+A targeted stolen cookie from the SAME browser class on the SAME
+network on the SAME live Host still looks like that user.
+
+================================================================================
+END
+================================================================================

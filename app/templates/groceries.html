@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Groceries · Family OS{% endblock %}
+{% block content %}
+<h1>Groceries</h1>
+<p class="muted"><a href="{{ url_for('groceries.grocery_list') }}">Open shopping list</a>
+  {% if current_user.is_admin %} · <a href="{{ url_for('items.new_item', type='grocery') }}">Add grocery</a>{% endif %}
+</p>
+<div class="card">
+  {% for item in items %}
+    <a class="row" href="{{ url_for('items.detail', item_id=item.id) }}" style="color:inherit;text-decoration:none">
+      <div>
+        <strong>{{ item.name }}</strong>
+        <div class="muted">{{ item.grocery.brand or item.category or '' }}
+          {% if item.grocery %} · {{ item.grocery.quantity }} {{ item.grocery.unit or '' }}{% endif %}
+        </div>
+      </div>
+      {% if item.grocery and item.grocery.needs_restock %}
+        <span class="badge {% if not item.grocery.is_in_stock %}out{% else %}low{% endif %}">
+          {% if item.grocery.is_in_stock %}low{% else %}out{% endif %}
+        </span>
+      {% else %}
+        <span class="badge">in stock</span>
+      {% endif %}
+    </a>
+  {% else %}
+    <p class="muted">Nothing tracked yet. Scan a bottle or box to start.</p>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Shopping list · Family OS{% endblock %}
+{% block content %}
+<h1>Shopping list</h1>
+<p class="muted">Auto-filled when something hits its restock threshold. Scan at home after shopping to clear it.</p>
+<div class="card">
+  {% for row in rows %}
+    <div class="row">
+      <div>
+        <strong>{{ row.name }}</strong>
+        <div class="muted">{{ row.added_reason or 'manual' }}{% if row.quantity_needed %} · need {{ row.quantity_needed }}{% endif %}</div>
+      </div>
+      <form method="post" action="{{ url_for('groceries.list_done', entry_id=row.id) }}">
+        <button class="btn secondary" type="submit">Got it</button>
+      </form>
+    </div>
+  {% else %}
+    <p class="muted">List is empty. Nice.</p>
+  {% endfor %}
+</div>
+<form class="card" method="post" action="{{ url_for('groceries.list_add') }}">
+  <label>Add by hand</label>
+  <input name="name" placeholder="Milk" required>
+  <div class="btn-row"><button class="btn" type="submit">Add</button></div>
+</form>
+{% endblock %}

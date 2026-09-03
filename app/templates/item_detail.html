@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}{{ item.name }} · Family OS{% endblock %}
+{% block content %}
+<h1>{{ item.name }}</h1>
+<p class="muted">{{ item.item_type }}{% if item.category %} · {{ item.category }}{% endif %}
+  {% if item.barcode %} · {{ item.barcode }}{% endif %}
+</p>
+<div class="tabs">
+  <a class="{% if tab=='overview' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='overview') }}">Overview</a>
+  <a class="{% if tab=='photos' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='photos') }}">Photos</a>
+  <a class="{% if tab=='notes' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='notes') }}">Notes</a>
+  <a class="{% if tab=='maintenance' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='maintenance') }}">Maintenance</a>
+  <a class="{% if tab=='history' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='history') }}">History</a>
+</div>
+
+{% if tab == 'overview' %}
+  <div class="card">
+    {% if item.grocery %}
+      <p><strong>{{ item.grocery.quantity }}</strong> {{ item.grocery.unit or '' }} on hand
+        {% if item.grocery.needs_restock %}<span class="badge low">needs restock</span>{% endif %}
+      </p>
+      <p class="muted">{{ item.grocery.brand or '' }} {{ item.grocery.size or '' }} · {{ item.grocery.default_location or '' }}</p>
+      {% if can_grocery %}
+      <form method="post" action="{{ url_for('items.qty', item_id=item.id) }}" class="btn-row">
+        <input name="amount" value="1" style="max-width:5rem">
+        <button class="btn terracotta" name="action" value="consume" type="submit">Use one</button>
+        <button class="btn" name="action" value="restock" type="submit">Restock</button>
+      </form>
+      {% endif %}
+    {% endif %}
+    {% if item.tool %}
+      <p>Type: {{ item.tool.type or '—' }} · Power: {{ item.tool.power_source or '—' }}</p>
+      <p>Oil: <strong>{{ item.tool.oil_type or '—' }}</strong> · Fuel: <strong>{{ item.tool.fuel_type or '—' }}</strong></p>
+      <p class="muted">{{ item.tool.usage_notes or '' }}</p>
+      <p class="muted">Last maintenance: {{ item.tool.last_maintenance_at or 'never' }}</p>
+    {% endif %}
+    {% if item.vehicle %}
+      <p>{{ item.vehicle.year or '' }} {{ item.vehicle.make or '' }} {{ item.vehicle.model or '' }}</p>
+      <p>Oil: <strong>{{ item.vehicle.oil_type or '—' }}</strong> · Filter: {{ item.vehicle.filter_type or '—' }}</p>
+      <p>Tires: {{ item.vehicle.tire_size or '—' }} · Battery: {{ item.vehicle.battery_type or '—' }}</p>
+      <p>Mileage: {{ item.vehicle.current_mileage or '—' }} · Last oil: {{ item.vehicle.last_oil_change_date or '—' }}
+        @ {{ item.vehicle.last_oil_change_mileage or '—' }}</p>
+    {% endif %}
+    <div class="btn-row">
+      <a class="btn secondary" href="{{ url_for('items.qr_png', item_id=item.id) }}">QR label</a>
+      {% if can_maintain and item.item_type in ('tool','vehicle') %}
+        <a class="btn" href="{{ url_for('items.maintenance', item_id=item.id) }}">Log maintenance</a>
+      {% endif %}
+    </div>
+  </div>
+  {% if can_edit %}
+  <form class="card" method="post" action="{{ url_for('items.edit_item', item_id=item.id) }}">
+    <h2>Edit</h2>
+    <label>Name</label>
+    <input name="name" value="{{ item.name }}">
+    <label>Barcode</label>
+    <input name="barcode" value="{{ item.barcode or '' }}">
+    <label>Category</label>
+    <input name="category" value="{{ item.category or '' }}">
+    <label>Tags</label>
+    <input name="tags" value="{{ (item.tags or [])|join(', ') }}">
+    <label>Notes</label>
+    <textarea name="notes">{{ item.notes or '' }}</textarea>
+    {% if item.grocery %}
+      <label>Quantity</label><input name="quantity" value="{{ item.grocery.quantity }}">
+      <label>Restock threshold</label><input name="restock_threshold" value="{{ item.grocery.restock_threshold }}">
+      <label>Brand</label><input name="brand" value="{{ item.grocery.brand or '' }}">
+      <label>Size</label><input name="size" value="{{ item.grocery.size or '' }}">
+      <label>Unit</label><input name="unit" value="{{ item.grocery.unit or 'each' }}">
+      <label>Location</label><input name="default_location" value="{{ item.grocery.default_location or '' }}">
+    {% endif %}
+    {% if item.tool %}
+      <label>Kind</label><input name="tool_type" value="{{ item.tool.type or '' }}">
+      <label>Power</label><input name="power_source" value="{{ item.tool.power_source or '' }}">
+      <label>Oil</label><input name="oil_type" value="{{ item.tool.oil_type or '' }}">
+      <label>Fuel</label><input name="fuel_type" value="{{ item.tool.fuel_type or '' }}">
+      <label>Usage notes</label><textarea name="usage_notes">{{ item.tool.usage_notes or '' }}</textarea>
+      <label>Interval hours</label><input name="maintenance_interval_hours" value="{{ item.tool.maintenance_interval_hours or '' }}">
+    {% endif %}
+    {% if item.vehicle %}
+      <label>Make</label><input name="make" value="{{ item.vehicle.make or '' }}">
+      <label>Model</label><input name="model" value="{{ item.vehicle.model or '' }}">
+      <label>Year</label><input name="year" value="{{ item.vehicle.year or '' }}">
+      <label>VIN</label><input name="vin" value="{{ item.vehicle.vin or '' }}">
+      <label>Oil</label><input name="oil_type" value="{{ item.vehicle.oil_type or '' }}">
+      <label>Filter</label><input name="filter_type" value="{{ item.vehicle.filter_type or '' }}">
+      <label>Tires</label><input name="tire_size" value="{{ item.vehicle.tire_size or '' }}">
+      <label>Battery</label><input name="battery_type" value="{{ item.vehicle.battery_type or '' }}">
+      <label>Mileage</label><input name="current_mileage" value="{{ item.vehicle.current_mileage or '' }}">
+      <label>Manual URL</label><input name="manual_url" value="{{ item.vehicle.manual_url or '' }}">
+    {% endif %}
+    <div class="btn-row"><button class="btn" type="submit">Save</button></div>
+  </form>
+  <form method="post" action="{{ url_for('items.delete_item', item_id=item.id) }}" onsubmit="return confirm('Remove this item?')">
+    <button class="btn secondary" type="submit">Delete item</button>
+  </form>
+  {% endif %}
+{% elif tab == 'photos' %}
+  <div class="photo-grid">
+    {% for p in photos %}
+      <figure>
+        <img src="{{ url_for('items.serve_photo', photo_id=p.id) }}" alt="{{ p.caption or item.name }}">
+        {% if p.caption %}<figcaption class="muted">{{ p.caption }}</figcaption>{% endif %}
+      </figure>
+    {% else %}
+      <p class="muted">No photos yet.</p>
+    {% endfor %}
+  </div>
+  {% if can_photo %}
+  <form class="card" method="post" action="{{ url_for('items.add_photo', item_id=item.id) }}" enctype="multipart/form-data">
+    <label>Photo</label>
+    <input type="file" name="photo" accept="image/*" capture="environment" required>
+    <label>Caption</label>
+    <input name="caption">
+    <div class="btn-row"><button class="btn" type="submit">Upload</button></div>
+  </form>
+  {% endif %}
+{% elif tab == 'notes' %}
+  <div class="card">
+    <p>{{ item.notes or 'No notes yet.' }}</p>
+    {% if item.tool and item.tool.usage_notes %}<p>{{ item.tool.usage_notes }}</p>{% endif %}
+  </div>
+{% elif tab == 'maintenance' %}
+  {% if can_maintain %}
+    <p><a class="btn" href="{{ url_for('items.maintenance', item_id=item.id) }}">Log maintenance</a></p>
+  {% endif %}
+  <div class="card">
+    {% for m in maint %}
+      <div class="row">
+        <div>
+          <strong>{{ m.type }}</strong>
+          <div class="muted">{{ m.date }}{% if m.mileage_or_hours %} · {{ m.mileage_or_hours }}{% endif %}</div>
+          {% if m.notes %}<div>{{ m.notes }}</div>{% endif %}
+        </div>
+      </div>
+    {% else %}
+      <p class="muted">No maintenance logged.</p>
+    {% endfor %}
+  </div>
+  {% if reminders %}
+  <h2>Upcoming</h2>
+  <div class="card">
+    {% for r in reminders %}
+      <div class="row"><div><strong>{{ r.title }}</strong><div class="muted">{{ r.due_at }}</div></div></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+{% elif tab == 'history' %}
+  <div class="card">
+    {% for h in history %}
+      <div class="row">
+        <div>
+          <strong>{{ h.action }}</strong>
+          <div class="muted">{{ h.created_at }} · {{ h.barcode }}{% if h.amount %} · {{ h.amount }}{% endif %}</div>
+        </div>
+      </div>
+    {% else %}
+      <p class="muted">No scans yet.</p>
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}
