@@ -23,7 +23,7 @@ for i in $(seq 1 40); do
   sleep 1
 done
 
-echo "Starting Flask on http://127.0.0.1:5060 (laptop only; HostM uses passenger_wsgi.py) ..."
+echo "Starting Flask on http://127.0.0.1:8060 (loopback). Tailscale Serve wraps HTTPS."
 source .venv/bin/activate
 export DEBUG_MODE=true
 exec python main.py

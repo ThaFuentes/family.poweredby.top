@@ -14,6 +14,16 @@ class Vehicle(db.Model):
     model = db.Column(db.String(80), nullable=True)
     year = db.Column(db.Integer, nullable=True)
     vin = db.Column(db.String(32), nullable=True)
+    plate = db.Column(db.String(20), nullable=True)
+    color = db.Column(db.String(40), nullable=True)
+    trim = db.Column(db.String(80), nullable=True)
+    body_class = db.Column(db.String(80), nullable=True)
+    drive_type = db.Column(db.String(80), nullable=True)
+    fuel_type = db.Column(db.String(80), nullable=True)
+    engine = db.Column(db.String(160), nullable=True)
+    transmission = db.Column(db.String(80), nullable=True)
+    doors = db.Column(db.String(8), nullable=True)
+    manufacturer = db.Column(db.String(160), nullable=True)
     oil_type = db.Column(db.String(80), nullable=True)
     filter_type = db.Column(db.String(80), nullable=True)
     tire_size = db.Column(db.String(40), nullable=True)
@@ -36,6 +46,16 @@ def create_table():
             ("model", "VARCHAR(80) NULL"),
             ("year", "INT NULL"),
             ("vin", "VARCHAR(32) NULL"),
+            ("plate", "VARCHAR(20) NULL"),
+            ("color", "VARCHAR(40) NULL"),
+            ("trim", "VARCHAR(80) NULL"),
+            ("body_class", "VARCHAR(80) NULL"),
+            ("drive_type", "VARCHAR(80) NULL"),
+            ("fuel_type", "VARCHAR(80) NULL"),
+            ("engine", "VARCHAR(160) NULL"),
+            ("transmission", "VARCHAR(80) NULL"),
+            ("doors", "VARCHAR(8) NULL"),
+            ("manufacturer", "VARCHAR(160) NULL"),
             ("oil_type", "VARCHAR(80) NULL"),
             ("filter_type", "VARCHAR(80) NULL"),
             ("tire_size", "VARCHAR(40) NULL"),

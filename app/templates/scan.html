@@ -1,25 +1,30 @@
 {% extends "base.html" %}
 {% block title %}Scan · Family OS{% endblock %}
 {% block content %}
-<h1>Scan</h1>
-<p class="muted">Point the camera at a UPC (groceries) or a Family QR (tools & vehicles). No typing.</p>
-<div class="card">
-  <label>Action</label>
-  <select id="scan-action">
-    <option value="auto" {% if default_action=='auto' %}selected{% endif %}>Auto (consume groceries / open tools)</option>
-    <option value="consume" {% if default_action=='consume' %}selected{% endif %}>Consume / use one</option>
-    <option value="restock" {% if default_action=='restock' %}selected{% endif %}>Restock / just bought</option>
-  </select>
-  <div id="reader" style="margin-top: .8rem;"></div>
-  <p class="muted" id="scan-status">Waiting for camera…</p>
-  <form id="manual-form" class="btn-row">
-    <input name="barcode" id="manual-barcode" placeholder="Or type a barcode" autocomplete="off">
-    <button class="btn secondary" type="submit">Go</button>
-  </form>
+<div class="page-head">
+  <div>
+    <h1>Scan</h1>
+    <p>Camera, typed UPC/QR, or fill the form. Use any mix.</p>
+  </div>
 </div>
-<div id="scan-result" hidden></div>
-{% endblock %}
-{% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-<script src="{{ url_for('static', filename='js/scan.js') }}"></script>
+{% include "partials/scan_strip.html" %}
+<div class="and-or">and / or type it in</div>
+{% if can('edit_grocery') or can('edit_meta') or can('maintain') %}
+<form class="card" method="post" action="{{ url_for('items.create_item') }}" enctype="multipart/form-data">
+  <h2>Add by hand</h2>
+  <label>This is a</label>
+  <select name="item_type">
+    <option value="grocery">Grocery</option>
+    <option value="tool">Tool</option>
+    <option value="vehicle">Vehicle</option>
+  </select>
+  <label>Name</label>
+  <input name="name" required placeholder="Milk, Honda mower, the gray truck">
+  <label>UPC / QR (optional)</label>
+  <input name="barcode" placeholder="Paste a code if you have one">
+  <label>Photo (optional)</label>
+  <input type="file" name="photo" accept="image/*" capture="environment">
+  <div class="btn-row"><button class="btn" type="submit">Save</button></div>
+</form>
+{% endif %}
 {% endblock %}

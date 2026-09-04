@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Notes · Family OS{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Notes</h1>
+    <p>Yours, the household’s, or pinned to a car / tool / project.</p>
+  </div>
+</div>
+<div class="tabs">
+  <a class="{% if scope=='all' %}active{% endif %}" href="{{ url_for('notes.index') }}">All</a>
+  <a class="{% if scope=='mine' %}active{% endif %}" href="{{ url_for('notes.index', scope='mine') }}">Just me</a>
+  <a class="{% if scope=='household' %}active{% endif %}" href="{{ url_for('notes.index', scope='household') }}">Household</a>
+  <a class="{% if scope=='pinned' %}active{% endif %}" href="{{ url_for('notes.index', scope='pinned') }}">On a thing</a>
+  <a class="{% if scope=='projects' %}active{% endif %}" href="{{ url_for('notes.index', scope='projects') }}">Projects</a>
+</div>
+
+<form class="card" method="post" action="{{ url_for('notes.add') }}">
+  <h2>New note</h2>
+  <label>Name</label>
+  <input name="title" placeholder="Deck rebuild, or the Honda, or Saturday list" required>
+  <label>Note</label>
+  <textarea name="body" placeholder="What you want to remember."></textarea>
+  <label>Who can see it</label>
+  <select name="visibility">
+    <option value="personal">Just me</option>
+    <option value="household">Whole household</option>
+  </select>
+  <label>Pin to a thing (optional)</label>
+  <select name="item_id">
+    <option value="">None — this is a project / scratch pad</option>
+    {% for it in items %}
+      <option value="{{ it.id }}" {% if pin_item_id and pin_item_id|string == it.id|string %}selected{% endif %}>{{ it.name }} · {{ it.item_type }}</option>
+    {% endfor %}
+  </select>
+  <div class="btn-row"><button class="btn" type="submit">Save note</button></div>
+</form>
+
+{% for n in rows %}
+  {% set author = authors.get(n.user_id) %}
+  <div class="card">
+    <div class="row" style="border:0;padding:0 0 .4rem">
+      <div>
+        <strong>{{ n.title }}</strong>
+        <div class="muted">
+          {% if n.visibility == 'personal' %}Just me{% else %}Household{% endif %}
+          · {{ (author.name or author.username) if author else 'someone' }}
+          {% if n.item %} · on <a href="{{ url_for('items.detail', item_id=n.item.id, tab='notes') }}">{{ n.item.name }}</a>{% endif %}
+        </div>
+      </div>
+      {% if n.visibility == 'personal' %}
+        <span class="badge">Mine</span>
+      {% else %}
+        <span class="badge want">House</span>
+      {% endif %}
+    </div>
+    {% if n.body %}<p style="white-space:pre-wrap;margin:.35rem 0 0">{{ n.body }}</p>{% endif %}
+    {% if n.user_id == current_user.id or current_user.is_admin %}
+    <form method="post" action="{{ url_for('notes.edit', note_id=n.id) }}" style="margin-top:.7rem">
+      <label>Edit</label>
+      <input name="title" value="{{ n.title }}">
+      <textarea name="body">{{ n.body or '' }}</textarea>
+      <select name="visibility">
+        <option value="personal" {% if n.visibility=='personal' %}selected{% endif %}>Just me</option>
+        <option value="household" {% if n.visibility=='household' %}selected{% endif %}>Whole household</option>
+      </select>
+      <select name="item_id">
+        <option value="">None — project / scratch pad</option>
+        {% for it in items %}
+          <option value="{{ it.id }}" {% if n.item_id == it.id %}selected{% endif %}>{{ it.name }} · {{ it.item_type }}</option>
+        {% endfor %}
+      </select>
+      <div class="btn-row">
+        <button class="btn sm" type="submit">Update</button>
+      </div>
+    </form>
+    <form method="post" action="{{ url_for('notes.delete', note_id=n.id) }}" onsubmit="return confirm('Remove this note?')">
+      <button class="btn sm secondary" type="submit">Delete</button>
+    </form>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="card"><div class="empty"><strong>No notes yet</strong>Name a project, or pin one to the car.</div></div>
+{% endfor %}
+{% endblock %}

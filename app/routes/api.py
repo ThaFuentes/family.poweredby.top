@@ -9,8 +9,9 @@ from app.builddb.table_maintenance_records import MaintenanceRecord
 from app.builddb.table_reminders import Reminder
 from app.utils.household import household_id, scoped
 from app.utils.permissions import can
-from app.utils.scan import process_scan, _dec
-from app.utils.barcode_lookup import lookup_upc
+from app.utils.scan import process_scan, clamp_qty, _dec
+from app.utils.barcode_lookup import lookup_upc, lookup_product
+from app.utils.vehicle_lookup import lookup_vehicle
 from app.utils.qr_labels import item_payload
 from datetime import datetime, timedelta
 
@@ -24,7 +25,7 @@ def api_scan():
         return jsonify({"error": "scan not allowed"}), 403
     data = request.get_json(silent=True) or {}
     barcode = (data.get("barcode") or "").strip()
-    action = (data.get("action") or "auto").strip().lower()
+    action = (data.get("action") or "check").strip().lower()
     amount = data.get("amount") or 1
     if not barcode:
         return jsonify({"error": "barcode required"}), 400
@@ -35,7 +36,22 @@ def api_scan():
 @login_required
 def api_lookup():
     code = (request.args.get("barcode") or "").strip()
-    return jsonify(lookup_upc(code))
+    return jsonify(lookup_product(code))
+
+
+@api_bp.route("/lookup/product")
+@login_required
+def api_lookup_product():
+    code = (request.args.get("barcode") or "").strip()
+    return jsonify(lookup_product(code))
+
+
+@api_bp.route("/lookup/vehicle")
+@login_required
+def api_lookup_vehicle():
+    plate = (request.args.get("plate") or "").strip()
+    vin = (request.args.get("vin") or "").strip()
+    return jsonify(lookup_vehicle(plate=plate, vin=vin))
 
 
 @api_bp.route("/items", methods=["POST"])
@@ -72,8 +88,8 @@ def api_create_item():
         g = GroceryItem(
             item_id=item.id,
             household_id=hid,
-            quantity=_dec(data.get("quantity") or 1, "1"),
-            restock_threshold=_dec(data.get("restock_threshold") or 1, "1"),
+            quantity=clamp_qty(data.get("quantity") or 1, "1"),
+            restock_threshold=clamp_qty(data.get("restock_threshold") or 1, "1"),
         )
         g.is_in_stock = g.quantity > 0
         g.needs_restock = g.quantity <= g.restock_threshold

@@ -1,26 +1,37 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="{{ current_theme }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{% block title %}Family OS{% endblock %}</title>
   <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/family.css') }}">
+  {% include "partials/theme_head.html" %}
   {% block head %}{% endblock %}
 </head>
 <body>
   <header class="topbar wrap">
     <a class="brand" href="{{ url_for('home.home') }}">
-      <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="Family OS">
+      <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
       <span class="brand-meta">
         <strong>Family OS</strong>
         <small>{{ household_name or 'your household' }}</small>
       </span>
     </a>
     {% if current_user.is_authenticated %}
-    <div class="who">
-      {{ current_user.name or current_user.username }} · {{ current_user.role }}
-      <div><a href="{{ url_for('auth.logout') }}">Sign out</a></div>
+    <div class="who who-menu" id="who-menu">
+      <button class="who-chip" type="button" id="who-toggle" aria-haspopup="true">
+        <span class="avatar">{{ (current_user.name or current_user.username or '?')[0]|upper }}</span>
+      </button>
+      <div class="sheet" role="menu">
+        <div class="muted" style="padding:.45rem .75rem .2rem;font-size:.75rem">{{ current_user.name or current_user.username }} · {{ current_user.role }}</div>
+        <a href="{{ url_for('notes.index') }}">Notes</a>
+        <a href="{{ url_for('appearance.picker') }}">Look</a>
+        {% if current_user.is_admin %}
+        <a href="{{ url_for('members.index') }}">Household</a>
+        <a href="{{ url_for('items.new_item') }}">Add item</a>
+        {% endif %}
+        <a href="{{ url_for('auth.logout') }}">Sign out</a>
+      </div>
     </div>
     {% endif %}
   </header>
@@ -35,15 +46,29 @@
     {% block content %}{% endblock %}
   </main>
   {% if current_user.is_authenticated %}
-  <nav class="nav">
-    <a href="{{ url_for('home.home') }}" class="{% if request.endpoint == 'home.home' %}active{% endif %}">Home</a>
-    <a href="{{ url_for('groceries.grocery_list') }}" class="{% if request.endpoint and 'grocer' in request.endpoint %}active{% endif %}">List</a>
-    <a class="scan-fab" href="{{ url_for('scan.scan_page') }}">SCAN</a>
-    <a href="{{ url_for('tools.index') }}" class="{% if request.endpoint and 'tool' in request.endpoint %}active{% endif %}">Tools</a>
-    <a href="{{ url_for('reminders.index') }}" class="{% if request.endpoint and 'reminder' in request.endpoint %}active{% endif %}">Due</a>
+  <nav class="nav" aria-label="Primary">
+    <a href="{{ url_for('home.home') }}" class="{% if request.endpoint == 'home.home' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"/></svg>
+      Home
+    </a>
+    <a href="{{ url_for('groceries.grocery_list') }}" class="{% if request.endpoint and 'grocer' in request.endpoint %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h14l-1.5 9h-13z"/><path d="M7 7 6 4H3"/><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/></svg>
+      Basket
+    </a>
+    <a class="scan-fab" href="{{ url_for('scan.scan_page') }}" aria-label="Scan">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8V5h3M20 8V5h-3M4 16v3h3M20 16v3h-3M7 12h10"/></svg>
+    </a>
+    <a href="{{ url_for('tools.index') }}" class="{% if request.endpoint and ('tool' in request.endpoint or 'vehicle' in request.endpoint) %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 0 0 5.4-5.4l-2.2 2.2-1.8-1.8z"/></svg>
+      Tools
+    </a>
+    <a href="{{ url_for('reminders.index') }}" class="{% if request.endpoint and 'reminder' in request.endpoint %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 1.5M9 3h6"/></svg>
+      Due
+    </a>
   </nav>
   {% endif %}
-  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=os6"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

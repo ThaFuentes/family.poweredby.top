@@ -47,7 +47,15 @@ def login():
             except Exception:
                 pass
             login_user(user)
-            return redirect(url_for("home.home"))
+            resp = redirect(url_for("home.home"))
+            try:
+                from app.utils.themes import normalize, stamp_theme_cookie
+
+                extra = user.extra_data if isinstance(user.extra_data, dict) else {}
+                stamp_theme_cookie(resp, normalize((extra or {}).get("theme")))
+            except Exception:
+                pass
+            return resp
         if user:
             user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
             if user.failed_login_attempts >= 5:

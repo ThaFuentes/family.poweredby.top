@@ -2,8 +2,9 @@
 # and never runs the block at the bottom. This file may still export
 # `application` if a WSGI server imports it — that does not pick a port.
 #
-# `python main.py` is laptop-only (start_local.sh). Default 5060 avoids
-# colliding with aegis/ax on :5000. Not a HostM listener.
+# `python main.py` is laptop-only (start_local.sh). Default 8060 avoids
+# colliding with aegis/ax on :5000 and Firefox/Chrome SIP block on :5060.
+# Not a HostM listener.
 
 import os
 import sys
@@ -35,6 +36,13 @@ if __name__ == "__main__":
             "(HostM chooses the socket). Laptop: DEBUG_MODE=true python main.py"
         )
     host = os.getenv("HOST", "127.0.0.1")
-    port = int(os.getenv("PORT", "5060"))
-    print(f"Laptop dev server {host}:{port} — not used on HostM")
-    app.run(host=host, port=port, debug=True, use_reloader=False)
+    port = int(os.getenv("PORT", "8060"))
+    cert = (os.getenv("TLS_CERT") or "").strip()
+    key = (os.getenv("TLS_KEY") or "").strip()
+    ssl_context = None
+    scheme = "http"
+    if cert and key and os.path.isfile(cert) and os.path.isfile(key):
+        ssl_context = (cert, key)
+        scheme = "https"
+    print(f"Laptop dev server {scheme}://{host}:{port} — not used on HostM")
+    app.run(host=host, port=port, debug=True, use_reloader=False, ssl_context=ssl_context)

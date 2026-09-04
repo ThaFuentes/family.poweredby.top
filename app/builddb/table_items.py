@@ -1,4 +1,5 @@
 from app.builddb.builddb import db, evolve_table
+from app.utils.crypto import EncryptedText
 
 ITEM_TYPES = ("grocery", "tool", "vehicle", "custom")
 
@@ -15,7 +16,7 @@ class Item(db.Model):
     category = db.Column(db.String(100), nullable=True)
     tags = db.Column(db.JSON, nullable=True)
     barcode = db.Column(db.String(80), nullable=True)
-    notes = db.Column(db.Text, nullable=True)
+    notes = db.Column(EncryptedText, nullable=True)
     created_by = db.Column(db.Integer, nullable=True)
     extra_data = db.Column(db.JSON, nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.current_timestamp())
@@ -52,3 +53,15 @@ def create_table():
             ("idx_items_household_barcode", "household_id, barcode"),
         ],
     )
+    from sqlalchemy import text
+
+    try:
+        with db.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX `idx_items_hh_barcode_uq` "
+                    "ON `items` (`household_id`, `barcode`)"
+                )
+            )
+    except Exception:
+        pass

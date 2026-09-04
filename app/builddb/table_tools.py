@@ -1,4 +1,5 @@
 from app.builddb.builddb import db, evolve_table
+from app.utils.crypto import EncryptedText
 
 
 class Tool(db.Model):
@@ -14,7 +15,7 @@ class Tool(db.Model):
     power_source = db.Column(db.String(40), nullable=True)
     oil_type = db.Column(db.String(80), nullable=True)
     fuel_type = db.Column(db.String(80), nullable=True)
-    usage_notes = db.Column(db.Text, nullable=True)
+    usage_notes = db.Column(EncryptedText, nullable=True)
     maintenance_interval_hours = db.Column(db.Integer, nullable=True)
     last_maintenance_at = db.Column(db.DateTime, nullable=True)
     hours_used = db.Column(db.Numeric(12, 2), nullable=True)

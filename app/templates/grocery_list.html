@@ -1,26 +1,54 @@
 {% extends "base.html" %}
-{% block title %}Shopping list · Family OS{% endblock %}
-{% block content %}
-<h1>Shopping list</h1>
-<p class="muted">Auto-filled when something hits its restock threshold. Scan at home after shopping to clear it.</p>
-<div class="card">
-  {% for row in rows %}
-    <div class="row">
-      <div>
-        <strong>{{ row.name }}</strong>
-        <div class="muted">{{ row.added_reason or 'manual' }}{% if row.quantity_needed %} · need {{ row.quantity_needed }}{% endif %}</div>
+{% block title %}Basket · Family OS{% endblock %}
+
+{% macro basket_row(row) %}
+  <div class="row">
+    <div>
+      <strong>{{ row.name }}</strong>
+      <div class="muted">
+        {% if row.added_reason == 'out' %}Had it — now out
+        {% elif row.added_reason == 'want' %}Want
+        {% elif row.added_reason in ('need_more', 'low', 'auto_threshold') %}Need more
+        {% elif row.added_reason == 'manual' %}Want
+        {% else %}{{ row.added_reason or 'Added' }}{% endif %}
+        {% if row.quantity_needed %} · get {{ qty_label(row.quantity_needed) }}{% endif %}
       </div>
-      <form method="post" action="{{ url_for('groceries.list_done', entry_id=row.id) }}">
-        <button class="btn secondary" type="submit">Got it</button>
-      </form>
     </div>
-  {% else %}
-    <p class="muted">List is empty. Nice.</p>
-  {% endfor %}
+    {% if can_check %}
+    <form method="post" action="{{ url_for('groceries.list_done', entry_id=row.id) }}">
+      <button class="btn sm secondary" type="submit">Got it</button>
+    </form>
+    {% endif %}
+  </div>
+{% endmacro %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Basket</h1>
+    <p>Need more of what we have. Want what we don’t — scan it in.</p>
+  </div>
 </div>
+{% if want_rows %}
+<h2>Want</h2>
+<div class="card list">
+  {% for row in want_rows %}{{ basket_row(row) }}{% endfor %}
+</div>
+{% endif %}
+{% if need_rows %}
+<h2>Need</h2>
+<div class="card list">
+  {% for row in need_rows %}{{ basket_row(row) }}{% endfor %}
+</div>
+{% endif %}
+{% if not rows %}
+<div class="card"><div class="empty"><strong>Basket is empty</strong>Scan something you want, or tap Needs more on what you have.</div></div>
+{% endif %}
+{% if can_add %}
 <form class="card" method="post" action="{{ url_for('groceries.list_add') }}">
-  <label>Add by hand</label>
-  <input name="name" placeholder="Milk" required>
-  <div class="btn-row"><button class="btn" type="submit">Add</button></div>
+  <label>Want something — no barcode</label>
+  <input name="name" placeholder="Lucky Charms" required>
+  <div class="btn-row"><button class="btn" type="submit">Add to want list</button></div>
 </form>
+{% endif %}
 {% endblock %}

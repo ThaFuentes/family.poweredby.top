@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Look · Family OS{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Look</h1>
+    <p>Pick a whole language, not a tint. Saved on this person.</p>
+  </div>
+</div>
+<div class="theme-grid" id="theme-grid">
+  {% for t in themes %}
+  <button type="button" class="theme-card {% if current==t.id %}on{% endif %}" data-theme-id="{{ t.id }}">
+    <div class="theme-phone" data-theme="{{ t.id }}">
+      <div class="ph-bar"></div>
+      <div class="ph-card">Milk · 2 on hand</div>
+      <div class="ph-btn"></div>
+    </div>
+    <strong>{{ t.label }}</strong>
+    <div class="blurb">{{ t.blurb }}</div>
+  </button>
+  {% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/theme.js') }}?v=os6"></script>
+{% endblock %}

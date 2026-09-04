@@ -27,7 +27,7 @@ chmod +x start_local.sh
 ./start_local.sh
 ```
 
-Open http://127.0.0.1:5060 — first visit registers a household admin.
+Open http://127.0.0.1:8060 — first visit registers a household admin.
 
 ## HostM
 

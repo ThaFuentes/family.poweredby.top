@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}New item · Family OS{% endblock %}
 {% block content %}
-<h1>Create item</h1>
-<form class="card" method="post" action="{{ url_for('items.create_item') }}">
+<div class="page-head"><div><h1>New item</h1><p>Type it in. Scan and QR are optional.</p></div></div>
+<form class="card" method="post" action="{{ url_for('items.create_item') }}" enctype="multipart/form-data">
   <label>Type</label>
   <select name="item_type" id="item-type">
     {% for t in types %}
@@ -10,9 +10,12 @@
     {% endfor %}
   </select>
   <label>Name</label>
-  <input name="name" value="{{ lookup.name or '' }}" required>
-  <label>Barcode / QR payload</label>
-  <input name="barcode" value="{{ barcode or lookup.barcode or '' }}">
+  <input name="name" id="name" value="{{ lookup.name or '' }}" required>
+  <label>Barcode (optional)</label>
+  <div class="btn-row">
+    <input name="barcode" id="barcode" value="{{ barcode or lookup.barcode or '' }}" placeholder="Skip if you're typing it in">
+    <button class="btn secondary" type="button" id="lookup-product">Look up product</button>
+  </div>
   <label>Category</label>
   <input name="category" value="{{ lookup.category or '' }}">
   <label>Tags (comma)</label>
@@ -23,8 +26,8 @@
   <div id="grocery-fields">
     <h2>Grocery</h2>
     <label>Quantity on hand</label>
-    <input name="quantity" value="1">
-    <label>Restock when at or below</label>
+    <input name="quantity" value="2">
+    <label>Need more when at or below</label>
     <input name="restock_threshold" value="1">
     <label>Brand</label>
     <input name="brand" value="{{ lookup.brand or '' }}">
@@ -34,6 +37,15 @@
     <input name="unit" value="each">
     <label>Location</label>
     <input name="default_location" placeholder="Fridge door">
+    <label>Ingredients</label>
+    <textarea name="ingredients" id="ingredients">{{ lookup.ingredients or '' }}</textarea>
+    <label>Allergens</label>
+    <input name="allergens" id="allergens" value="{{ lookup.allergens or '' }}">
+    <label>Serving size</label>
+    <input name="serving_size" id="serving_size" value="{{ lookup.serving_size or '' }}">
+    <label>Packaging</label>
+    <input name="packaging" id="packaging" value="{{ lookup.packaging or '' }}">
+    <input type="hidden" name="image_url" id="image_url" value="{{ lookup.image_url or '' }}">
   </div>
 
   <div id="tool-fields" hidden>
@@ -54,14 +66,38 @@
 
   <div id="vehicle-fields" hidden>
     <h2>Vehicle</h2>
-    <label>Make</label>
-    <input name="make">
-    <label>Model</label>
-    <input name="model">
-    <label>Year</label>
-    <input name="year">
+    <p class="muted">Paste the VIN for a full NHTSA decode. Plate is optional and stored on the car.</p>
+    <label>License plate</label>
+    <input name="plate" id="plate" autocapitalize="characters">
     <label>VIN</label>
-    <input name="vin">
+    <input name="vin" id="vin" autocapitalize="characters">
+    <div class="btn-row">
+      <button class="btn secondary" type="button" id="lookup-vehicle">Look up VIN</button>
+    </div>
+    <label>Make</label>
+    <input name="make" id="make">
+    <label>Model</label>
+    <input name="model" id="model">
+    <label>Year</label>
+    <input name="year" id="year">
+    <label>Trim</label>
+    <input name="trim" id="trim">
+    <label>Color</label>
+    <input name="color" id="color">
+    <label>Body</label>
+    <input name="body_class" id="body_class">
+    <label>Drive</label>
+    <input name="drive_type" id="drive_type">
+    <label>Fuel</label>
+    <input name="fuel_type" id="fuel_type">
+    <label>Engine</label>
+    <input name="engine" id="engine">
+    <label>Transmission</label>
+    <input name="transmission" id="transmission">
+    <label>Doors</label>
+    <input name="doors" id="doors">
+    <label>Manufacturer</label>
+    <input name="manufacturer" id="manufacturer">
     <label>Oil type</label>
     <input name="oil_type">
     <label>Filter</label>
@@ -76,6 +112,8 @@
     <input name="manual_url">
   </div>
 
+  <label>Photo (optional)</label>
+  <input type="file" name="photo" accept="image/*" capture="environment">
   <div class="btn-row">
     <button class="btn" type="submit">Save item</button>
     <a class="btn secondary" href="{{ url_for('home.home') }}">Cancel</a>
@@ -93,5 +131,59 @@ function syncType() {
 }
 document.getElementById('item-type').addEventListener('change', syncType);
 syncType();
+function csrfToken() {
+  const m = document.querySelector('meta[name="csrf-token"]');
+  return m ? m.getAttribute("content") : "";
+}
+function fill(id, val) {
+  const el = document.getElementById(id) || document.querySelector('[name="'+id+'"]');
+  if (el && val) el.value = val;
+}
+const lookupProd = document.getElementById('lookup-product');
+if (lookupProd) lookupProd.addEventListener('click', async function () {
+  const code = (document.getElementById('barcode') || {}).value || '';
+  if (!code) return;
+  lookupProd.disabled = true;
+  try {
+    const r = await fetch('/api/lookup/product?barcode=' + encodeURIComponent(code));
+    const d = await r.json();
+    fill('name', d.name);
+    fill('category', d.category);
+    fill('brand', d.brand);
+    fill('size', d.quantity || d.size);
+    fill('ingredients', d.ingredients);
+    fill('allergens', d.allergens);
+    fill('serving_size', d.serving_size);
+    fill('packaging', d.packaging);
+    fill('image_url', d.image_url);
+  } finally { lookupProd.disabled = false; }
+});
+const lookupVeh = document.getElementById('lookup-vehicle');
+if (lookupVeh) lookupVeh.addEventListener('click', async function () {
+  lookupVeh.disabled = true;
+  try {
+    const plate = (document.getElementById('plate') || {}).value || '';
+    const vin = (document.getElementById('vin') || {}).value || '';
+    const r = await fetch('/api/lookup/vehicle?plate=' + encodeURIComponent(plate) + '&vin=' + encodeURIComponent(vin));
+    const d = await r.json();
+    const f = d.facts || {};
+    fill('name', d.name);
+    fill('make', f.make);
+    fill('model', f.model);
+    fill('year', f.year);
+    fill('trim', f.trim);
+    fill('body_class', f.body_class);
+    fill('drive_type', f.drive_type);
+    fill('fuel_type', f.fuel_type);
+    fill('engine', f.engine);
+    fill('transmission', f.transmission);
+    fill('doors', f.doors);
+    fill('manufacturer', f.manufacturer);
+    fill('color', f.color);
+    if (d.vin) fill('vin', d.vin);
+    if (d.need_vin) alert(d.message || 'Add the VIN for factory specs.');
+    else if (d.error) alert(d.error);
+  } finally { lookupVeh.disabled = false; }
+});
 </script>
 {% endblock %}

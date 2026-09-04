@@ -12,9 +12,9 @@ from flask import (
     render_template,
     request,
     url_for,
-    send_from_directory,
 )
 from flask_login import login_required, current_user
+from sqlalchemy import or_
 from werkzeug.utils import secure_filename
 
 from app.builddb.builddb import db
@@ -26,14 +26,52 @@ from app.builddb.table_maintenance_records import MaintenanceRecord
 from app.builddb.table_reminders import Reminder
 from app.builddb.table_photo_notes import PhotoNote
 from app.builddb.table_scan_events import ScanEvent
+from app.builddb.table_notes import Note
+from app.builddb.table_users import User
 from app.utils.household import household_id, scoped
 from app.utils.permissions import can, require_perm
 from app.utils.qr_labels import ensure_item_barcode, qr_png_response, item_payload
-from app.utils.scan import apply_grocery_stock, _dec
+from app.utils.scan import apply_grocery_stock, flag_need_more, clamp_qty, _dec
+from app.utils.crypto import write_encrypted_file, sendable_image
 
 items_bp = Blueprint("items", __name__, url_prefix="/items")
 
 ALLOWED_PHOTO = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+
+
+def can_create_type(item_type: str) -> bool:
+    item_type = (item_type or "").strip().lower()
+    if can("edit_meta"):
+        return True
+    if item_type == "grocery" and can("edit_grocery"):
+        return True
+    if item_type in ("tool", "vehicle") and can("maintain"):
+        return True
+    return False
+
+
+def save_item_photo(item, upload, caption=None, user_id=None) -> bool:
+    if not upload or not getattr(upload, "filename", None):
+        return False
+    ext = os.path.splitext(upload.filename)[1].lower()
+    if ext not in ALLOWED_PHOTO:
+        return False
+    hid = item.household_id
+    folder = os.path.join(_uploads_root(), str(hid), str(item.id))
+    os.makedirs(folder, exist_ok=True)
+    name = secrets.token_hex(8) + ext + ".enc"
+    path = os.path.join(folder, name)
+    write_encrypted_file(path, upload.read())
+    db.session.add(
+        PhotoNote(
+            household_id=hid,
+            item_id=item.id,
+            caption=(caption or "").strip() or None,
+            image_path=f"{hid}/{item.id}/{name}",
+            created_by=user_id,
+        )
+    )
+    return True
 
 
 def _item_or_404(item_id):
@@ -49,15 +87,15 @@ def _uploads_root():
 @items_bp.route("/new")
 @login_required
 def new_item():
-    if not (can("edit_meta") or can("edit_grocery")):
+    if not (can("edit_meta") or can("edit_grocery") or can("maintain")):
         flash("Ask a household admin to add new items.", "warning")
         abort(403)
     barcode = (request.args.get("barcode") or "").strip()
     suggested = (request.args.get("type") or "grocery").strip().lower()
     if suggested not in ITEM_TYPES:
         suggested = "grocery"
-    if not can("edit_meta"):
-        suggested = "grocery"
+    if not can_create_type(suggested):
+        suggested = "grocery" if can("edit_grocery") else ("tool" if can("maintain") else "custom")
     lookup = {}
     if barcode and barcode.isdigit():
         try:
@@ -71,7 +109,8 @@ def new_item():
         barcode=barcode,
         suggested=suggested,
         lookup=lookup,
-        types=ITEM_TYPES,
+        types=[t for t in ITEM_TYPES if can_create_type(t)],
+        barcode_optional=True,
     )
 
 
@@ -82,14 +121,23 @@ def _attach_type_row(item, form):
         if g is None:
             g = GroceryItem(item_id=item.id, household_id=hid)
             db.session.add(g)
-        g.quantity = _dec(form.get("quantity") or 1, "1")
-        g.restock_threshold = _dec(form.get("restock_threshold") or 1, "1")
+        g.quantity = clamp_qty(form.get("quantity") or 2, "2")
+        g.restock_threshold = clamp_qty(form.get("restock_threshold") or 1, "1")
         g.brand = (form.get("brand") or "").strip() or None
         g.size = (form.get("size") or "").strip() or None
         g.unit = (form.get("unit") or "each").strip() or "each"
         g.default_location = (form.get("default_location") or "").strip() or None
+        g.ingredients = (form.get("ingredients") or "").strip() or None
+        g.allergens = (form.get("allergens") or "").strip() or None
+        g.serving_size = (form.get("serving_size") or "").strip() or None
+        g.packaging = (form.get("packaging") or "").strip() or None
+        g.image_url = (form.get("image_url") or "").strip() or None
         g.is_in_stock = g.quantity > 0
         g.needs_restock = g.quantity <= g.restock_threshold
+        if form.get("product_facts"):
+            extra = dict(g.extra_data or {})
+            extra["product"] = extra.get("product") or {}
+            g.extra_data = extra
     elif item.item_type == "tool":
         t = Tool.query.filter_by(item_id=item.id, household_id=hid).first()
         if t is None:
@@ -111,7 +159,17 @@ def _attach_type_row(item, form):
         v.model = (form.get("model") or "").strip() or None
         year = form.get("year") or ""
         v.year = int(year) if str(year).isdigit() else None
-        v.vin = (form.get("vin") or "").strip() or None
+        v.vin = (form.get("vin") or "").strip().upper() or None
+        v.plate = (form.get("plate") or "").strip().upper() or None
+        v.color = (form.get("color") or "").strip() or None
+        v.trim = (form.get("trim") or "").strip() or None
+        v.body_class = (form.get("body_class") or "").strip() or None
+        v.drive_type = (form.get("drive_type") or "").strip() or None
+        v.fuel_type = (form.get("fuel_type") or "").strip() or None
+        v.engine = (form.get("engine") or "").strip() or None
+        v.transmission = (form.get("transmission") or "").strip() or None
+        v.doors = (form.get("doors") or "").strip() or None
+        v.manufacturer = (form.get("manufacturer") or "").strip() or None
         v.oil_type = (form.get("oil_type") or "").strip() or None
         v.filter_type = (form.get("filter_type") or "").strip() or None
         v.tire_size = (form.get("tire_size") or "").strip() or None
@@ -121,22 +179,39 @@ def _attach_type_row(item, form):
         v.manual_url = (form.get("manual_url") or "").strip() or None
 
 
+def _enrich_from_lookups(item):
+    if item.item_type == "grocery" and item.grocery and item.barcode:
+        try:
+            from app.utils.barcode_lookup import lookup_product, apply_product_lookup
+
+            apply_product_lookup(item.grocery, item, lookup_product(item.barcode))
+        except Exception:
+            pass
+    if item.item_type == "vehicle" and item.vehicle:
+        try:
+            from app.utils.vehicle_lookup import lookup_vehicle, apply_vehicle_lookup
+
+            decoded = lookup_vehicle(plate=item.vehicle.plate or "", vin=item.vehicle.vin or "")
+            if decoded.get("ok"):
+                apply_vehicle_lookup(item.vehicle, item, decoded)
+        except Exception:
+            pass
+
+
 @items_bp.route("/create", methods=["POST"])
 @login_required
 def create_item():
-    if not (can("edit_meta") or can("edit_grocery")):
-        abort(403)
     hid = household_id()
     name = (request.form.get("name") or "").strip()
     item_type = (request.form.get("item_type") or "custom").strip().lower()
     barcode = (request.form.get("barcode") or "").strip() or None
     if not name:
         flash("Name is required.", "danger")
-        return redirect(url_for("items.new_item", barcode=barcode or ""))
-    if not can("edit_meta"):
-        item_type = "grocery"
+        return redirect(url_for("items.new_item", barcode=barcode or "", type=item_type))
     if item_type not in ITEM_TYPES:
         item_type = "custom"
+    if not can_create_type(item_type):
+        abort(403)
     if barcode:
         exists = Item.query.filter_by(household_id=hid, barcode=barcode).first()
         if exists:
@@ -159,6 +234,8 @@ def create_item():
     if not item.barcode:
         item.barcode = item_payload(hid, item.id)
     _attach_type_row(item, request.form)
+    _enrich_from_lookups(item)
+    save_item_photo(item, request.files.get("photo"), request.form.get("caption"), current_user.id)
     db.session.commit()
     flash(f"{item.name} saved.", "success")
     return redirect(url_for("items.detail", item_id=item.id))
@@ -191,6 +268,13 @@ def detail(item_id):
         .order_by(Reminder.due_at.asc())
         .all()
     )
+    item_notes = (
+        Note.query.filter_by(household_id=hid, item_id=item.id)
+        .filter(or_(Note.visibility == "household", Note.user_id == current_user.id))
+        .order_by(Note.updated_at.desc())
+        .all()
+    )
+    note_authors = {u.id: u for u in User.query.filter_by(household_id=hid).all()}
     return render_template(
         "item_detail.html",
         item=item,
@@ -199,10 +283,16 @@ def detail(item_id):
         history=history,
         photos=photos,
         reminders=reminders,
+        item_notes=item_notes,
+        note_authors=note_authors,
         can_edit=can("edit_meta"),
         can_grocery=can("edit_grocery"),
+        can_scan=can("scan"),
         can_maintain=can("maintain"),
         can_photo=can("photo"),
+        product_facts=((item.grocery.extra_data or {}).get("product") if item.grocery else {}) or {},
+        vehicle_facts=((item.vehicle.extra_data or {}).get("nhtsa") if item.vehicle else {}) or {},
+        vehicle_recalls=((item.vehicle.extra_data or {}).get("recalls") if item.vehicle else {}) or [],
     )
 
 
@@ -228,8 +318,22 @@ def edit_item(item_id):
     tags = (request.form.get("tags") or "").strip()
     item.tags = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
     _attach_type_row(item, request.form)
+    if (request.form.get("lookup_now") or "").strip():
+        _enrich_from_lookups(item)
     db.session.commit()
     flash("Saved.", "success")
+    return redirect(url_for("items.detail", item_id=item.id, tab="overview"))
+
+
+@items_bp.route("/<int:item_id>/lookup", methods=["POST"])
+@login_required
+def lookup_again(item_id):
+    if not (can("edit_meta") or can("edit_grocery") or can("scan")):
+        abort(403)
+    item = _item_or_404(item_id)
+    _enrich_from_lookups(item)
+    db.session.commit()
+    flash("Looked up full details.", "success")
     return redirect(url_for("items.detail", item_id=item.id, tab="overview"))
 
 
@@ -244,9 +348,13 @@ def qty(item_id):
         return redirect(url_for("items.detail", item_id=item_id))
     action = (request.form.get("action") or "consume").strip().lower()
     amount = request.form.get("amount") or 1
-    apply_grocery_stock(item.grocery, item, action, amount, current_user.id)
+    if action in ("need_more", "needs_more"):
+        stock = flag_need_more(item.grocery, item, current_user.id)
+    else:
+        stock = apply_grocery_stock(item.grocery, item, action, amount, current_user.id)
     db.session.commit()
-    flash(f"{item.name} updated.", "success")
+    cat = "success" if stock.get("status") == "ok" else "warning"
+    flash(stock.get("message") or f"{item.name} updated.", cat)
     return redirect(url_for("items.detail", item_id=item.id))
 
 
@@ -323,29 +431,9 @@ def maintenance(item_id):
 def add_photo(item_id):
     item = _item_or_404(item_id)
     f = request.files.get("photo")
-    if not f or not f.filename:
-        flash("Choose a photo.", "danger")
+    if not save_item_photo(item, f, request.form.get("caption"), current_user.id):
+        flash("Choose a jpg, png, webp, or gif.", "danger")
         return redirect(url_for("items.detail", item_id=item.id, tab="photos"))
-    ext = os.path.splitext(f.filename)[1].lower()
-    if ext not in ALLOWED_PHOTO:
-        flash("Photo must be jpg, png, webp, or gif.", "danger")
-        return redirect(url_for("items.detail", item_id=item.id, tab="photos"))
-    hid = household_id()
-    folder = os.path.join(_uploads_root(), str(hid), str(item.id))
-    os.makedirs(folder, exist_ok=True)
-    name = secrets.token_hex(8) + ext
-    path = os.path.join(folder, name)
-    f.save(path)
-    rel = f"{hid}/{item.id}/{name}"
-    db.session.add(
-        PhotoNote(
-            household_id=hid,
-            item_id=item.id,
-            caption=(request.form.get("caption") or "").strip() or None,
-            image_path=rel,
-            created_by=current_user.id,
-        )
-    )
     db.session.commit()
     flash("Photo saved.", "success")
     return redirect(url_for("items.detail", item_id=item.id, tab="photos"))
@@ -356,9 +444,18 @@ def add_photo(item_id):
 def serve_photo(photo_id):
     row = scoped(PhotoNote).filter_by(id=photo_id).first_or_404()
     folder = _uploads_root()
-    directory = os.path.dirname(os.path.join(folder, row.image_path))
-    filename = os.path.basename(row.image_path)
-    return send_from_directory(directory, filename)
+    path = os.path.join(folder, row.image_path)
+    if not os.path.isfile(path):
+        abort(404)
+    ext = os.path.splitext(row.image_path.replace(".enc", ""))[1].lower()
+    mime = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+    }.get(ext, "application/octet-stream")
+    return sendable_image(path, mime)
 
 
 @items_bp.route("/<int:item_id>/qr.png")

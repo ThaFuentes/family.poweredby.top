@@ -77,6 +77,12 @@ def create_app():
     init_tenant_system(app)
     login_manager.init_app(app)
 
+    from werkzeug.middleware.proxy_fix import ProxyFix
+
+    # Tailscale Serve (and HostM) terminate TLS and forward HTTP.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    app.config["PREFERRED_URL_SCHEME"] = os.getenv("PREFERRED_URL_SCHEME") or "https"
+
     @app.context_processor
     def _site_ctx():
         from flask_login import current_user
@@ -88,11 +94,18 @@ def create_app():
                 household_name = getattr(getattr(current_user, "household", None), "name", None)
         except Exception:
             household_name = None
+        from app.utils.scan import qty_label as _qty_label
+        from app.utils.themes import read_theme, THEMES
+
+        theme_id = read_theme()
         return {
             "SITE_MODE": "family",
             "SITE_NAME": "Family OS",
             "household_name": household_name,
             "can": _can,
+            "qty_label": _qty_label,
+            "current_theme": theme_id,
+            "theme_color": THEMES[theme_id]["color"],
         }
 
     from app.routes.auth import auth_bp
@@ -105,6 +118,8 @@ def create_app():
     from app.routes.items import items_bp
     from app.routes.members import members_bp
     from app.routes.api import api_bp
+    from app.routes.appearance import appearance_bp
+    from app.routes.notes import notes_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(home_bp)
@@ -116,6 +131,8 @@ def create_app():
     app.register_blueprint(items_bp)
     app.register_blueprint(members_bp)
     app.register_blueprint(api_bp)
+    app.register_blueprint(appearance_bp)
+    app.register_blueprint(notes_bp)
 
     try:
         from app.utils.favicon_inject import register_favicon

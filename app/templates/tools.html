@@ -1,23 +1,61 @@
 {% extends "base.html" %}
 {% block title %}Tools · Family OS{% endblock %}
 {% block content %}
-<h1>Tools</h1>
-<p class="muted">Scan a QR on the tool for oil type, notes, and maintenance.
-  {% if current_user.is_admin %} <a href="{{ url_for('items.new_item', type='tool') }}">Add a tool</a>{% endif %}
-</p>
-<div class="card">
+<div class="page-head">
+  <div>
+    <h1>Tools</h1>
+    <p>Type it in. Camera stays off unless you open it.</p>
+  </div>
+  <a class="btn sm secondary" href="{{ url_for('vehicles.index') }}">Vehicles</a>
+</div>
+{% if can_add %}
+<form class="card" method="post" action="{{ url_for('tools.add') }}" enctype="multipart/form-data">
+  <h2>Add a tool</h2>
+  <label>Name</label>
+  <input name="name" placeholder="Honda mower, DeWalt drill, chainsaw" required>
+  <label>QR / barcode (optional)</label>
+  <input name="barcode" placeholder="Paste a code if you have one">
+  <label>Kind</label>
+  <input name="tool_type" placeholder="mower, drill, chainsaw, ladder">
+  <label>Power</label>
+  <input name="power_source" placeholder="gas, electric, battery, none">
+  <label>Oil</label>
+  <input name="oil_type" placeholder="10W-30, bar oil">
+  <label>Fuel</label>
+  <input name="fuel_type" placeholder="87, mix 50:1, none">
+  <label>How to use / the weird bolt</label>
+  <textarea name="usage_notes" placeholder="Prime 3x. This bolt is reverse-threaded."></textarea>
+  <label>Service every (hours)</label>
+  <input name="maintenance_interval_hours" inputmode="numeric">
+  <label>Photo (optional)</label>
+  <input type="file" name="photo" accept="image/*" capture="environment">
+  <label>Photo caption</label>
+  <input name="caption" placeholder="Serial plate, the choke, where it lives">
+  <div class="btn-row"><button class="btn" type="submit">Save tool</button></div>
+</form>
+{% endif %}
+<div class="and-or">optional</div>
+{% set compact = true %}
+{% set scan_kind = "tool" %}
+{% set scan_title = "Scan a tool QR" %}
+{% set scan_hint = "Only if the tool already has a code. Camera does not start until you tap Open camera." %}
+{% set scan_autostart = false %}
+{% set can_create = can_add %}
+{% include "partials/scan_strip.html" %}
+<div class="card list">
   {% for item in items %}
-    <a class="row" href="{{ url_for('items.detail', item_id=item.id) }}" style="color:inherit;text-decoration:none">
+    <a class="row" href="{{ url_for('items.detail', item_id=item.id) }}">
       <div>
         <strong>{{ item.name }}</strong>
         <div class="muted">{{ item.tool.type or item.category or 'tool' }}
           {% if item.tool and item.tool.oil_type %} · oil {{ item.tool.oil_type }}{% endif %}
+          {% if item.tool and item.tool.fuel_type %} · {{ item.tool.fuel_type }}{% endif %}
         </div>
       </div>
-      <span class="badge">QR</span>
+      <span class="badge">{{ item.tool.power_source or 'tool' }}</span>
     </a>
   {% else %}
-    <p class="muted">No tools yet. Add one, print the QR, stick it on the mower.</p>
+    <div class="empty"><strong>No tools yet</strong>Name it above. Scan a QR only if you want to.</div>
   {% endfor %}
 </div>
 {% endblock %}

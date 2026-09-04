@@ -1,22 +1,27 @@
 {% extends "base.html" %}
 {% block title %}Reminders · Family OS{% endblock %}
 {% block content %}
-<h1>Reminders</h1>
-<div class="card">
+<div class="page-head">
+  <div>
+    <h1>Due</h1>
+    <p>Oil changes, blades, filters.</p>
+  </div>
+</div>
+<div class="card list">
   {% for row in rows %}
     <div class="row">
       <div>
         <strong>{{ row.title }}</strong>
-        <div class="muted">{{ row.type }}{% if row.due_at %} · due {{ row.due_at }}{% endif %} · {{ row.status }}</div>
+        <div class="muted">{{ row.type }}{% if row.due_at %} · {{ row.due_at }}{% endif %} · {{ row.status }}</div>
       </div>
       {% if row.status == 'open' %}
       <form method="post" action="{{ url_for('reminders.done', rid=row.id) }}">
-        <button class="btn secondary" type="submit">Done</button>
+        <button class="btn sm secondary" type="submit">Done</button>
       </form>
       {% endif %}
     </div>
   {% else %}
-    <p class="muted">Nothing due.</p>
+    <div class="empty"><strong>Nothing due</strong></div>
   {% endfor %}
 </div>
 <form class="card" method="post" action="{{ url_for('reminders.add') }}">

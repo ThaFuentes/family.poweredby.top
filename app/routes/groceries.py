@@ -6,9 +6,26 @@ from app.builddb.builddb import db
 from app.builddb.table_items import Item
 from app.builddb.table_grocery_list import GroceryListEntry
 from app.utils.household import household_id, scoped
-from app.utils.permissions import require_perm
+from app.utils.permissions import require_perm, can
+from app.utils.scan import stock_status, STATUS_OUT, STATUS_LOW, STATUS_WANT
 
 groceries_bp = Blueprint("groceries", __name__, url_prefix="/groceries")
+
+
+def _pantry_groups(items):
+    want, out, low, ok = [], [], [], []
+    for item in items:
+        g = item.grocery
+        status = stock_status(g) if g is not None else STATUS_WANT
+        if status == STATUS_WANT:
+            want.append(item)
+        elif status == STATUS_OUT:
+            out.append(item)
+        elif status == STATUS_LOW:
+            low.append(item)
+        else:
+            ok.append(item)
+    return want, out, low, ok
 
 
 @groceries_bp.route("/")
@@ -20,7 +37,15 @@ def index():
         .order_by(Item.name.asc())
         .all()
     )
-    return render_template("groceries.html", items=q)
+    want_items, out_items, low_items, ok_items = _pantry_groups(q)
+    return render_template(
+        "groceries.html",
+        items=q,
+        want_items=want_items,
+        out_items=out_items,
+        low_items=low_items,
+        ok_items=ok_items,
+    )
 
 
 @groceries_bp.route("/list")
@@ -32,13 +57,24 @@ def grocery_list():
         .order_by(GroceryListEntry.created_at.desc())
         .all()
     )
-    return render_template("grocery_list.html", rows=rows)
+    want_rows = [r for r in rows if (r.added_reason or "") == "want"]
+    need_rows = [r for r in rows if (r.added_reason or "") != "want"]
+    return render_template(
+        "grocery_list.html",
+        rows=rows,
+        want_rows=want_rows,
+        need_rows=need_rows,
+        can_add=can("scan") or can("edit_grocery"),
+        can_check=can("scan") or can("edit_grocery"),
+    )
 
 
 @groceries_bp.route("/list/add", methods=["POST"])
 @login_required
-@require_perm("edit_grocery")
 def list_add():
+    if not (can("scan") or can("edit_grocery")):
+        flash("You cannot add to the basket.", "warning")
+        return redirect(url_for("groceries.grocery_list"))
     name = (request.form.get("name") or "").strip()
     if not name:
         flash("Name required.", "danger")
@@ -48,7 +84,7 @@ def list_add():
             household_id=household_id(),
             name=name,
             status="open",
-            added_reason="manual",
+            added_reason="want",
             created_by=current_user.id,
         )
     )
@@ -58,8 +94,10 @@ def list_add():
 
 @groceries_bp.route("/list/<int:entry_id>/done", methods=["POST"])
 @login_required
-@require_perm("edit_grocery")
 def list_done(entry_id):
+    if not (can("scan") or can("edit_grocery")):
+        flash("Ask a grown-up to check that off.", "warning")
+        return redirect(url_for("groceries.grocery_list"))
     row = scoped(GroceryListEntry).filter_by(id=entry_id).first_or_404()
     row.status = "done"
     row.completed_at = datetime.utcnow()

@@ -1,13 +1,28 @@
 {% extends "base.html" %}
-{% block title %}Members · Family OS{% endblock %}
+{% block title %}Household · Family OS{% endblock %}
 {% block content %}
-<h1>{{ household.name }}</h1>
+<div class="page-head">
+  <div>
+    <h1>{{ household.name }}</h1>
+    <p>People, invites, and this phone as an app.</p>
+  </div>
+</div>
+
+<div class="card install-card" data-family-pwa-settings>
+  <strong data-family-pwa-title>Install Family OS</strong>
+  <span class="hint" data-family-pwa-hint>Add this household to your home screen. Opens like an app — no browser chrome.</span>
+  <div data-family-pwa-extra></div>
+  <div class="btn-row">
+    <button type="button" class="btn" data-family-pwa-go hidden>Install</button>
+  </div>
+</div>
+
 <form class="card" method="post" action="{{ url_for('members.rename_household') }}">
   <label>Household name</label>
   <input name="name" value="{{ household.name }}">
   <div class="btn-row"><button class="btn" type="submit">Rename</button></div>
 </form>
-<div class="card">
+<div class="card list">
   <h2>People</h2>
   {% for m in members %}
     <div class="row">

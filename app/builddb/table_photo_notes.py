@@ -1,4 +1,5 @@
 from app.builddb.builddb import db, evolve_table
+from app.utils.crypto import EncryptedText
 
 
 class PhotoNote(db.Model):
@@ -9,7 +10,7 @@ class PhotoNote(db.Model):
         db.Integer, db.ForeignKey("households.id", ondelete="CASCADE"), nullable=False
     )
     item_id = db.Column(db.Integer, db.ForeignKey("items.id", ondelete="CASCADE"), nullable=False)
-    caption = db.Column(db.String(255), nullable=True)
+    caption = db.Column(EncryptedText, nullable=True)
     image_path = db.Column(db.String(400), nullable=False)
     created_by = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.current_timestamp())
@@ -18,12 +19,14 @@ class PhotoNote(db.Model):
 
 
 def create_table():
+    from sqlalchemy import text
+
     evolve_table(
         "photo_notes",
         [
             ("household_id", "INT NOT NULL"),
             ("item_id", "INT NOT NULL"),
-            ("caption", "VARCHAR(255) NULL"),
+            ("caption", "TEXT NULL"),
             ("image_path", "VARCHAR(400) NOT NULL"),
             ("created_by", "INT NULL"),
         ],
@@ -32,3 +35,8 @@ def create_table():
             ("idx_photos_item_id", "item_id"),
         ],
     )
+    try:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE `photo_notes` MODIFY `caption` TEXT NULL"))
+    except Exception:
+        pass

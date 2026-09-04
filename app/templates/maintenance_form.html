@@ -1,8 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Log maintenance · {{ item.name }}{% endblock %}
 {% block content %}
-<h1>Log maintenance</h1>
-<p class="muted">{{ item.name }}</p>
+<div class="page-head"><div><h1>Log maintenance</h1><p>{{ item.name }}</p></div></div>
 <form class="card" method="post">
   <label>Type</label>
   <input name="type" value="{% if item.item_type=='vehicle' %}oil_change{% else %}service{% endif %}" required>
