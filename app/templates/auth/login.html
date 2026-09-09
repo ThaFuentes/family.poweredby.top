@@ -13,7 +13,7 @@
       <div class="auth-hero">
         <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
         <h1>Family OS</h1>
-        <p class="muted">Your household, in your pocket.</p>
+        <p class="muted">Sign in to your household.</p>
       </div>
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
@@ -24,7 +24,7 @@
       {% endwith %}
       <div class="seg">
         <a class="on" href="{{ url_for('auth.login') }}">Sign in</a>
-        <a href="{{ url_for('auth.register') }}">New household</a>
+        <a href="{{ url_for('auth.register') }}">Join</a>
       </div>
       <div class="card">
         <form method="post">
@@ -37,7 +37,8 @@
           </div>
         </form>
       </div>
-      <p class="muted" style="text-align:center">Joining family? use an invite on register.</p>
+      <p class="muted" style="text-align:center"><a href="{{ url_for('auth.forgot') }}">Forgot password</a></p>
+      <p class="muted" style="text-align:center"><a href="{{ url_for('home.home') }}">What is this?</a> · New here? you need a <strong>Service key</strong> (get on the site) or a <strong>Family key</strong> (enter a household).</p>
     </div>
   </div>
 </body>

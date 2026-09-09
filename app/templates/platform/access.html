@@ -1,0 +1,80 @@
+{% extends "platform/base.html" %}
+{% block title %}Access · Platform{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Friends and family only</h1>
+    <p>Two keys. Service key = get onto Family OS. Family key = enter a household (households mint those themselves).</p>
+  </div>
+</div>
+
+<div class="card key-card vital">
+  <span class="key-tag srv">Service key · SRV-</span>
+  <h2>Mint a Service key</h2>
+  <p class="muted">Lets someone sign up and start their own household. Does not place them in an existing family.</p>
+  <form method="post">
+    <input type="hidden" name="kind" value="service">
+    <label>Note</label>
+    <input name="label" placeholder="for the Garcias">
+    <label>Uses</label>
+    <input name="max_uses" value="3">
+    <label>Days</label>
+    <input name="days" value="30">
+    <div class="btn-row"><button class="btn" type="submit">Make Service key</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Open Service keys</h2>
+  {% for k in service_keys %}
+    <div class="row">
+      <div>
+        <strong>{{ k.code }}</strong>
+        <div class="muted">
+          {% if k.revoked_at %}revoked{% elif k.expires_at %}expires {{ k.expires_at }}{% endif %}
+          · {{ k.use_count }}/{{ k.max_uses }}
+          {% if k.label %} · {{ k.label }}{% endif %}
+          {% if k.household_id %} · household {{ k.household_id }}{% endif %}
+        </div>
+      </div>
+      {% if not k.revoked_at %}
+      <form method="post">
+        <input type="hidden" name="kind" value="revoke">
+        <input type="hidden" name="id" value="{{ k.id }}">
+        <button class="btn sm secondary" type="submit">Revoke</button>
+      </form>
+      {% endif %}
+    </div>
+  {% else %}
+    <p class="muted">None yet.</p>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <h2>Trusted emails</h2>
+  <p class="muted">Can sign up anytime without a Service key. Still need a Family key to enter a household.</p>
+  <form method="post">
+    <input type="hidden" name="kind" value="trusted">
+    <label>Email</label>
+    <input type="email" name="email" required>
+    <label>Note</label>
+    <input name="note" placeholder="standing invite">
+    <div class="btn-row"><button class="btn" type="submit">Trust email</button></div>
+  </form>
+  {% for t in trusted %}
+    <div class="row">
+      <div>
+        <strong>{{ t.email }}</strong>
+        {% if t.note %}<div class="muted">{{ t.note }}</div>{% endif %}
+      </div>
+      <form method="post">
+        <input type="hidden" name="kind" value="untrust">
+        <input type="hidden" name="id" value="{{ t.id }}">
+        <button class="btn sm secondary" type="submit">Remove</button>
+      </form>
+    </div>
+  {% else %}
+    <p class="muted">Empty.</p>
+  {% endfor %}
+</div>
+{% endblock %}

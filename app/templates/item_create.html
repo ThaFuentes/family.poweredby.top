@@ -1,8 +1,11 @@
 {% extends "base.html" %}
 {% block title %}New item · Family OS{% endblock %}
 {% block content %}
-<div class="page-head"><div><h1>New item</h1><p>Type it in. Scan and QR are optional.</p></div></div>
+<div class="page-head"><div><h1>New item</h1><p>Name it, save it. Extra fields stay folded.</p></div></div>
 <form class="card" method="post" action="{{ url_for('items.create_item') }}" enctype="multipart/form-data">
+  {% if lookup.kind_label and lookup.kind and lookup.kind != 'unknown' %}
+  <p><span class="badge">{{ lookup.kind_label }}</span> {{ lookup.message or '' }}</p>
+  {% endif %}
   <label>Type</label>
   <select name="item_type" id="item-type">
     {% for t in types %}
@@ -16,35 +19,44 @@
     <input name="barcode" id="barcode" value="{{ barcode or lookup.barcode or '' }}" placeholder="Skip if you're typing it in">
     <button class="btn secondary" type="button" id="lookup-product">Look up product</button>
   </div>
-  <label>Category</label>
-  <input name="category" value="{{ lookup.category or '' }}">
-  <label>Tags (comma)</label>
-  <input name="tags">
-  <label>Notes</label>
-  <textarea name="notes"></textarea>
+  <label>For which vehicle / tool (optional)</label>
+  <select name="linked_item_id" id="linked_item_id">
+    <option value="">— none —</option>
+    {% for v in vehicles or [] %}
+      <option value="{{ v.id }}">{{ v.name }}</option>
+    {% endfor %}
+    {% for t in tools or [] %}
+      <option value="{{ t.id }}">{{ t.name }}</option>
+    {% endfor %}
+  </select>
 
   <div id="grocery-fields">
-    <h2>Grocery</h2>
+    <h2>On hand</h2>
     <label>Quantity on hand</label>
     <input name="quantity" value="2">
     <label>Need more when at or below</label>
     <input name="restock_threshold" value="1">
+    <label>Where it lives</label>
+    <input name="default_location" placeholder="{{ lookup.location_hint or 'Fridge door, garage shelf' }}" value="{{ lookup.location_hint or '' }}">
     <label>Brand</label>
     <input name="brand" value="{{ lookup.brand or '' }}">
-    <label>Size</label>
-    <input name="size" value="{{ lookup.size or '' }}">
-    <label>Unit</label>
-    <input name="unit" value="each">
-    <label>Location</label>
-    <input name="default_location" placeholder="Fridge door">
-    <label>Ingredients</label>
-    <textarea name="ingredients" id="ingredients">{{ lookup.ingredients or '' }}</textarea>
-    <label>Allergens</label>
-    <input name="allergens" id="allergens" value="{{ lookup.allergens or '' }}">
-    <label>Serving size</label>
-    <input name="serving_size" id="serving_size" value="{{ lookup.serving_size or '' }}">
-    <label>Packaging</label>
-    <input name="packaging" id="packaging" value="{{ lookup.packaging or '' }}">
+    <details class="more">
+      <summary>More (size, ingredients, allergens)</summary>
+      <label>Size</label>
+      <input name="size" value="{{ lookup.size or '' }}">
+      <label>Unit</label>
+      <input name="unit" value="each">
+      <label>Category</label>
+      <input name="category" value="{{ lookup.category or '' }}">
+      <label>Ingredients</label>
+      <textarea name="ingredients" id="ingredients">{{ lookup.ingredients or '' }}</textarea>
+      <label>Allergens</label>
+      <input name="allergens" id="allergens" value="{{ lookup.allergens or '' }}">
+      <label>Serving size</label>
+      <input name="serving_size" id="serving_size" value="{{ lookup.serving_size or '' }}">
+      <label>Packaging</label>
+      <input name="packaging" id="packaging" value="{{ lookup.packaging or '' }}">
+    </details>
     <input type="hidden" name="image_url" id="image_url" value="{{ lookup.image_url or '' }}">
   </div>
 
@@ -80,40 +92,45 @@
     <input name="model" id="model">
     <label>Year</label>
     <input name="year" id="year">
-    <label>Trim</label>
-    <input name="trim" id="trim">
     <label>Color</label>
     <input name="color" id="color">
-    <label>Body</label>
-    <input name="body_class" id="body_class">
-    <label>Drive</label>
-    <input name="drive_type" id="drive_type">
-    <label>Fuel</label>
-    <input name="fuel_type" id="fuel_type">
-    <label>Engine</label>
-    <input name="engine" id="engine">
-    <label>Transmission</label>
-    <input name="transmission" id="transmission">
-    <label>Doors</label>
-    <input name="doors" id="doors">
-    <label>Manufacturer</label>
-    <input name="manufacturer" id="manufacturer">
-    <label>Oil type</label>
-    <input name="oil_type">
-    <label>Filter</label>
-    <input name="filter_type">
-    <label>Tire size</label>
-    <input name="tire_size">
-    <label>Battery</label>
-    <input name="battery_type">
-    <label>Current mileage</label>
-    <input name="current_mileage">
-    <label>Manual URL</label>
-    <input name="manual_url">
+    <details class="more">
+      <summary>Trim, engine, fluids, tires, battery</summary>
+      <label>Trim</label>
+      <input name="trim" id="trim">
+      <label>Body</label>
+      <input name="body_class" id="body_class">
+      <label>Drive</label>
+      <input name="drive_type" id="drive_type">
+      <label>Fuel</label>
+      <input name="fuel_type" id="fuel_type">
+      <label>Engine</label>
+      <input name="engine" id="engine">
+      <label>Transmission</label>
+      <input name="transmission" id="transmission">
+      <label>Doors</label>
+      <input name="doors" id="doors">
+      <label>Manufacturer</label>
+      <input name="manufacturer" id="manufacturer">
+      <label>Oil type</label>
+      <input name="oil_type">
+      <label>Filter</label>
+      <input name="filter_type">
+      <label>Tire size</label>
+      <input name="tire_size">
+      <label>Battery</label>
+      <input name="battery_type">
+      <label>Current mileage</label>
+      <input name="current_mileage">
+      <label>Manual URL</label>
+      <input name="manual_url">
+    </details>
   </div>
 
   <label>Photo (optional)</label>
   <input type="file" name="photo" accept="image/*" capture="environment">
+  <label>Photo caption</label>
+  <input name="caption" placeholder="Connectors, serial plate, the actual thing, wrong UPC box">
   <div class="btn-row">
     <button class="btn" type="submit">Save item</button>
     <a class="btn secondary" href="{{ url_for('home.home') }}">Cancel</a>
@@ -156,6 +173,11 @@ if (lookupProd) lookupProd.addEventListener('click', async function () {
     fill('serving_size', d.serving_size);
     fill('packaging', d.packaging);
     fill('image_url', d.image_url);
+    fill('default_location', d.location_hint);
+    if (d.suggested_type) {
+      const t = document.getElementById('item-type');
+      if (t) { t.value = d.suggested_type; syncType(); }
+    }
   } finally { lookupProd.disabled = false; }
 });
 const lookupVeh = document.getElementById('lookup-vehicle');

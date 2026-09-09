@@ -4,12 +4,12 @@
  * Caches only /static/* (CSS, JS, images).
  * Never caches HTML, JSON, or mutating requests.
  */
-const CACHE_NAME = 'family-static-v1';
+const CACHE_NAME = 'family-static-v2';
 const PRECACHE = [
   '/static/images/pwa-192.png',
   '/static/images/pwa-512.png',
-  '/static/css/family.css?v=os2',
-  '/static/js/pwa-install.js?v=family-os1',
+  '/static/css/family.css?v=os10',
+  '/static/js/pwa-install.js?v=family-os2',
 ];
 
 function isStaticAsset(url) {

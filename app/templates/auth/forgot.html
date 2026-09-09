@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Reset password · Family OS</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
+  {% include "partials/theme_head.html" %}
+</head>
+<body class="auth">
+  <div class="auth-page">
+    <div class="wrap">
+      <div class="auth-hero">
+        <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
+        <h1>Reset password</h1>
+        <p class="muted">For your household account only. We never reach another family.</p>
+      </div>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+      <div class="card">
+        <form method="post">
+          <label>Username or email</label>
+          <input name="username" autocomplete="username" required>
+          <div class="btn-row">
+            <button class="btn block" type="submit">Send reset link</button>
+          </div>
+        </form>
+      </div>
+      <p class="muted" style="text-align:center"><a href="{{ url_for('auth.login') }}">Back to sign in</a></p>
+    </div>
+  </div>
+</body>
+</html>

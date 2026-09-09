@@ -20,12 +20,14 @@ _HEAD_SNIPPET = """
   <meta name="apple-mobile-web-app-title" content="{title}">
   <link rel="manifest" href="{manifest}">
   <link rel="apple-touch-icon" href="{icon}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{icon}">
+  <meta name="format-detection" content="telephone=no">
   <script src="{script}" defer></script>
 """
 
 _CHOICES = frozenset({"dismissed", "installed", "no", "yes", "never"})
 _SURFACES = frozenset({"phone", "desktop"})
-_SCRIPT_VER = "family-os1"
+_SCRIPT_VER = "family-os2"
 
 
 def _brand() -> dict:
@@ -34,7 +36,7 @@ def _brand() -> dict:
         "short": "Family",
         "title": "Family OS",
         "desc": "Household operating system — scan, stock, maintain.",
-        "guest_start": "/auth/login",
+        "guest_start": "/",
         "authed_start": "/",
     }
 
@@ -217,6 +219,7 @@ def register_pwa(app) -> None:
             "display": "standalone",
             "display_override": ["standalone", "minimal-ui", "window-controls-overlay"],
             "orientation": "any",
+            "dir": "ltr",
             "background_color": "#f3f1ec",
             "theme_color": "#1f6a45",
             "lang": "en",

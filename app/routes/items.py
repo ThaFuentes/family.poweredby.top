@@ -2,6 +2,7 @@ import os
 import secrets
 from datetime import datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 from flask import (
     Blueprint,
@@ -15,7 +16,6 @@ from flask import (
 )
 from flask_login import login_required, current_user
 from sqlalchemy import or_
-from werkzeug.utils import secure_filename
 
 from app.builddb.builddb import db
 from app.builddb.table_items import Item, ITEM_TYPES
@@ -50,28 +50,53 @@ def can_create_type(item_type: str) -> bool:
     return False
 
 
-def save_item_photo(item, upload, caption=None, user_id=None) -> bool:
+def save_item_photo(item, upload, caption=None, user_id=None, part_id=None):
+    """Save an encrypted household photo. Returns PhotoNote or None."""
     if not upload or not getattr(upload, "filename", None):
-        return False
+        return None
     ext = os.path.splitext(upload.filename)[1].lower()
     if ext not in ALLOWED_PHOTO:
-        return False
+        return None
     hid = item.household_id
     folder = os.path.join(_uploads_root(), str(hid), str(item.id))
     os.makedirs(folder, exist_ok=True)
     name = secrets.token_hex(8) + ext + ".enc"
     path = os.path.join(folder, name)
-    write_encrypted_file(path, upload.read())
-    db.session.add(
-        PhotoNote(
-            household_id=hid,
-            item_id=item.id,
-            caption=(caption or "").strip() or None,
-            image_path=f"{hid}/{item.id}/{name}",
-            created_by=user_id,
-        )
+    data = upload.read()
+    if not data:
+        return None
+    if len(data) > 20 * 1024 * 1024:
+        return None
+    write_encrypted_file(path, data)
+    row = PhotoNote(
+        household_id=hid,
+        item_id=item.id,
+        part_id=int(part_id) if part_id else None,
+        caption=(caption or "").strip() or None,
+        image_path=f"{hid}/{item.id}/{name}",
+        created_by=user_id,
     )
-    return True
+    db.session.add(row)
+    db.session.flush()
+    return row
+
+
+def resolve_photo_file(row) -> Path:
+    """Only files under uploads/<household_id>/… . No path traversal."""
+    root = Path(_uploads_root()).resolve()
+    rel = Path(str(row.image_path or ""))
+    if rel.is_absolute() or ".." in rel.parts or not rel.parts:
+        abort(404)
+    if rel.parts[0] != str(row.household_id):
+        abort(404)
+    path = (root / rel).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError:
+        abort(404)
+    if not path.is_file():
+        abort(404)
+    return path
 
 
 def _item_or_404(item_id):
@@ -97,13 +122,25 @@ def new_item():
     if not can_create_type(suggested):
         suggested = "grocery" if can("edit_grocery") else ("tool" if can("maintain") else "custom")
     lookup = {}
-    if barcode and barcode.isdigit():
+    if barcode and barcode.replace("-", "").isalnum() and len(barcode) >= 8:
         try:
             from app.utils.barcode_lookup import lookup_upc
+            from app.utils.classify import classify
+            from app.builddb.table_households import Household
 
             lookup = lookup_upc(barcode)
+            guess = classify(lookup, household=Household.query.get(household_id()), extra=barcode)
+            if guess.get("item_type") in ITEM_TYPES and can_create_type(guess["item_type"]):
+                suggested = guess["item_type"]
+            lookup["kind"] = guess.get("kind")
+            lookup["kind_label"] = guess.get("kind_label")
+            lookup["message"] = guess.get("message")
+            lookup["location_hint"] = guess.get("location_hint")
         except Exception:
-            lookup = {}
+            lookup = lookup or {}
+    from app.utils.classify import household_anchors
+
+    anchors = household_anchors(household_id())
     return render_template(
         "item_create.html",
         barcode=barcode,
@@ -111,6 +148,8 @@ def new_item():
         lookup=lookup,
         types=[t for t in ITEM_TYPES if can_create_type(t)],
         barcode_optional=True,
+        vehicles=anchors["vehicles"],
+        tools=anchors["tools"],
     )
 
 
@@ -179,6 +218,109 @@ def _attach_type_row(item, form):
         v.manual_url = (form.get("manual_url") or "").strip() or None
 
 
+def quick_create_item(
+    *,
+    hid: int,
+    user_id: int,
+    name: str,
+    item_type: str = "grocery",
+    barcode: str | None = None,
+    linked_item_id=None,
+    kind: str | None = None,
+    kind_label: str | None = None,
+    location: str | None = None,
+    quantity=None,
+    action: str = "check",
+    photo=None,
+    caption: str | None = None,
+):
+    """One-tap save from scan. Grocery/tool/vehicle with sane defaults."""
+    from app.utils.qr_labels import item_payload
+    from app.utils.barcode_lookup import lookup_product, apply_product_lookup
+    from app.utils.scan import apply_grocery_stock, flag_need_more, clamp_qty
+
+    name = (name or "").strip()
+    if not name:
+        return None, "name required"
+    item_type = (item_type or "grocery").strip().lower()
+    if item_type not in ITEM_TYPES:
+        item_type = "grocery"
+    barcode = (barcode or "").strip() or None
+    if barcode:
+        exists = Item.query.filter_by(household_id=hid, barcode=barcode).first()
+        if exists:
+            return exists, "exists"
+    item = Item(
+        household_id=hid,
+        name=name[:200],
+        item_type=item_type,
+        barcode=barcode,
+        created_by=user_id,
+    )
+    if linked_item_id:
+        try:
+            lid = int(linked_item_id)
+        except (TypeError, ValueError):
+            lid = None
+        if lid:
+            linked = Item.query.filter_by(household_id=hid, id=lid).first()
+            if linked:
+                item.linked_item_id = linked.id
+    db.session.add(item)
+    db.session.flush()
+    if not item.barcode:
+        item.barcode = item_payload(hid, item.id)
+    if item_type == "grocery":
+        g = GroceryItem(
+            item_id=item.id,
+            household_id=hid,
+            quantity=0,
+            restock_threshold=1,
+            is_in_stock=False,
+            needs_restock=True,
+            default_location=(location or "").strip() or None,
+        )
+        db.session.add(g)
+        db.session.flush()
+        if barcode:
+            try:
+                apply_product_lookup(g, item, lookup_product(barcode))
+            except Exception:
+                pass
+        extra = dict(g.extra_data or {})
+        if kind:
+            extra["kind"] = str(kind)[:40]
+            extra["kind_label"] = str(kind_label or kind)[:80]
+            g.extra_data = extra
+        if action == "restock":
+            apply_grocery_stock(g, item, "restock", quantity or 1, user_id)
+        elif action in ("want", "need_more"):
+            flag_need_more(g, item, user_id)
+    elif item_type == "tool":
+        db.session.add(Tool(item_id=item.id, household_id=hid, type=(kind_label or kind or "").strip() or None))
+    elif item_type == "vehicle":
+        db.session.add(Vehicle(item_id=item.id, household_id=hid))
+    if photo is not None:
+        save_item_photo(item, photo, caption, user_id)
+    if item.linked_item_id and kind:
+        try:
+            from app.utils.vehicle_systems import attach_scanned_part
+
+            attach_scanned_part(
+                hid=hid,
+                user_id=user_id,
+                vehicle_item_id=item.linked_item_id,
+                catalog_item=item,
+                kind=kind,
+                name=item.name,
+                brand=(item.grocery.brand if item.grocery else None),
+            )
+        except Exception:
+            pass
+    db.session.commit()
+    return item, "ok"
+
+
 def _enrich_from_lookups(item):
     if item.item_type == "grocery" and item.grocery and item.barcode:
         try:
@@ -229,14 +371,54 @@ def create_item():
     tags = (request.form.get("tags") or "").strip()
     if tags:
         item.tags = [t.strip() for t in tags.split(",") if t.strip()]
+    linked_raw = (request.form.get("linked_item_id") or "").strip()
+    if linked_raw.isdigit():
+        linked = scoped(Item).filter_by(id=int(linked_raw)).first()
+        if linked:
+            item.linked_item_id = linked.id
     db.session.add(item)
     db.session.flush()
     if not item.barcode:
         item.barcode = item_payload(hid, item.id)
     _attach_type_row(item, request.form)
     _enrich_from_lookups(item)
-    save_item_photo(item, request.files.get("photo"), request.form.get("caption"), current_user.id)
+    save_item_photo(
+        item, request.files.get("photo"), request.form.get("caption"), current_user.id
+    )
     db.session.commit()
+    flash(f"{item.name} saved.", "success")
+    return redirect(url_for("items.detail", item_id=item.id))
+
+
+@items_bp.route("/quick", methods=["POST"])
+@login_required
+def quick_item():
+    if not (can("edit_grocery") or can("edit_meta") or can("maintain")):
+        abort(403)
+    item_type = (request.form.get("item_type") or "grocery").strip().lower()
+    if not can_create_type(item_type):
+        abort(403)
+    item, status = quick_create_item(
+        hid=household_id(),
+        user_id=current_user.id,
+        name=request.form.get("name") or "",
+        item_type=item_type,
+        barcode=request.form.get("barcode"),
+        linked_item_id=request.form.get("linked_item_id"),
+        kind=request.form.get("kind"),
+        kind_label=request.form.get("kind_label"),
+        location=request.form.get("location") or request.form.get("default_location"),
+        quantity=request.form.get("quantity"),
+        action=(request.form.get("action") or "check").strip().lower(),
+        photo=request.files.get("photo"),
+        caption=request.form.get("caption"),
+    )
+    if item is None:
+        flash("Name is required.", "danger")
+        return redirect(url_for("scan.scan_page"))
+    if status == "exists":
+        flash("That barcode is already in this household.", "warning")
+        return redirect(url_for("items.detail", item_id=item.id))
     flash(f"{item.name} saved.", "success")
     return redirect(url_for("items.detail", item_id=item.id))
 
@@ -245,7 +427,9 @@ def create_item():
 @login_required
 def detail(item_id):
     item = _item_or_404(item_id)
-    tab = (request.args.get("tab") or "overview").strip()
+    tab = (request.args.get("tab") or "").strip()
+    if not tab:
+        tab = "systems" if item.item_type == "vehicle" else "overview"
     hid = household_id()
     maint = (
         MaintenanceRecord.query.filter_by(household_id=hid, parent_id=item.id)
@@ -275,6 +459,44 @@ def detail(item_id):
         .all()
     )
     note_authors = {u.id: u for u in User.query.filter_by(household_id=hid).all()}
+    linked = None
+    if item.linked_item_id:
+        linked = scoped(Item).filter_by(id=item.linked_item_id).first()
+    parts = (
+        Item.query.filter_by(household_id=hid, linked_item_id=item.id)
+        .order_by(Item.name.asc())
+        .all()
+    )
+    kind_label = None
+    if item.grocery and isinstance(item.grocery.extra_data, dict):
+        kind_label = item.grocery.extra_data.get("kind_label")
+    from app.utils.classify import household_anchors
+
+    anchors = household_anchors(hid)
+    systems = []
+    systems_catalog = []
+    part_photos = {}
+    if item.item_type == "vehicle":
+        from app.builddb.table_vehicle_parts import VehiclePart
+        from app.utils.vehicle_systems import (
+            group_parts,
+            seed_from_vehicle_fields,
+            systems_payload,
+        )
+
+        seeded = seed_from_vehicle_fields(item)
+        if seeded:
+            db.session.commit()
+        vparts = (
+            VehiclePart.query.filter_by(household_id=hid, vehicle_item_id=item.id)
+            .order_by(VehiclePart.system.asc(), VehiclePart.slot.asc(), VehiclePart.created_at.desc())
+            .all()
+        )
+        systems = group_parts(vparts)
+        systems_catalog = systems_payload()
+        for ph in photos:
+            if ph.part_id:
+                part_photos.setdefault(ph.part_id, []).append(ph)
     return render_template(
         "item_detail.html",
         item=item,
@@ -293,6 +515,14 @@ def detail(item_id):
         product_facts=((item.grocery.extra_data or {}).get("product") if item.grocery else {}) or {},
         vehicle_facts=((item.vehicle.extra_data or {}).get("nhtsa") if item.vehicle else {}) or {},
         vehicle_recalls=((item.vehicle.extra_data or {}).get("recalls") if item.vehicle else {}) or [],
+        linked=linked,
+        parts=parts,
+        kind_label=kind_label,
+        vehicles=anchors["vehicles"],
+        tools=anchors["tools"],
+        systems=systems,
+        systems_catalog=systems_catalog,
+        part_photos=part_photos,
     )
 
 
@@ -317,6 +547,12 @@ def edit_item(item_id):
         item.barcode = barcode
     tags = (request.form.get("tags") or "").strip()
     item.tags = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
+    linked_raw = (request.form.get("linked_item_id") or "").strip()
+    if linked_raw.isdigit():
+        linked = scoped(Item).filter_by(id=int(linked_raw)).first()
+        item.linked_item_id = linked.id if linked else None
+    elif linked_raw in ("", "0"):
+        item.linked_item_id = None
     _attach_type_row(item, request.form)
     if (request.form.get("lookup_now") or "").strip():
         _enrich_from_lookups(item)
@@ -372,6 +608,7 @@ def maintenance(item_id):
     except ValueError:
         date = datetime.utcnow().date()
     miles = request.form.get("mileage_or_hours") or None
+    new_reminders = []
     rec = MaintenanceRecord(
         household_id=household_id(),
         parent_type=item.item_type,
@@ -383,24 +620,41 @@ def maintenance(item_id):
         created_by=current_user.id,
     )
     db.session.add(rec)
+    db.session.flush()
+    photo_ids = []
+    files = request.files.getlist("photo") or []
+    if not files:
+        one = request.files.get("photo")
+        files = [one] if one else []
+    for upload in files:
+        row = save_item_photo(
+            item,
+            upload,
+            request.form.get("caption") or mtype,
+            current_user.id,
+        )
+        if row:
+            photo_ids.append(row.id)
+    if photo_ids:
+        rec.photos = photo_ids
     if item.tool:
         item.tool.last_maintenance_at = datetime.utcnow()
         if miles:
             item.tool.hours_used = _dec(miles, "0")
         interval = item.tool.maintenance_interval_hours
         if interval:
-            db.session.add(
-                Reminder(
-                    household_id=household_id(),
-                    linked_item_id=item.id,
-                    type=mtype,
-                    title=f"Next {mtype} — {item.name}",
-                    due_at=datetime.utcnow() + timedelta(days=max(int(interval), 1)),
-                    recurrence=None,
-                    status="open",
-                    created_by=current_user.id,
-                )
+            rem = Reminder(
+                household_id=household_id(),
+                linked_item_id=item.id,
+                type=mtype,
+                title=f"Next {mtype} — {item.name}",
+                due_at=datetime.utcnow() + timedelta(days=max(int(interval), 1)),
+                recurrence=None,
+                status="open",
+                created_by=current_user.id,
             )
+            db.session.add(rem)
+            new_reminders.append(rem)
     if item.vehicle:
         if miles:
             item.vehicle.current_mileage = int(_dec(miles, "0"))
@@ -408,19 +662,23 @@ def maintenance(item_id):
             item.vehicle.last_oil_change_date = date
             if miles:
                 item.vehicle.last_oil_change_mileage = int(_dec(miles, "0"))
-            db.session.add(
-                Reminder(
-                    household_id=household_id(),
-                    linked_item_id=item.id,
-                    type="oil_change",
-                    title=f"Next oil change — {item.name}",
-                    due_at=datetime.utcnow() + timedelta(days=180),
-                    recurrence="180d",
-                    status="open",
-                    created_by=current_user.id,
-                )
+            rem = Reminder(
+                household_id=household_id(),
+                linked_item_id=item.id,
+                type="oil_change",
+                title=f"Next oil change — {item.name}",
+                due_at=datetime.utcnow() + timedelta(days=180),
+                recurrence="180d",
+                status="open",
+                created_by=current_user.id,
             )
+            db.session.add(rem)
+            new_reminders.append(rem)
     db.session.commit()
+    from app.utils.notify import announce_reminder
+
+    for rem in new_reminders:
+        announce_reminder(rem)
     flash("Maintenance logged.", "success")
     return redirect(url_for("items.detail", item_id=item.id, tab="maintenance"))
 
@@ -431,23 +689,24 @@ def maintenance(item_id):
 def add_photo(item_id):
     item = _item_or_404(item_id)
     f = request.files.get("photo")
-    if not save_item_photo(item, f, request.form.get("caption"), current_user.id):
+    row = save_item_photo(item, f, request.form.get("caption"), current_user.id)
+    if not row:
         flash("Choose a jpg, png, webp, or gif.", "danger")
         return redirect(url_for("items.detail", item_id=item.id, tab="photos"))
     db.session.commit()
     flash("Photo saved.", "success")
-    return redirect(url_for("items.detail", item_id=item.id, tab="photos"))
+    nxt = (request.form.get("next") or "photos").strip() or "photos"
+    if nxt not in ("overview", "photos", "notes", "maintenance", "history"):
+        nxt = "photos"
+    return redirect(url_for("items.detail", item_id=item.id, tab=nxt))
 
 
 @items_bp.route("/photo/<int:photo_id>")
 @login_required
 def serve_photo(photo_id):
     row = scoped(PhotoNote).filter_by(id=photo_id).first_or_404()
-    folder = _uploads_root()
-    path = os.path.join(folder, row.image_path)
-    if not os.path.isfile(path):
-        abort(404)
-    ext = os.path.splitext(row.image_path.replace(".enc", ""))[1].lower()
+    path = resolve_photo_file(row)
+    ext = os.path.splitext(str(path.name).replace(".enc", ""))[1].lower()
     mime = {
         ".jpg": "image/jpeg",
         ".jpeg": "image/jpeg",

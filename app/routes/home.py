@@ -15,7 +15,14 @@ home_bp = Blueprint("home", __name__)
 @home_bp.route("/")
 def home():
     if not current_user.is_authenticated:
-        return redirect(url_for("auth.login"))
+        return render_template("landing.html")
+    try:
+        from app.utils.notify import flush_due_emails
+        from app.utils.household import household_id as _hid
+
+        flush_due_emails(_hid())
+    except Exception:
+        pass
     grocery_open = scoped(GroceryListEntry).filter_by(status="open").count()
     reminders_open = scoped(Reminder).filter_by(status="open").count()
     notes_open = scoped(Note).filter(

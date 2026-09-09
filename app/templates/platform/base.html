@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}Platform · Family OS{% endblock %}</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
+  {% include "partials/theme_head.html" %}
+</head>
+<body class="platform">
+  <header class="topbar wrap plat">
+    <a class="brand" href="{{ url_for('platform.home') }}">
+      <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
+      <span class="brand-meta">
+        <strong>Family OS</strong>
+        <small>Owner console</small>
+      </span>
+    </a>
+    <div class="who">
+      <span class="muted" style="font-size:.8rem;font-weight:700">{{ owner.name or owner.username }}</span>
+      <a class="btn sm secondary" href="{{ url_for('platform.logout') }}">Sign out</a>
+    </div>
+  </header>
+  <main class="wrap plat">
+    <nav class="plat-nav" aria-label="Platform">
+      <a href="{{ url_for('platform.home') }}" class="{% if request.endpoint == 'platform.home' %}on{% endif %}">Home</a>
+      <a href="{{ url_for('platform.households') }}" class="{% if request.endpoint == 'platform.households' %}on{% endif %}">Households</a>
+      <a href="{{ url_for('platform.access') }}" class="{% if request.endpoint == 'platform.access' %}on{% endif %}">Access</a>
+      <a href="{{ url_for('platform.email_settings') }}" class="{% if request.endpoint == 'platform.email_settings' %}on{% endif %}">Email</a>
+      <a href="{{ url_for('platform.ai_settings') }}" class="{% if request.endpoint == 'platform.ai_settings' %}on{% endif %}">AI</a>
+      <a href="{{ url_for('platform.audit_log') }}" class="{% if request.endpoint == 'platform.audit_log' %}on{% endif %}">Audit</a>
+    </nav>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

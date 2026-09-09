@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Family OS</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
+  {% include "partials/theme_head.html" %}
+</head>
+<body class="auth landing-body">
+  <div class="landing">
+    <header class="landing-top">
+      <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
+      <div>
+        <strong>Family OS</strong>
+        <small>Your household, in your pocket</small>
+      </div>
+    </header>
+
+    <section class="landing-hero">
+      <h1>Scan it. Know it. Keep the house running.</h1>
+      <p>Groceries, tools, cars, photos of the weird connector. One private household — not the internet.</p>
+    </section>
+
+    <div class="landing-cta">
+      <a class="btn block" href="{{ url_for('auth.login') }}">Sign in</a>
+      <a class="btn block secondary" href="{{ url_for('auth.register') }}">Join or start a household</a>
+    </div>
+
+    <section class="landing-keys" aria-label="Two different keys">
+      <h2>Two keys. They do different jobs.</h2>
+      <article class="key-card">
+        <span class="key-tag fam">1 · Family key</span>
+        <h3>Enter a household</h3>
+        <p>Someone already in <em>your</em> family makes this. It puts you in that household. Starts with <strong>FAM-</strong>.</p>
+        <form method="get" action="{{ url_for('auth.register') }}">
+          <label for="family-key">Family key</label>
+          <div class="btn-row">
+            <input id="family-key" name="family" placeholder="FAM-…" autocapitalize="characters" autocomplete="off">
+            <button class="btn" type="submit">Join them</button>
+          </div>
+        </form>
+      </article>
+      <article class="key-card vital">
+        <span class="key-tag srv">2 · Service key · vital</span>
+        <h3>Get onto Family OS</h3>
+        <p>Friends and family only. A Service key (or a trusted email) is how you get in the door at all. Stops random people from signing up. Starts with <strong>SRV-</strong>. It does <em>not</em> put you in someone else’s household — that’s the Family key.</p>
+        <form method="get" action="{{ url_for('auth.register') }}">
+          <label for="service-key">Service key</label>
+          <div class="btn-row">
+            <input id="service-key" name="service" placeholder="SRV-…" autocapitalize="characters" autocomplete="off">
+            <button class="btn" type="submit">Start a household</button>
+          </div>
+        </form>
+      </article>
+    </section>
+
+    <p class="landing-foot muted">Already trusted by email? Use Join and type that email — no Service key needed. Still need a Family key to enter a household.</p>
+
+    <div class="card install-card landing-install" data-family-pwa-settings>
+      <strong data-family-pwa-title>Add to your phone</strong>
+      <span class="hint" data-family-pwa-hint>Opens like an app. Built for a phone in your hand — desktop works too.</span>
+      <div data-family-pwa-extra></div>
+      <div class="btn-row">
+        <button type="button" class="btn" data-family-pwa-go hidden>Install</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

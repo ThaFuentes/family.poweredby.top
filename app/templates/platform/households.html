@@ -1,0 +1,49 @@
+{% extends "platform/base.html" %}
+{% block title %}Households · Platform{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Households</h1>
+    <p>Read-only. Leader name and email — the household picks its own leaders. No pantry, notes, or other people.</p>
+  </div>
+</div>
+{% for h in cards %}
+<div class="card">
+  <div class="row" style="border:0;padding-top:0">
+    <div>
+      <strong>{{ h.name }}</strong>
+      <div class="muted">{{ h.people }} people · started {{ h.created_at }}</div>
+    </div>
+    {% if h.is_active %}
+      <span class="badge">Active</span>
+    {% else %}
+      <span class="badge out">Paused</span>
+    {% endif %}
+  </div>
+  <h2>Leaders</h2>
+  {% for lead in h.leaders %}
+    <div class="row">
+      <div>
+        <strong>{{ lead.name or 'Unnamed' }}</strong>
+        <div class="muted">{{ lead.email or 'no email yet' }}</div>
+      </div>
+    </div>
+  {% else %}
+    <p class="muted">No leader set yet. They choose leaders inside their household.</p>
+  {% endfor %}
+  <div class="btn-row">
+    {% if h.is_active %}
+    <form method="post" action="{{ url_for('platform.suspend_household', hid=h.id) }}">
+      <button class="btn sm secondary" type="submit">Pause household</button>
+    </form>
+    {% else %}
+    <form method="post" action="{{ url_for('platform.resume_household', hid=h.id) }}">
+      <button class="btn sm" type="submit">Resume</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% else %}
+<div class="card empty"><strong>No households yet</strong><span>The first family to register will show up here.</span></div>
+{% endfor %}
+{% endblock %}

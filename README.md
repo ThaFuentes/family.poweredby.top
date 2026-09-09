@@ -27,7 +27,9 @@ chmod +x start_local.sh
 ./start_local.sh
 ```
 
-Open http://127.0.0.1:8060 — first visit registers a household admin.
+Open http://127.0.0.1:8060 — first visit registers a household admin (they become the leader).
+
+Owner / platform console: http://127.0.0.1:8060/platform/ — first visit creates the platform owner (set `PLATFORM_BOOTSTRAP_TOKEN` on HostM). Not a household login. SMTP From identity (what families see) and SpaceXAI. Leader name/email is read-only; households pick their own leaders and reset their own passwords.
 
 ## HostM
 

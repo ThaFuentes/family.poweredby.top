@@ -4,7 +4,7 @@
 <div class="page-head">
   <div>
     <h1>{{ household.name }}</h1>
-    <p>People, invites, and this phone as an app.</p>
+    <p>People, leaders, invites. Password reset stays in this household.</p>
   </div>
 </div>
 
@@ -17,46 +17,221 @@
   </div>
 </div>
 
+{% if can('settings') %}
 <form class="card" method="post" action="{{ url_for('members.rename_household') }}">
   <label>Household name</label>
   <input name="name" value="{{ household.name }}">
   <div class="btn-row"><button class="btn" type="submit">Rename</button></div>
 </form>
+{% endif %}
 <div class="card list">
   <h2>People</h2>
   {% for m in members %}
     <div class="row">
       <div>
         <strong>{{ m.name }}</strong>
+        {% if m.is_leader %}<span class="badge">Leader</span>{% endif %}
         <div class="muted">{{ m.username }} · {{ m.role }}</div>
+        {% if can('members') %}
+        <form method="post" action="{{ url_for('members.set_email', user_id=m.id) }}" class="btn-row" style="margin:.35rem 0 0">
+          <input type="email" name="email" value="{{ m.email or '' }}" placeholder="email for leader contact" style="width:auto;min-width:12rem;flex:1">
+          <button class="btn sm secondary" type="submit">Save email</button>
+        </form>
+        {% elif m.email %}
+        <div class="muted">{{ m.email }}</div>
+        {% endif %}
       </div>
-      {% if m.id != current_user.id %}
-      <form method="post" action="{{ url_for('members.set_role', user_id=m.id) }}">
-        <select name="role" onchange="this.form.submit()">
-          {% for r in roles %}
-            <option value="{{ r }}" {% if m.role==r %}selected{% endif %}>{{ r }}</option>
-          {% endfor %}
-        </select>
-      </form>
-      {% endif %}
+      <div class="btn-row" style="margin:0;flex-shrink:0">
+        {% if can('members') and m.id != current_user.id %}
+        <form method="post" action="{{ url_for('members.set_role', user_id=m.id) }}">
+          <select name="role" onchange="this.form.submit()">
+            {% for r in roles %}
+              <option value="{{ r }}" {% if m.role==r %}selected{% endif %}>{{ r }}</option>
+            {% endfor %}
+          </select>
+        </form>
+        {% endif %}
+        {% if is_leader and m.role != 'child' %}
+        <form method="post" action="{{ url_for('members.set_leader_flag', user_id=m.id) }}">
+          <input type="hidden" name="leader" value="{{ '0' if m.is_leader else '1' }}">
+          <button class="btn sm secondary" type="submit">{% if m.is_leader %}Remove leader{% else %}Make leader{% endif %}</button>
+        </form>
+        {% endif %}
+        {% if is_leader and m.email %}
+        <form method="post" action="{{ url_for('members.send_member_reset', user_id=m.id) }}">
+          <button class="btn sm secondary" type="submit">Send password reset</button>
+        </form>
+        {% endif %}
+      </div>
     </div>
   {% endfor %}
 </div>
-<div class="card">
-  <h2>Invites</h2>
+{% if current_user.is_admin or is_leader %}
+<form class="card" method="post" action="{{ url_for('members.save_ai') }}" id="ai-form">
+  <h2>Your AI key</h2>
+  <p class="muted">Optional. Paste a free Gemini key, Grok, OpenAI, Claude, Groq, OpenRouter, or any OpenAI-compatible endpoint. Family OS is not an AI app — the key only helps name what you scanned (car battery vs AA, which vehicle, wrong UPC). The key stays on this household, encrypted.</p>
+  <label>Provider</label>
+  <select name="ai_provider" id="ai-provider">
+    {% for p in ai.providers %}
+      <option value="{{ p.id }}" {% if ai.provider==p.id %}selected{% endif %}>{{ p.label }}</option>
+    {% endfor %}
+  </select>
+  <p class="muted" id="ai-hint">{{ ai.hint }}</p>
+  <label>Model</label>
+  <input name="ai_model" id="ai-model" list="ai-models" value="{{ ai.model or '' }}" placeholder="Any model this key can use">
+  <datalist id="ai-models">
+    {% for m in ai.models %}<option value="{{ m }}">{% endfor %}
+  </datalist>
+  <label>API key</label>
+  <input type="password" name="ai_api_key" autocomplete="off" placeholder="{% if ai.has_key %}unchanged · {{ ai.key_hint }}{% else %}paste a key{% endif %}">
+  <label id="ai-base-label" {% if ai.provider != 'custom' %}hidden{% endif %}>Base URL</label>
+  <input name="ai_base_url" id="ai-base-url" value="{{ ai.base_url if ai.provider=='custom' else '' }}" placeholder="http://127.0.0.1:11434/v1" {% if ai.provider != 'custom' %}hidden{% endif %}>
+  <p class="muted">{% if ai.ready %}Active: {{ ai.label }} · {{ ai.model }} · {{ ai.key_hint }}{% else %}No key on this household yet. Scanning still works without one.{% endif %}</p>
+  <div class="btn-row">
+    <button class="btn" type="submit">Save key</button>
+    {% if ai.has_key %}
+    <button class="btn secondary" type="submit" name="ai_clear_key" value="1">Remove key</button>
+    {% endif %}
+  </div>
+</form>
+{% if ai.has_key %}
+<form class="card" method="post" action="{{ url_for('members.test_ai') }}">
+  <div class="btn-row" style="margin-top:0"><button class="btn secondary" type="submit">Test this key</button></div>
+</form>
+{% endif %}
+<script>
+(function () {
+  const providers = {{ ai.providers|tojson }};
+  const sel = document.getElementById('ai-provider');
+  const hint = document.getElementById('ai-hint');
+  const list = document.getElementById('ai-models');
+  const model = document.getElementById('ai-model');
+  const base = document.getElementById('ai-base-url');
+  const baseLabel = document.getElementById('ai-base-label');
+  if (!sel) return;
+  function sync() {
+    const p = providers.find(function (x) { return x.id === sel.value; }) || providers[0];
+    if (hint) hint.textContent = p.hint || '';
+    if (list) {
+      list.innerHTML = '';
+      (p.models || []).forEach(function (m) {
+        const o = document.createElement('option');
+        o.value = m;
+        list.appendChild(o);
+      });
+    }
+    if (model && !(model.value || '').trim() && p.models && p.models[0]) model.value = p.models[0];
+    const showBase = !!p.needs_base;
+    if (base) base.hidden = !showBase;
+    if (baseLabel) baseLabel.hidden = !showBase;
+  }
+  sel.addEventListener('change', function () {
+    const p = providers.find(function (x) { return x.id === sel.value; });
+    if (p && p.models && p.models[0]) model.value = p.models[0];
+    sync();
+  });
+  sync();
+})();
+</script>
+{% endif %}
+{% if is_leader %}
+<form class="card" method="post" action="{{ url_for('members.set_reminders_via') }}">
+  <h2>Maintenance reminders</h2>
+  <p class="muted">How this household gets oil changes, blades, filters. Calendar is a subscribe link on Due. Email uses the Family OS From address.</p>
+  <label>Send by</label>
+  <select name="reminders_via">
+    <option value="email" {% if reminders_via=='email' %}selected{% endif %}>Email</option>
+    <option value="calendar" {% if reminders_via=='calendar' %}selected{% endif %}>Calendar</option>
+    <option value="both" {% if reminders_via=='both' %}selected{% endif %}>Email and calendar</option>
+  </select>
+  <div class="btn-row"><button class="btn" type="submit">Save</button></div>
+</form>
+{% endif %}
+<div class="card key-card">
+  <span class="key-tag fam">1 · Family key · FAM-</span>
+  <h2>Enter this household</h2>
+  <p class="muted">Gives someone a seat in <strong>{{ household.name }}</strong>. They become a person here. This is not a Service key — it will not let them start their own household on Family OS.</p>
   <p class="muted">Child = scan only. Member = groceries + maintenance. Admin = full.</p>
+  {% if can('members') %}
   <form method="post" action="{{ url_for('members.invite') }}" class="btn-row">
     <select name="role">
       <option value="member">member</option>
       <option value="child">child</option>
       <option value="admin">admin</option>
     </select>
-    <button class="btn" type="submit">Make invite</button>
+    <button class="btn" type="submit">Make a Family key</button>
   </form>
+  {% endif %}
   {% for inv in invites %}
     <div class="row">
       <div><strong>{{ inv.code }}</strong> <span class="muted">· {{ inv.role }} · expires {{ inv.expires_at }}</span></div>
     </div>
+  {% else %}
+    <p class="muted">No open Family keys.</p>
   {% endfor %}
 </div>
+
+{% if can_mint_service %}
+<div class="card key-card vital">
+  <span class="key-tag srv">2 · Service key · SRV- · vital</span>
+  <h2>Get a friend onto Family OS</h2>
+  <p class="muted">Share this with someone you trust so they can <em>use the site</em>. Friends and family only — this is how we keep bad actors out. It does <strong>not</strong> put them in this household. If they should live here too, also send a Family key.</p>
+  <form method="post" action="{{ url_for('members.mint_service_key') }}">
+    <label>Note (optional)</label>
+    <input name="label" placeholder="Cousin Mike">
+    <label>How many people can use it</label>
+    <input name="max_uses" value="1" inputmode="numeric">
+    <label>Expires in days</label>
+    <input name="days" value="14" inputmode="numeric">
+    <div class="btn-row"><button class="btn" type="submit">Make a Service key</button></div>
+  </form>
+  {% for k in service_keys %}
+    <div class="row">
+      <div>
+        <strong>{{ k.code }}</strong>
+        <div class="muted">
+          {% if k.revoked_at %}revoked
+          {% elif k.expires_at %}expires {{ k.expires_at }}{% endif %}
+          · {{ k.use_count }}/{{ k.max_uses }} used
+          {% if k.label %} · {{ k.label }}{% endif %}
+        </div>
+      </div>
+      {% if not k.revoked_at %}
+      <form method="post" action="{{ url_for('members.revoke_service_key', kid=k.id) }}">
+        <button class="btn sm secondary" type="submit">Revoke</button>
+      </form>
+      {% endif %}
+    </div>
+  {% else %}
+    <p class="muted">No Service keys from this household yet.</p>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if current_user.is_admin or is_leader %}
+<div class="card">
+  <h2>Trusted emails</h2>
+  <p class="muted">These people can join Family OS anytime without a Service key. They still need a Family key to enter <strong>this</strong> household.</p>
+  <form method="post" action="{{ url_for('members.add_trusted') }}">
+    <label>Email</label>
+    <input type="email" name="email" required placeholder="cousin@example.com">
+    <label>Note (optional)</label>
+    <input name="note" placeholder="Mike, standing invite">
+    <div class="btn-row"><button class="btn" type="submit">Trust this email</button></div>
+  </form>
+  {% for t in trusted %}
+    <div class="row">
+      <div>
+        <strong>{{ t.email }}</strong>
+        {% if t.note %}<div class="muted">{{ t.note }}</div>{% endif %}
+      </div>
+      <form method="post" action="{{ url_for('members.remove_trusted', tid=t.id) }}">
+        <button class="btn sm secondary" type="submit">Remove</button>
+      </form>
+    </div>
+  {% else %}
+    <p class="muted">Nobody extra on the list.</p>
+  {% endfor %}
+</div>
+{% endif %}
 {% endblock %}

@@ -9,7 +9,7 @@
   <a class="btn sm secondary" href="{{ url_for('tools.index') }}">Tools</a>
 </div>
 {% if can_add %}
-<form class="card" method="post" action="{{ url_for('vehicles.add_from_lookup') }}">
+<form class="card" method="post" action="{{ url_for('vehicles.add_from_lookup') }}" enctype="multipart/form-data">
   <h2>Add by hand</h2>
   <p class="muted">Any of these is enough. VIN (dash / registration) fills factory specs. Plate and name are stored either way.</p>
   <label>Name</label>
@@ -24,6 +24,10 @@
     <input name="make" placeholder="Make">
     <input name="model" placeholder="Model">
   </div>
+  <label>Photo (optional)</label>
+  <input type="file" name="photo" accept="image/*" capture="environment">
+  <label>Photo caption</label>
+  <input name="caption" placeholder="The actual truck, VIN plate, odd connector">
   <div class="btn-row"><button class="btn" type="submit">Save vehicle</button></div>
 </form>
 {% endif %}

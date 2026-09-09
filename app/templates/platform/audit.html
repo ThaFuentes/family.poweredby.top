@@ -1,0 +1,26 @@
+{% extends "platform/base.html" %}
+{% block title %}Audit · Platform{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Audit</h1>
+    <p>Owner actions only. Household grocery scans and notes are not recorded here.</p>
+  </div>
+</div>
+<div class="card list">
+  {% for row in rows %}
+    <div class="row">
+      <div>
+        <strong>{{ row.action }}</strong>
+        <div class="muted">
+          {% if row.household_id %}household {{ row.household_id }} · {% endif %}
+          {{ row.created_at }}
+          {% if row.detail_json %} · {{ row.detail_json }}{% endif %}
+        </div>
+      </div>
+    </div>
+  {% else %}
+    <div class="empty"><strong>Empty</strong></div>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -1,7 +1,13 @@
-"""Product lookup: Open Food Facts, then UPCItemDB trial. Best-effort; never blocks scan."""
+"""Product lookup across food, non-food, and general UPC catalogs.
+
+Open Food Facts first is wrong for batteries and parts. We hit several
+catalogs and pick the hit that matches the thing in your hand.
+"""
 from __future__ import annotations
 
 import requests
+
+from app.utils.classify import classify_product, classify_text
 
 _UA = {"User-Agent": "family.poweredby.top/1.0 (household OS)"}
 _SKIP = {"", "unknown", "n/a", "null", "none"}
@@ -31,6 +37,41 @@ PRODUCT_FACT_LABELS = (
     ("protein", "Protein / 100g"),
     ("salt", "Salt / 100g"),
 )
+
+_EMPTY = {
+    "ok": False,
+    "barcode": "",
+    "name": "",
+    "brand": "",
+    "category": "",
+    "quantity": "",
+    "size": "",
+    "serving_size": "",
+    "packaging": "",
+    "ingredients": "",
+    "allergens": "",
+    "traces": "",
+    "labels": "",
+    "image_url": "",
+    "origins": "",
+    "made_in": "",
+    "stores": "",
+    "nutriscore": "",
+    "nova": "",
+    "energy_kcal": "",
+    "fat": "",
+    "saturated_fat": "",
+    "carbs": "",
+    "sugars": "",
+    "fiber": "",
+    "protein": "",
+    "salt": "",
+    "facts": {},
+    "source": None,
+    "kind": "unknown",
+    "kind_label": "Unknown",
+    "suggested_type": "grocery",
+}
 
 
 def _s(v) -> str:
@@ -67,57 +108,32 @@ def lookup_upc(barcode: str) -> dict:
         "packaging": full.get("packaging") or "",
         "facts": full.get("facts") or {},
         "ok": full.get("ok"),
+        "source": full.get("source"),
+        "kind": full.get("kind"),
+        "kind_label": full.get("kind_label"),
+        "suggested_type": full.get("suggested_type"),
+        "quantity": full.get("quantity") or "",
     }
 
 
 def lookup_product(barcode: str) -> dict:
     code = (barcode or "").strip()
-    out = {
-        "ok": False,
-        "barcode": code,
-        "name": "",
-        "brand": "",
-        "category": "",
-        "quantity": "",
-        "size": "",
-        "serving_size": "",
-        "packaging": "",
-        "ingredients": "",
-        "allergens": "",
-        "traces": "",
-        "labels": "",
-        "image_url": "",
-        "origins": "",
-        "made_in": "",
-        "stores": "",
-        "nutriscore": "",
-        "nova": "",
-        "energy_kcal": "",
-        "fat": "",
-        "saturated_fat": "",
-        "carbs": "",
-        "sugars": "",
-        "fiber": "",
-        "protein": "",
-        "salt": "",
-        "facts": {},
-        "source": None,
-    }
-    if not code or len(code) < 8:
+    out = dict(_EMPTY)
+    out["barcode"] = code
+    if not code or len(code) < 8 or not code.replace("-", "").isalnum():
         return out
-    off = _open_food_facts(code)
-    if off.get("ok"):
-        out.update({k: v for k, v in off.items() if v})
+    hits = []
+    for fn in (_open_food_facts, _open_products_facts, _open_beauty_facts, _open_pet_facts, _upcitemdb):
+        try:
+            hit = fn(code)
+        except Exception:
+            hit = {}
+        if hit.get("ok") and (hit.get("name") or hit.get("brand")):
+            hits.append(hit)
+    best = _pick_hit(hits)
+    if best:
+        out.update({k: v for k, v in best.items() if v})
         out["ok"] = True
-        out["source"] = "openfoodfacts"
-    upc = _upcitemdb(code)
-    if upc.get("ok"):
-        for k, v in upc.items():
-            if v and not out.get(k):
-                out[k] = v
-        out["ok"] = True
-        if not out.get("source"):
-            out["source"] = "upcitemdb"
     facts = {}
     for key, _label in PRODUCT_FACT_LABELS:
         val = _s(out.get(key))
@@ -125,13 +141,77 @@ def lookup_product(barcode: str) -> dict:
             facts[key] = val
     out["facts"] = facts
     out["size"] = out.get("quantity") or out.get("size") or ""
+    guess = classify_product(out)
+    out["kind"] = guess.get("kind")
+    out["kind_label"] = guess.get("kind_label")
+    out["suggested_type"] = guess.get("item_type") or "grocery"
+    out["attach_to"] = guess.get("attach_to")
+    out["location_hint"] = guess.get("location_hint")
     return out
 
 
-def _open_food_facts(code: str) -> dict:
-    url = f"https://world.openfoodfacts.org/api/v2/product/{code}.json"
+def _pick_hit(hits: list[dict]) -> dict | None:
+    if not hits:
+        return None
+    scored = []
+    for hit in hits:
+        scored.append((_score_hit(hit), hit))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    winner = dict(scored[0][1])
+    # Fill gaps from runners-up without overwriting a better name.
+    for _score, hit in scored[1:]:
+        for k, v in hit.items():
+            if v and not winner.get(k):
+                winner[k] = v
+    return winner
+
+
+def _score_hit(hit: dict) -> int:
+    name = _s(hit.get("name"))
+    if not name:
+        return 0
+    score = 3
+    if hit.get("brand"):
+        score += 1
+    if hit.get("image_url"):
+        score += 1
+    if hit.get("category"):
+        score += 1
+    if hit.get("ingredients"):
+        score += 1
+    hay = " ".join(
+        _s(hit.get(k)) for k in ("name", "brand", "category", "ingredients")
+    )
+    kind = classify_text(hay)
+    src = (hit.get("source") or "").lower()
+    foodish = kind in ("food", "drink", "pet", "beauty", "household")
+    partish = kind in (
+        "car_battery",
+        "aa_battery",
+        "motor_oil",
+        "filter",
+        "auto_part",
+        "mower",
+        "tool",
+        "equipment",
+    )
+    if foodish and src in ("openfoodfacts", "openpetfoodfacts", "openbeautyfacts"):
+        score += 4
+    if partish and src in ("openproductsfacts", "upcitemdb"):
+        score += 5
+    if partish and src == "openfoodfacts":
+        score -= 3
+    if kind == "unknown" and src == "upcitemdb":
+        score += 2
+    if kind == "unknown" and src == "openproductsfacts":
+        score += 2
+    return score
+
+
+def _off_family(code: str, host: str, source: str) -> dict:
+    url = f"https://{host}/api/v2/product/{code}.json"
     try:
-        r = requests.get(url, timeout=8, headers=_UA)
+        r = requests.get(url, timeout=7, headers=_UA)
         data = r.json() if r.ok else {}
     except Exception:
         return {}
@@ -146,9 +226,13 @@ def _open_food_facts(code: str) -> dict:
         or ""
     )
     nova = product.get("nova_group")
+    name = _s(product.get("product_name") or product.get("generic_name"))
+    if not name:
+        return {}
     return {
         "ok": True,
-        "name": _s(product.get("product_name") or product.get("generic_name")),
+        "source": source,
+        "name": name,
         "brand": _s(product.get("brands")).split(",")[0].strip(),
         "category": _s(product.get("categories")).split(",")[0].strip(),
         "quantity": _s(product.get("quantity")),
@@ -175,6 +259,22 @@ def _open_food_facts(code: str) -> dict:
     }
 
 
+def _open_food_facts(code: str) -> dict:
+    return _off_family(code, "world.openfoodfacts.org", "openfoodfacts")
+
+
+def _open_products_facts(code: str) -> dict:
+    return _off_family(code, "world.openproductsfacts.org", "openproductsfacts")
+
+
+def _open_beauty_facts(code: str) -> dict:
+    return _off_family(code, "world.openbeautyfacts.org", "openbeautyfacts")
+
+
+def _open_pet_facts(code: str) -> dict:
+    return _off_family(code, "world.openpetfoodfacts.org", "openpetfoodfacts")
+
+
 def _upcitemdb(code: str) -> dict:
     url = "https://api.upcitemdb.com/prod/trial/lookup"
     try:
@@ -187,9 +287,13 @@ def _upcitemdb(code: str) -> dict:
         return {}
     it = items[0]
     images = it.get("images") or []
+    name = _s(it.get("title"))
+    if not name:
+        return {}
     return {
         "ok": True,
-        "name": _s(it.get("title")),
+        "source": "upcitemdb",
+        "name": name,
         "brand": _s(it.get("brand")),
         "category": _s(it.get("category")).split(">")[-1].strip(),
         "quantity": _s(it.get("size")),
@@ -222,8 +326,17 @@ def apply_product_lookup(g, item, lookup: dict) -> None:
     if facts:
         extra["product"] = facts
         extra["product_source"] = lookup.get("source")
-        g.extra_data = extra
+    if lookup.get("kind"):
+        extra["kind"] = str(lookup["kind"])[:40]
+        extra["kind_label"] = str(lookup.get("kind_label") or "")[:80]
+    loc = lookup.get("location_hint")
+    if loc and not g.default_location:
+        g.default_location = str(loc)[:80]
+    g.extra_data = extra
     if lookup.get("category") and item is not None and not item.category:
         item.category = str(lookup["category"])[:100]
     if lookup.get("name") and item is not None and (not item.name or item.name.startswith("Scanned ")):
         item.name = str(lookup["name"])[:200]
+    if lookup.get("suggested_type") and item is not None and item.item_type == "grocery":
+        # Keep grocery for consumable car parts; only retag true tools if still a stub.
+        pass

@@ -54,6 +54,7 @@ def init_tenant_system(app):
             "table_grocery_items",
             "table_tools",
             "table_vehicles",
+            "table_vehicle_parts",
             "table_maintenance_records",
             "table_reminders",
             "table_photo_notes",
@@ -61,6 +62,12 @@ def init_tenant_system(app):
             "table_scan_events",
             "table_grocery_list",
             "table_invites",
+            "table_service_passes",
+            "table_trusted_emails",
+            "table_password_resets",
+            "table_platform_owners",
+            "table_platform_settings",
+            "table_platform_audit",
         ]
         db.create_all()
         for module_name in ordered_modules:

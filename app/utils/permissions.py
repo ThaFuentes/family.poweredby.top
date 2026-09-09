@@ -17,6 +17,7 @@ ROLE_PERMS = {
             "edit_meta",
             "members",
             "settings",
+            "leaders",
         }
     ),
 }
@@ -36,6 +37,12 @@ def can(action: str, user=None) -> bool:
         return True
     if extra.get(action) is False:
         return False
+    if bool(getattr(u, "is_leader", False)) and action in (
+        "leaders",
+        "members",
+        "settings",
+    ):
+        return True
     return action in ROLE_PERMS.get(role_of(u), frozenset())
 
 

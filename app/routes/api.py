@@ -5,12 +5,13 @@ from app.builddb.builddb import db
 from app.builddb.table_items import Item, ITEM_TYPES
 from app.builddb.table_grocery_items import GroceryItem
 from app.builddb.table_grocery_list import GroceryListEntry
+from app.builddb.table_households import Household
 from app.builddb.table_maintenance_records import MaintenanceRecord
 from app.builddb.table_reminders import Reminder
 from app.utils.household import household_id, scoped
 from app.utils.permissions import can
 from app.utils.scan import process_scan, clamp_qty, _dec
-from app.utils.barcode_lookup import lookup_upc, lookup_product
+from app.utils.barcode_lookup import lookup_product
 from app.utils.vehicle_lookup import lookup_vehicle
 from app.utils.qr_labels import item_payload
 from datetime import datetime, timedelta
@@ -43,7 +44,82 @@ def api_lookup():
 @login_required
 def api_lookup_product():
     code = (request.args.get("barcode") or "").strip()
-    return jsonify(lookup_product(code))
+    data = lookup_product(code)
+    try:
+        from app.utils.classify import classify, household_anchors
+
+        h = Household.query.get(household_id())
+        guess = classify(data, household=h, extra=code)
+        data.update(
+            {
+                "kind": guess.get("kind"),
+                "kind_label": guess.get("kind_label"),
+                "suggested_type": guess.get("item_type"),
+                "attach_to": guess.get("attach_to"),
+                "location_hint": guess.get("location_hint"),
+                "questions": guess.get("questions") or [],
+                "message": guess.get("message"),
+            }
+        )
+        anchors = household_anchors(household_id())
+        if guess.get("attach_to") == "vehicle":
+            data["vehicles"] = anchors["vehicles"]
+        if guess.get("attach_to") == "tool":
+            data["tools"] = anchors["tools"]
+    except Exception:
+        pass
+    return jsonify(data)
+
+
+@api_bp.route("/items/quick", methods=["POST"])
+@login_required
+def api_quick_item():
+    if not (can("edit_grocery") or can("edit_meta") or can("maintain")):
+        return jsonify({"error": "not allowed"}), 403
+    from app.routes.items import can_create_type, quick_create_item
+
+    data = request.get_json(silent=True) or {}
+    form = request.form
+    def g(key, default=""):
+        if form.get(key) not in (None, ""):
+            return form.get(key)
+        return data.get(key, default)
+
+    item_type = (g("item_type") or "grocery").strip().lower()
+    if not can_create_type(item_type):
+        return jsonify({"error": "not allowed"}), 403
+    item, status = quick_create_item(
+        hid=household_id(),
+        user_id=current_user.id,
+        name=g("name") or "",
+        item_type=item_type,
+        barcode=g("barcode"),
+        linked_item_id=g("linked_item_id"),
+        kind=g("kind"),
+        kind_label=g("kind_label"),
+        location=g("location") or g("default_location"),
+        quantity=g("quantity"),
+        action=(g("action") or "check").strip().lower(),
+        photo=request.files.get("photo"),
+        caption=g("caption"),
+    )
+    if item is None:
+        return jsonify({"error": "name required"}), 400
+    if status == "exists":
+        return jsonify({"ok": True, "item_id": item.id, "barcode": item.barcode, "exists": True})
+    return jsonify({"ok": True, "item_id": item.id, "barcode": item.barcode, "name": item.name})
+
+
+@api_bp.route("/ai/ping", methods=["POST"])
+@login_required
+def api_ai_ping():
+    if not (can("settings") or can("members")):
+        return jsonify({"error": "not allowed"}), 403
+    from app.utils.ai import ping_ai
+
+    h = Household.query.get(household_id())
+    ok, msg = ping_ai(h, household_only=True)
+    return jsonify({"ok": ok, "message": msg})
 
 
 @api_bp.route("/lookup/vehicle")
@@ -132,18 +208,22 @@ def api_maintenance():
         if rec.mileage_or_hours is not None:
             item.vehicle.last_oil_change_mileage = int(rec.mileage_or_hours)
             item.vehicle.current_mileage = int(rec.mileage_or_hours)
-        db.session.add(
-            Reminder(
-                household_id=household_id(),
-                linked_item_id=item.id,
-                type="oil_change",
-                title=f"Next oil change — {item.name}",
-                due_at=datetime.utcnow() + timedelta(days=180),
-                recurrence="180d",
-                status="open",
-                created_by=current_user.id,
-            )
+        rem = Reminder(
+            household_id=household_id(),
+            linked_item_id=item.id,
+            type="oil_change",
+            title=f"Next oil change — {item.name}",
+            due_at=datetime.utcnow() + timedelta(days=180),
+            recurrence="180d",
+            status="open",
+            created_by=current_user.id,
         )
+        db.session.add(rem)
+        db.session.commit()
+        from app.utils.notify import announce_reminder
+
+        announce_reminder(rem)
+        return jsonify({"ok": True, "id": rec.id})
     db.session.commit()
     return jsonify({"ok": True, "id": rec.id})
 

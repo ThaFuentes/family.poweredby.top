@@ -4,10 +4,13 @@
 <div class="page-head">
   <div>
     <h1>{{ item.name }}</h1>
-    <p>{{ item.item_type }}{% if item.category %} · {{ item.category }}{% endif %}{% if item.barcode %} · {{ item.barcode }}{% endif %}</p>
+    <p>{{ kind_label or item.item_type }}{% if item.category %} · {{ item.category }}{% endif %}{% if linked %} · for {{ linked.name }}{% endif %}{% if item.barcode %} · {{ item.barcode }}{% endif %}</p>
   </div>
 </div>
 <div class="tabs">
+  {% if item.vehicle %}
+  <a class="{% if tab=='systems' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='systems') }}">Systems</a>
+  {% endif %}
   <a class="{% if tab=='overview' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='overview') }}">Overview</a>
   <a class="{% if tab=='photos' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='photos') }}">Photos</a>
   <a class="{% if tab=='notes' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='notes') }}">Notes</a>
@@ -15,7 +18,9 @@
   <a class="{% if tab=='history' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='history') }}">History</a>
 </div>
 
-{% if tab == 'overview' %}
+{% if tab == 'systems' and item.vehicle %}
+  {% include "partials/vehicle_systems.html" %}
+{% elif tab == 'overview' %}
   <div class="card">
     {% if item.grocery %}
       {% if item.grocery.quantity and item.grocery.quantity > 0 and item.grocery.needs_restock %}
@@ -32,6 +37,7 @@
       {% if item.grocery.image_url %}
         <img class="detail-photo" src="{{ item.grocery.image_url }}" alt="{{ item.name }}">
       {% endif %}
+      {% if linked %}<p>For <a href="{{ url_for('items.detail', item_id=linked.id) }}">{{ linked.name }}</a></p>{% endif %}
       {% if item.grocery.allergens %}<p><strong>Allergens:</strong> {{ item.grocery.allergens }}</p>{% endif %}
       {% if item.grocery.ingredients %}<p><strong>Ingredients:</strong> {{ item.grocery.ingredients }}</p>{% endif %}
       {% if can_grocery or can_scan %}
@@ -55,10 +61,33 @@
       <p>{% if item.vehicle.color %}{{ item.vehicle.color }} · {% endif %}{% if item.vehicle.body_class %}{{ item.vehicle.body_class }}{% endif %}{% if item.vehicle.doors %} · {{ item.vehicle.doors }}-door{% endif %}</p>
       <p>{% if item.vehicle.engine %}{{ item.vehicle.engine }}{% endif %}{% if item.vehicle.drive_type %} · {{ item.vehicle.drive_type }}{% endif %}{% if item.vehicle.fuel_type %} · {{ item.vehicle.fuel_type }}{% endif %}</p>
       {% if item.vehicle.transmission %}<p>Transmission: {{ item.vehicle.transmission }}</p>{% endif %}
-      <p>Oil: <strong>{{ item.vehicle.oil_type or '—' }}</strong> · Filter: {{ item.vehicle.filter_type or '—' }}</p>
-      <p>Tires: {{ item.vehicle.tire_size or '—' }} · Battery: {{ item.vehicle.battery_type or '—' }}</p>
       <p>Mileage: {{ item.vehicle.current_mileage or '—' }} · Last oil: {{ item.vehicle.last_oil_change_date or '—' }}
         @ {{ item.vehicle.last_oil_change_mileage or '—' }}</p>
+      <p><a class="btn" href="{{ url_for('items.detail', item_id=item.id, tab='systems') }}">Systems — battery, alt, oil, exhaust</a></p>
+    {% endif %}
+    {% if parts %}
+      <p class="muted" style="margin-top:.6rem">Catalog items linked here</p>
+      {% for p in parts %}
+        <div><a href="{{ url_for('items.detail', item_id=p.id) }}">{{ p.name }}</a></div>
+      {% endfor %}
+    {% endif %}
+    {% if photos %}
+      <div class="photo-strip">
+        {% for p in photos[:4] %}
+          <a href="{{ url_for('items.detail', item_id=item.id, tab='photos') }}">
+            <img src="{{ url_for('items.serve_photo', photo_id=p.id) }}" alt="{{ p.caption or item.name }}">
+          </a>
+        {% endfor %}
+      </div>
+    {% endif %}
+    {% if can_photo %}
+    <form method="post" action="{{ url_for('items.add_photo', item_id=item.id) }}" enctype="multipart/form-data" class="photo-quick">
+      <input type="hidden" name="next" value="overview">
+      <label>Snap it — connectors, serial plate, the actual mower, or the box if the UPC was wrong</label>
+      <input type="file" name="photo" accept="image/*" capture="environment" required>
+      <input name="caption" placeholder="Alternator connectors, serial plate, this is the real box">
+      <div class="btn-row"><button class="btn secondary" type="submit">Save photo</button></div>
+    </form>
     {% endif %}
     <div class="btn-row">
       <a class="btn secondary" href="{{ url_for('items.qr_png', item_id=item.id) }}">QR label</a>
@@ -117,6 +146,18 @@
     <input name="category" value="{{ item.category or '' }}">
     <label>Tags</label>
     <input name="tags" value="{{ (item.tags or [])|join(', ') }}">
+    <label>Belongs to</label>
+    <select name="linked_item_id">
+      <option value="">— none —</option>
+      {% for v in vehicles or [] %}
+        <option value="{{ v.id }}" {% if item.linked_item_id==v.id %}selected{% endif %}>{{ v.name }}</option>
+      {% endfor %}
+      {% for t in tools or [] %}
+        {% if t.id != item.id %}
+        <option value="{{ t.id }}" {% if item.linked_item_id==t.id %}selected{% endif %}>{{ t.name }}</option>
+        {% endif %}
+      {% endfor %}
+    </select>
     <label>Notes</label>
     <textarea name="notes">{{ item.notes or '' }}</textarea>
     {% if item.grocery %}
@@ -185,7 +226,7 @@
     <label>Photo</label>
     <input type="file" name="photo" accept="image/*" capture="environment" required>
     <label>Caption</label>
-    <input name="caption">
+    <input name="caption" placeholder="Connectors, serial plate, the actual mower, wrong UPC box">
     <div class="btn-row"><button class="btn" type="submit">Upload</button></div>
   </form>
   {% endif %}
@@ -238,6 +279,15 @@
           <strong>{{ m.type }}</strong>
           <div class="muted">{{ m.date }}{% if m.mileage_or_hours %} · {{ m.mileage_or_hours }}{% endif %}</div>
           {% if m.notes %}<div>{{ m.notes }}</div>{% endif %}
+          {% if m.photos %}
+            <div class="photo-strip">
+              {% for pid in m.photos %}
+                {% if pid is number %}
+                <img src="{{ url_for('items.serve_photo', photo_id=pid) }}" alt="">
+                {% endif %}
+              {% endfor %}
+            </div>
+          {% endif %}
         </div>
       </div>
     {% else %}

@@ -1,6 +1,7 @@
-from flask import Blueprint, render_template, request, redirect, url_for, jsonify, make_response
+from flask import Blueprint, render_template, request, redirect, url_for, jsonify, make_response, flash
 from flask_login import login_required, current_user
 
+from app.builddb.builddb import db
 from app.utils.themes import THEMES, normalize, save_user_theme, stamp_theme_cookie, read_theme
 
 appearance_bp = Blueprint("appearance", __name__, url_prefix="/appearance")
@@ -29,3 +30,15 @@ def set_theme():
     resp = make_response(redirect(url_for("appearance.picker")))
     stamp_theme_cookie(resp, theme_id)
     return resp
+
+
+@appearance_bp.route("/notify", methods=["POST"])
+@login_required
+def set_notify():
+    via = (request.form.get("notify_via") or "both").strip().lower()
+    if via not in ("email", "calendar", "both", "off"):
+        via = "both"
+    current_user.notify_via = via
+    db.session.commit()
+    flash("How you get reminders is saved.", "success")
+    return redirect(url_for("appearance.picker"))

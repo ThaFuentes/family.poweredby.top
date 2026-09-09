@@ -20,6 +20,29 @@
   </button>
   {% endfor %}
 </div>
+<form class="card" method="post" action="{{ url_for('appearance.set_notify') }}">
+  <h2>Your reminders</h2>
+  <p class="muted">Mute just yourself. Household default still lives on Due / Household.</p>
+  <label>Email me</label>
+  <select name="notify_via">
+    <option value="both" {% if current_user.notify_via=='both' %}selected{% endif %}>Email and calendar</option>
+    <option value="email" {% if current_user.notify_via=='email' %}selected{% endif %}>Email only</option>
+    <option value="calendar" {% if current_user.notify_via=='calendar' %}selected{% endif %}>Calendar only</option>
+    <option value="off" {% if current_user.notify_via=='off' %}selected{% endif %}>Off for me</option>
+  </select>
+  <div class="btn-row"><button class="btn" type="submit">Save</button></div>
+</form>
+<form class="card" method="post" action="{{ url_for('auth.change_own_password') }}">
+  <h2>Your password</h2>
+  <p class="muted">Reset yours here, or use Forgot password on sign-in. Leaders can email a reset to someone in this household.</p>
+  <label>Current</label>
+  <input type="password" name="current_password" autocomplete="current-password" required>
+  <label>New</label>
+  <input type="password" name="new_password" autocomplete="new-password" required>
+  <label>Confirm</label>
+  <input type="password" name="confirm_password" autocomplete="new-password" required>
+  <div class="btn-row"><button class="btn" type="submit">Update password</button></div>
+</form>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/theme.js') }}?v=os6"></script>

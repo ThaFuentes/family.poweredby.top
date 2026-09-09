@@ -10,6 +10,7 @@ class PhotoNote(db.Model):
         db.Integer, db.ForeignKey("households.id", ondelete="CASCADE"), nullable=False
     )
     item_id = db.Column(db.Integer, db.ForeignKey("items.id", ondelete="CASCADE"), nullable=False)
+    part_id = db.Column(db.Integer, nullable=True)
     caption = db.Column(EncryptedText, nullable=True)
     image_path = db.Column(db.String(400), nullable=False)
     created_by = db.Column(db.Integer, nullable=True)
@@ -26,6 +27,7 @@ def create_table():
         [
             ("household_id", "INT NOT NULL"),
             ("item_id", "INT NOT NULL"),
+            ("part_id", "INT NULL"),
             ("caption", "TEXT NULL"),
             ("image_path", "VARCHAR(400) NOT NULL"),
             ("created_by", "INT NULL"),
@@ -33,6 +35,7 @@ def create_table():
         indexes=[
             ("idx_photos_household_id", "household_id"),
             ("idx_photos_item_id", "item_id"),
+            ("idx_photos_part_id", "part_id"),
         ],
     )
     try:

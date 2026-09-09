@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Register · Family OS</title>
+  <title>Join · Family OS</title>
   <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
   {% include "partials/theme_head.html" %}
 </head>
@@ -12,8 +12,8 @@
     <div class="wrap">
       <div class="auth-hero">
         <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
-        <h1>Start a household</h1>
-        <p class="muted">One private universe for groceries, tools, and cars.</p>
+        <h1>Join Family OS</h1>
+        <p class="muted">Friends and family only. Two different keys — read the labels.</p>
       </div>
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
@@ -24,27 +24,55 @@
       {% endwith %}
       <div class="seg">
         <a href="{{ url_for('auth.login') }}">Sign in</a>
-        <a class="on" href="{{ url_for('auth.register') }}">New household</a>
+        <a class="on" href="{{ url_for('auth.register') }}">Join</a>
       </div>
+
+      <div class="key-legend">
+        <div>
+          <span class="key-tag fam">Family key · FAM-</span>
+          <p>Puts you in a specific household. Made on that household’s People page.</p>
+        </div>
+        <div>
+          <span class="key-tag srv">Service key · SRV- · vital</span>
+          <p>Gets you onto Family OS at all. Share only with people you trust. Does not join you to their house.</p>
+        </div>
+      </div>
+
       <div class="card">
         <form method="post">
           <label>Your name</label>
-          <input name="name" required>
+          <input name="name" required value="{{ name or '' }}" autocomplete="name">
           <label>Username</label>
-          <input name="username" autocomplete="username" required>
-          <label>Email (optional)</label>
-          <input type="email" name="email" autocomplete="email">
+          <input name="username" autocomplete="username" required value="{{ username or '' }}">
+          <label>Email</label>
+          <input type="email" name="email" autocomplete="email" value="{{ email or '' }}">
+          <p class="muted" style="margin:.35rem 0 0">
+            {% if trusted %}This email is on the trusted list — no Service key needed.{% elif bootstrap %}First household on this site — no Service key yet.{% else %}Required to start a household. Optional when joining with a Family key. If someone trusted this email, you can skip the Service key.{% endif %}
+          </p>
           <label>Password</label>
           <input type="password" name="password" autocomplete="new-password" required>
-          <label>Household name</label>
-          <input name="household_name" placeholder="The Fuentes house">
-          <label>Or invite code</label>
-          <input name="invite_code" value="{{ invite or '' }}" placeholder="ABC123" autocapitalize="characters">
+
+          <div class="key-block vital">
+            <label for="service_key">Service key <span class="key-tag srv">SRV- · get on the site</span></label>
+            <input id="service_key" name="service_key" value="{{ service_key or '' }}" placeholder="SRV-…" autocapitalize="characters" autocomplete="off">
+            <p class="muted">Vital. Friends and family only. Skip if you have a Family key, a trusted email, or this is the first household.</p>
+          </div>
+
+          <div class="key-block">
+            <label for="family_key">Family key <span class="key-tag fam">FAM- · enter a household</span></label>
+            <input id="family_key" name="family_key" value="{{ invite or '' }}" placeholder="FAM-…" autocapitalize="characters" autocomplete="off">
+            <p class="muted">Paste this to join an existing household. Leave blank to start your own.</p>
+          </div>
+
+          <label>New household name</label>
+          <input name="household_name" placeholder="The Fuentes house" value="{{ household_name or '' }}">
+          <p class="muted">Only if you are starting a household — not joining one.</p>
           <div class="btn-row">
-            <button class="btn block" type="submit">Create account</button>
+            <button class="btn block" type="submit">Continue</button>
           </div>
         </form>
       </div>
+      <p class="muted" style="text-align:center"><a href="{{ url_for('home.home') }}">Back</a></p>
     </div>
   </div>
 </body>

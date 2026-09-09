@@ -2,7 +2,7 @@
 {% block title %}Log maintenance · {{ item.name }}{% endblock %}
 {% block content %}
 <div class="page-head"><div><h1>Log maintenance</h1><p>{{ item.name }}</p></div></div>
-<form class="card" method="post">
+<form class="card" method="post" enctype="multipart/form-data">
   <label>Type</label>
   <input name="type" value="{% if item.item_type=='vehicle' %}oil_change{% else %}service{% endif %}" required>
   <label>Date</label>
@@ -10,7 +10,11 @@
   <label>Mileage or hours</label>
   <input name="mileage_or_hours">
   <label>Notes</label>
-  <textarea name="notes"></textarea>
+  <textarea name="notes" placeholder="What you did, the odd bolt, the belt routing"></textarea>
+  <label>Photo (optional)</label>
+  <input type="file" name="photo" accept="image/*" capture="environment">
+  <label>Photo caption</label>
+  <input name="caption" placeholder="Alternator connectors, blade, filter housing">
   <div class="btn-row">
     <button class="btn" type="submit">Save log</button>
     <a class="btn secondary" href="{{ url_for('items.detail', item_id=item.id, tab='maintenance') }}">Cancel</a>

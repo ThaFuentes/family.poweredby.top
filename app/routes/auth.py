@@ -5,7 +5,13 @@ from flask_login import login_user, logout_user, login_required, current_user
 from app.builddb.builddb import db
 from app.builddb.table_users import User, ROLES
 from app.builddb.table_households import Household
-from app.builddb.table_invites import Invite
+from app.utils.access import (
+    bootstrap_open,
+    can_enter_service,
+    consume_service_pass,
+    email_is_trusted,
+    family_invite_ok,
+)
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
@@ -35,6 +41,10 @@ def login():
                 flash("Account temporarily locked. Try again later.", "danger")
                 return render_template("auth/login.html")
         if user and user.is_active and user.check_password(password):
+            household = getattr(user, "household", None)
+            if household is not None and not bool(getattr(household, "is_active", True)):
+                flash("This household is paused. Ask the household leader.", "warning")
+                return render_template("auth/login.html")
             user.failed_login_attempts = 0
             user.account_locked_until = None
             user.last_login_at = _utcnow()
@@ -72,68 +82,127 @@ def login():
     return render_template("auth/login.html")
 
 
+def _register_ctx(**extra):
+    ctx = {
+        "invite": extra.get("invite") or "",
+        "service_key": extra.get("service_key") or "",
+        "bootstrap": bootstrap_open(),
+        "trusted": extra.get("trusted", False),
+    }
+    ctx.update(extra)
+    return ctx
+
+
 @auth_bp.route("/register", methods=["GET", "POST"])
 def register():
     if current_user.is_authenticated:
         return redirect(url_for("home.home"))
-    invite_prefill = (request.args.get("invite") or "").strip()
-    if request.method == "POST":
-        name = (request.form.get("name") or "").strip()
-        username = (request.form.get("username") or "").strip()
-        email = (request.form.get("email") or "").strip() or None
-        password = request.form.get("password") or ""
-        household_name = (request.form.get("household_name") or "").strip()
-        invite_code = (request.form.get("invite_code") or "").strip().upper()
-        if not name or not username or not password:
-            flash("Name, username, and password are required.", "danger")
-            return render_template("auth/register.html", invite=invite_code or invite_prefill)
-        if User.query.filter_by(username=username).first():
-            flash("That username is already taken.", "danger")
-            return render_template("auth/register.html", invite=invite_code or invite_prefill)
-        if email and User.query.filter_by(email=email).first():
-            flash("That email is already registered.", "danger")
-            return render_template("auth/register.html", invite=invite_code or invite_prefill)
-
-        household = None
-        role = "admin"
-        invite = None
-        if invite_code:
-            invite = Invite.query.filter_by(code=invite_code).first()
-            if invite is None or invite.used_at:
-                flash("Invite code is invalid or already used.", "danger")
-                return render_template("auth/register.html", invite=invite_code)
-            if invite.expires_at and invite.expires_at < _utcnow():
-                flash("Invite code has expired.", "danger")
-                return render_template("auth/register.html", invite=invite_code)
-            household = Household.query.get(invite.household_id)
-            role = invite.role if invite.role in ROLES else "member"
-        else:
-            if not household_name:
-                flash("Give your household a name, or join with an invite code.", "danger")
-                return render_template("auth/register.html", invite=invite_prefill)
-            household = Household(name=household_name)
-            household.rotate_invite_code()
-            db.session.add(household)
-            db.session.flush()
-
-        user = User(
-            household_id=household.id,
-            username=username,
-            name=name,
-            email=email,
-            role=role,
+    invite_prefill = (
+        request.args.get("family")
+        or request.args.get("invite")
+        or request.form.get("family_key")
+        or request.form.get("invite_code")
+        or ""
+    ).strip()
+    service_prefill = (
+        request.args.get("service")
+        or request.form.get("service_key")
+        or ""
+    ).strip()
+    if request.method != "POST":
+        email_q = (request.args.get("email") or "").strip().lower()
+        return render_template(
+            "auth/register.html",
+            **_register_ctx(
+                invite=invite_prefill,
+                service_key=service_prefill,
+                trusted=email_is_trusted(email_q),
+            ),
         )
-        user.set_password(password)
-        db.session.add(user)
+
+    name = (request.form.get("name") or "").strip()
+    username = (request.form.get("username") or "").strip()
+    email = (request.form.get("email") or "").strip().lower() or None
+    password = request.form.get("password") or ""
+    household_name = (request.form.get("household_name") or "").strip()
+    family_key = (
+        request.form.get("family_key") or request.form.get("invite_code") or invite_prefill
+    ).strip()
+    service_key = (request.form.get("service_key") or service_prefill).strip()
+    ctx = _register_ctx(
+        invite=family_key,
+        service_key=service_key,
+        trusted=email_is_trusted(email),
+        name=name,
+        username=username,
+        email=email or "",
+        household_name=household_name,
+    )
+    if not name or not username or not password:
+        flash("Name, username, and password are required.", "danger")
+        return render_template("auth/register.html", **ctx)
+    if not family_key and not email:
+        flash("Household leaders need an email so the platform can reach you.", "danger")
+        return render_template("auth/register.html", **ctx)
+    if User.query.filter_by(username=username).first():
+        flash("That username is already taken.", "danger")
+        return render_template("auth/register.html", **ctx)
+    if email and User.query.filter_by(email=email).first():
+        flash("That email is already registered.", "danger")
+        return render_template("auth/register.html", **ctx)
+
+    allowed, reason, bits = can_enter_service(
+        email=email, service_key=service_key, family_key=family_key
+    )
+    if not allowed:
+        flash(reason, "danger")
+        return render_template("auth/register.html", **ctx)
+
+    household = None
+    role = "admin"
+    invite = bits.get("invite")
+    make_leader = False
+    if invite is not None:
+        ok, err = family_invite_ok(invite)
+        if not ok:
+            flash(err, "danger")
+            return render_template("auth/register.html", **ctx)
+        household = Household.query.get(invite.household_id)
+        role = invite.role if invite.role in ROLES else "member"
+        from app.utils.leaders import leader_count
+
+        if leader_count(household.id) == 0 and role != "child":
+            make_leader = True
+    else:
+        if not household_name:
+            flash("Name your household, or paste a Family key to join one that already exists.", "danger")
+            return render_template("auth/register.html", **ctx)
+        household = Household(name=household_name)
+        household.rotate_invite_code()
+        db.session.add(household)
         db.session.flush()
-        if invite:
-            invite.used_by = user.id
-            invite.used_at = _utcnow()
-        db.session.commit()
-        login_user(user)
-        flash(f"Welcome to {household.name}.", "success")
-        return redirect(url_for("home.home"))
-    return render_template("auth/register.html", invite=invite_prefill)
+        make_leader = True
+
+    user = User(
+        household_id=household.id,
+        username=username,
+        name=name,
+        email=email,
+        role=role,
+        is_leader=make_leader,
+    )
+    user.set_password(password)
+    db.session.add(user)
+    db.session.flush()
+    if invite:
+        invite.used_by = user.id
+        invite.used_at = _utcnow()
+    if bits.get("pass") is not None:
+        consume_service_pass(bits["pass"])
+    db.session.commit()
+    login_user(user)
+    flash(f"Welcome to {household.name}.", "success")
+    return redirect(url_for("home.home"))
 
 
 @auth_bp.route("/logout")
@@ -142,3 +211,70 @@ def logout():
     logout_user()
     flash("Signed out.", "info")
     return redirect(url_for("auth.login"))
+
+
+@auth_bp.route("/forgot", methods=["GET", "POST"])
+def forgot():
+    if current_user.is_authenticated:
+        return redirect(url_for("home.home"))
+    from app.utils.passwords import SAME_MSG, find_user_for_forgot, issue_reset, send_reset_email
+
+    if request.method == "POST":
+        ident = (request.form.get("username") or "").strip()
+        user = find_user_for_forgot(ident)
+        if user is not None:
+            token = issue_reset(user, requested_by=user.id)
+            if token:
+                send_reset_email(user, token)
+        flash(SAME_MSG, "info")
+        return redirect(url_for("auth.forgot"))
+    return render_template("auth/forgot.html")
+
+
+@auth_bp.route("/reset/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    from app.utils.passwords import consume_token, mark_used
+
+    row = consume_token(token)
+    if row is None:
+        flash("That reset link is invalid or expired. Ask a household leader, or try again.", "danger")
+        return redirect(url_for("auth.forgot"))
+    user = row._user
+    if request.method == "POST":
+        password = request.form.get("password") or ""
+        confirm = request.form.get("confirm") or ""
+        if len(password) < 8:
+            flash("Password needs at least 8 characters.", "danger")
+            return render_template("auth/reset.html", token=token, name=user.name)
+        if password != confirm:
+            flash("Passwords do not match.", "danger")
+            return render_template("auth/reset.html", token=token, name=user.name)
+        user.set_password(password)
+        user.failed_login_attempts = 0
+        user.account_locked_until = None
+        db.session.commit()
+        mark_used(row)
+        flash("Password updated. Sign in.", "success")
+        return redirect(url_for("auth.login"))
+    return render_template("auth/reset.html", token=token, name=user.name)
+
+
+@auth_bp.route("/password", methods=["POST"])
+@login_required
+def change_own_password():
+    current = request.form.get("current_password") or ""
+    new = request.form.get("new_password") or ""
+    confirm = request.form.get("confirm_password") or ""
+    if not current_user.check_password(current):
+        flash("Current password is wrong.", "danger")
+        return redirect(url_for("appearance.picker"))
+    if len(new) < 8:
+        flash("New password needs at least 8 characters.", "danger")
+        return redirect(url_for("appearance.picker"))
+    if new != confirm:
+        flash("New passwords do not match.", "danger")
+        return redirect(url_for("appearance.picker"))
+    current_user.set_password(new)
+    db.session.commit()
+    flash("Your password is updated.", "success")
+    return redirect(url_for("appearance.picker"))

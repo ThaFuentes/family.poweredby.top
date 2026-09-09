@@ -1,0 +1,53 @@
+{% extends "platform/base.html" %}
+{% block title %}Platform · Family OS{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Owner</h1>
+    <p>SMTP From identity, fallback AI, and leader name/email. Households bring their own AI keys. You do not pick their leaders or reset their passwords.</p>
+  </div>
+</div>
+<div class="stat-grid">
+  <a class="tile" href="{{ url_for('platform.households') }}">
+    <span class="kicker">Tenants</span>
+    <span class="label">{{ household_count }} households</span>
+    <span class="count">{{ active_count }} active</span>
+  </a>
+  <a class="tile" href="{{ url_for('platform.email_settings') }}">
+    <span class="kicker">Email</span>
+    <span class="label">{{ mail.mode }}</span>
+    <span class="count">{% if mail.ready %}Ready{% else %}Needs setup{% endif %}</span>
+  </a>
+  <a class="tile" href="{{ url_for('platform.ai_settings') }}">
+    <span class="kicker">AI fallback</span>
+    <span class="label">{{ ai.label if ai.ready else 'No key' }}</span>
+    <span class="count">{% if ai.ready %}{{ ai.key_hint }}{% else %}Paste a key{% endif %}</span>
+  </a>
+</div>
+
+<div class="card">
+  <h2>Recent owner actions</h2>
+  {% for row in recent %}
+    <div class="row">
+      <div>
+        <strong>{{ row.action }}</strong>
+        <div class="muted">{% if row.household_id %}household {{ row.household_id }} · {% endif %}{{ row.created_at }}</div>
+      </div>
+    </div>
+  {% else %}
+    <div class="empty"><strong>Nothing yet</strong></div>
+  {% endfor %}
+  <div class="btn-row"><a class="btn secondary sm" href="{{ url_for('platform.audit_log') }}">Full audit</a></div>
+</div>
+
+<form class="card" method="post" action="{{ url_for('platform.change_password') }}">
+  <h2>Your platform password</h2>
+  <label>Current</label>
+  <input type="password" name="current_password" autocomplete="current-password" required>
+  <label>New</label>
+  <input type="password" name="new_password" autocomplete="new-password" required>
+  <label>Confirm</label>
+  <input type="password" name="confirm_password" autocomplete="new-password" required>
+  <div class="btn-row"><button class="btn" type="submit">Update password</button></div>
+</form>
+{% endblock %}

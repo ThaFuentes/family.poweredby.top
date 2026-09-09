@@ -18,6 +18,7 @@ class Item(db.Model):
     barcode = db.Column(db.String(80), nullable=True)
     notes = db.Column(EncryptedText, nullable=True)
     created_by = db.Column(db.Integer, nullable=True)
+    linked_item_id = db.Column(db.Integer, nullable=True)
     extra_data = db.Column(db.JSON, nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.current_timestamp())
     updated_at = db.Column(
@@ -44,6 +45,7 @@ def create_table():
             ("barcode", "VARCHAR(80) NULL"),
             ("notes", "TEXT NULL"),
             ("created_by", "INT NULL"),
+            ("linked_item_id", "INT NULL"),
             ("extra_data", "JSON NULL"),
         ],
         indexes=[
@@ -51,6 +53,7 @@ def create_table():
             ("idx_items_barcode", "barcode"),
             ("idx_items_type", "item_type"),
             ("idx_items_household_barcode", "household_id, barcode"),
+            ("idx_items_linked", "household_id, linked_item_id"),
         ],
     )
     from sqlalchemy import text

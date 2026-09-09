@@ -120,6 +120,7 @@ def create_app():
     from app.routes.api import api_bp
     from app.routes.appearance import appearance_bp
     from app.routes.notes import notes_bp
+    from app.routes.platform import platform_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(home_bp)
@@ -133,6 +134,27 @@ def create_app():
     app.register_blueprint(api_bp)
     app.register_blueprint(appearance_bp)
     app.register_blueprint(notes_bp)
+    app.register_blueprint(platform_bp)
+
+    @app.before_request
+    def _block_paused_household():
+        from flask import request, flash, redirect, url_for
+        from flask_login import current_user, logout_user
+
+        if not getattr(current_user, "is_authenticated", False):
+            return None
+        path = request.path or ""
+        if path.startswith("/platform") or path.startswith("/static") or path.startswith("/auth/logout"):
+            return None
+        try:
+            h = getattr(current_user, "household", None)
+            if h is not None and not bool(getattr(h, "is_active", True)):
+                logout_user()
+                flash("This household is paused. Ask the household leader.", "warning")
+                return redirect(url_for("auth.login"))
+        except Exception:
+            return None
+        return None
 
     try:
         from app.utils.favicon_inject import register_favicon

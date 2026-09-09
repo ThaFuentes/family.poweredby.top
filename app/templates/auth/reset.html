@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>New password · Family OS</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
+  {% include "partials/theme_head.html" %}
+</head>
+<body class="auth">
+  <div class="auth-page">
+    <div class="wrap">
+      <div class="auth-hero">
+        <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
+        <h1>New password</h1>
+        <p class="muted">{% if name %}{{ name }}{% else %}Your household account{% endif %}</p>
+      </div>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+      <div class="card">
+        <form method="post">
+          <label>New password</label>
+          <input type="password" name="password" autocomplete="new-password" required>
+          <label>Confirm</label>
+          <input type="password" name="confirm" autocomplete="new-password" required>
+          <div class="btn-row">
+            <button class="btn block" type="submit">Save password</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

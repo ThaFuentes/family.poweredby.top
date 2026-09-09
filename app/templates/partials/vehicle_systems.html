@@ -1,0 +1,152 @@
+<p class="muted" style="margin:0 0 .85rem">Not a notepad. Each system holds the actual part — spec, brand, number, photo of the connector.</p>
+
+{% if can_maintain or can_edit %}
+<form class="card" id="part-form" method="post" action="{{ url_for('vehicles.add_part', item_id=item.id) }}" enctype="multipart/form-data">
+  <h2>Add or replace a part</h2>
+  <p class="muted">Installing a battery on Electrical replaces the one that’s there and keeps the old one in history.</p>
+  <label>System</label>
+  <select name="system" id="part-system">
+    {% for s in systems_catalog %}
+      <option value="{{ s.id }}">{{ s.label }}</option>
+    {% endfor %}
+  </select>
+  <label>What</label>
+  <select name="slot" id="part-slot"></select>
+  <label>Name</label>
+  <input name="name" required placeholder="DieHard Gold, Motorcraft alternator">
+  <label>Spec</label>
+  <input name="spec" id="part-spec" placeholder="Group 65, 130A, 5W-30">
+  <label>Brand</label>
+  <input name="brand" placeholder="DieHard, Bosch, Motorcraft">
+  <label>Part number</label>
+  <input name="part_number" placeholder="FL-820S, H6 / Group 48">
+  <label>Status</label>
+  <select name="status">
+    <option value="installed">Installed on the vehicle</option>
+    <option value="spare">Spare in the garage</option>
+  </select>
+  <label>Installed mileage</label>
+  <input name="installed_mileage" inputmode="numeric" value="{{ item.vehicle.current_mileage or '' }}">
+  <label>Date</label>
+  <input type="date" name="installed_on">
+  <label>Photo — connectors, stamp, the actual part</label>
+  <input type="file" name="photo" accept="image/*" capture="environment">
+  <label>Caption</label>
+  <input name="caption" placeholder="Alternator 3-pin, battery terminals">
+  <div class="btn-row"><button class="btn" type="submit">Save part</button></div>
+</form>
+{% endif %}
+
+{% for sys in systems %}
+<section class="sys-card" id="sys-{{ sys.id }}">
+  <header>
+    <div>
+      <h2>{{ sys.label }}</h2>
+      <p class="muted">{{ sys.hint }}</p>
+    </div>
+    {% if sys.count %}<span class="badge">{{ sys.count }} on</span>{% endif %}
+  </header>
+
+  {% for p in sys.current %}
+    <article class="part-row">
+      <div>
+        <div class="muted" style="font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;font-weight:800">{{ p.slot.replace('_',' ') }}</div>
+        <strong>{{ p.name }}</strong>
+        <div class="muted">
+          {% if p.brand %}{{ p.brand }}{% endif %}
+          {% if p.spec %}{% if p.brand %} · {% endif %}{{ p.spec }}{% endif %}
+          {% if p.part_number %} · #{{ p.part_number }}{% endif %}
+        </div>
+        <div class="muted">
+          {% if p.status == 'spare' %}Spare
+          {% else %}Installed{% endif %}
+          {% if p.installed_mileage %} · {{ p.installed_mileage }} mi{% endif %}
+          {% if p.installed_on %} · {{ p.installed_on }}{% endif %}
+        </div>
+        {% if p.notes %}<p style="margin:.35rem 0 0;white-space:pre-wrap">{{ p.notes }}</p>{% endif %}
+        {% if p.catalog_item_id %}
+          <a href="{{ url_for('items.detail', item_id=p.catalog_item_id) }}">Open in pantry</a>
+        {% endif %}
+      </div>
+      <div class="part-side">
+        {% set shots = part_photos.get(p.id) or [] %}
+        {% if shots %}
+          <div class="photo-strip">
+            {% for ph in shots[:3] %}
+              <img src="{{ url_for('items.serve_photo', photo_id=ph.id) }}" alt="{{ ph.caption or p.name }}">
+            {% endfor %}
+          </div>
+        {% endif %}
+        {% if can_maintain or can_edit %}
+        <form method="post" action="{{ url_for('vehicles.retire_part', item_id=item.id, part_id=p.id) }}">
+          <button class="btn sm secondary" type="submit">Retire</button>
+        </form>
+        {% endif %}
+      </div>
+    </article>
+  {% endfor %}
+
+  {% if sys.empty_slots and (can_maintain or can_edit) %}
+    <div class="slot-chips">
+      {% for sl in sys.empty_slots %}
+        <button type="button" class="chip" data-fill-part data-system="{{ sys.id }}" data-slot="{{ sl.id }}">+ {{ sl.label }}</button>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if sys.history %}
+    <details class="more">
+      <summary>History ({{ sys.history|length }})</summary>
+      {% for p in sys.history %}
+        <div class="muted" style="padding:.35rem 0">
+          <strong>{{ p.name }}</strong>
+          · {{ p.slot.replace('_',' ') }}
+          {% if p.spec %} · {{ p.spec }}{% endif %}
+          {% if p.installed_mileage %} · {{ p.installed_mileage }} mi{% endif %}
+          · {{ p.status }}
+        </div>
+      {% endfor %}
+    </details>
+  {% endif %}
+</section>
+{% endfor %}
+
+<script>
+(function () {
+  const catalog = {{ systems_catalog|tojson }};
+  const sys = document.getElementById("part-system");
+  const slot = document.getElementById("part-slot");
+  const spec = document.getElementById("part-spec");
+  if (!sys || !slot) return;
+  function slotsFor(id) {
+    const row = catalog.find(function (s) { return s.id === id; });
+    return (row && row.slots) || [];
+  }
+  function fillSlots(keep) {
+    const rows = slotsFor(sys.value);
+    const current = keep || slot.value;
+    slot.innerHTML = "";
+    rows.forEach(function (r) {
+      const o = document.createElement("option");
+      o.value = r.id;
+      o.textContent = r.label;
+      if (r.id === current) o.selected = true;
+      slot.appendChild(o);
+    });
+    const picked = rows.find(function (r) { return r.id === slot.value; });
+    if (spec && picked && picked.hint && !spec.value) spec.placeholder = picked.hint;
+  }
+  sys.addEventListener("change", function () { fillSlots(""); });
+  fillSlots(slot.getAttribute("data-initial") || "");
+  document.querySelectorAll("[data-fill-part]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      sys.value = btn.getAttribute("data-system");
+      fillSlots(btn.getAttribute("data-slot"));
+      const form = document.getElementById("part-form");
+      if (form) form.scrollIntoView({ behavior: "smooth", block: "start" });
+      const name = form && form.querySelector('[name="name"]');
+      if (name) name.focus();
+    });
+  });
+})();
+</script>

@@ -107,26 +107,97 @@
     const name = data.name || "This item";
     const extra = data.brand ? '<p class="muted">' + encode(data.brand) + "</p>" : "";
     const code = encodeURIComponent(data.barcode || "");
+    const kind = data.kind || "";
+    const kindLabel = data.kind_label || "New code";
+    const suggested = data.suggested_type || (scanKind === "any" ? "grocery" : scanKind);
+    const img = data.image_url
+      ? '<img class="detail-photo" src="' + encodeURI(data.image_url) + '" alt="">'
+      : "";
     const kindBtns = [];
+    const vehicles = data.vehicles || [];
+    const tools = data.tools || [];
+    if (vehicles.length) {
+      vehicles.forEach(function (v) {
+        kindBtns.push(
+          '<button type="button" class="btn" data-quick="1" data-type="grocery" data-kind="' +
+            encode(kind) +
+            '" data-kind-label="' +
+            encode(kindLabel) +
+            '" data-linked="' +
+            encode(v.id) +
+            '" data-action="restock">Install on ' +
+            encode(v.name) +
+            "</button>"
+        );
+      });
+    }
+    if (tools.length) {
+      tools.forEach(function (t) {
+        kindBtns.push(
+          '<button type="button" class="btn" data-quick="1" data-type="grocery" data-kind="' +
+            encode(kind) +
+            '" data-linked="' +
+            encode(t.id) +
+            '" data-action="restock">Save on ' +
+            encode(t.name) +
+            "</button>"
+        );
+      });
+    }
     if (scanKind === "tool") {
-      kindBtns.push('<a class="btn" href="/items/new?type=tool&barcode=' + code + '">Save as tool — then type the rest</a>');
+      kindBtns.push(
+        '<button type="button" class="btn" data-quick="1" data-type="tool" data-kind="tool">Save as tool</button>'
+      );
     } else if (scanKind === "vehicle") {
-      kindBtns.push('<a class="btn" href="/items/new?type=vehicle&barcode=' + code + '">Save as vehicle — then type the rest</a>');
+      kindBtns.push(
+        '<button type="button" class="btn" data-quick="1" data-type="vehicle">Save as vehicle</button>'
+      );
     } else {
-      kindBtns.push('<button type="button" class="btn warn" data-rescan="want">Want this (grocery)</button>');
-      kindBtns.push('<button type="button" class="btn" data-rescan="got_more">Got more</button>');
-      if (canCreate || data.can_create) {
-        kindBtns.push('<a class="btn secondary" href="/items/new?type=grocery&barcode=' + code + '">Grocery — type the rest</a>');
-        kindBtns.push('<a class="btn secondary" href="/items/new?type=tool&barcode=' + code + '">Tool — type the rest</a>');
-        kindBtns.push('<a class="btn secondary" href="/items/new?type=vehicle&barcode=' + code + '">Vehicle — type the rest</a>');
+      if (suggested === "tool") {
+        kindBtns.push(
+          '<button type="button" class="btn" data-quick="1" data-type="tool" data-kind="' +
+            encode(kind) +
+            '">Save as tool</button>'
+        );
+      } else if (suggested === "vehicle") {
+        kindBtns.push(
+          '<button type="button" class="btn" data-quick="1" data-type="vehicle">Save as vehicle</button>'
+        );
+      } else if (!vehicles.length && !tools.length) {
+        kindBtns.push(
+          '<button type="button" class="btn warn" data-rescan="want">Want this</button>'
+        );
+        kindBtns.push(
+          '<button type="button" class="btn" data-rescan="got_more">Got more</button>'
+        );
+      }
+      if (!vehicles.length && kind && (data.attach_to === "vehicle" || data.attach_to === "tool")) {
+        kindBtns.push(
+          '<button type="button" class="btn" data-quick="1" data-type="grocery" data-kind="' +
+            encode(kind) +
+            '" data-kind-label="' +
+            encode(kindLabel) +
+            '" data-action="restock">Save in the garage</button>'
+        );
       }
     }
-    if ((scanKind === "tool" || scanKind === "vehicle") && (canCreate || data.can_create)) {
-      kindBtns.push('<a class="btn secondary" href="/items/new?type=grocery&barcode=' + code + '">Actually a grocery</a>');
+    if (canCreate || data.can_create) {
+      kindBtns.push(
+        '<label class="btn secondary photo-btn">Photo if the UPC is wrong<input type="file" accept="image/*" capture="environment" hidden data-wrong-upc></label>'
+      );
+      kindBtns.push(
+        '<a class="btn secondary" href="/items/new?type=' +
+          encodeURIComponent(suggested || "grocery") +
+          "&barcode=" +
+          code +
+          '">Type the rest</a>'
+      );
     }
     return (
       '<div class="scan-status-card">' +
-      '<span class="badge want">New code</span>' +
+      '<span class="badge want">' +
+      encode(kindLabel) +
+      "</span>" +
       "<h2>" +
       encode(name) +
       "</h2>" +
@@ -134,14 +205,51 @@
       encode(data.message || "Not in the household yet. Scan captured the code — type the rest, or tap Want.") +
       "</strong></p>" +
       extra +
+      img +
       '<p class="muted">Code ' +
       encode(data.barcode) +
       "</p>" +
-      '<div class="scan-kid-actions">' +
+      '<div class="scan-kid-actions choice-grid">' +
       kindBtns.join("") +
       "</div>" +
       "</div>"
     );
+  }
+
+  async function quickSave(opts) {
+    if (busy) return;
+    busy = true;
+    statusEl.textContent = "Saving…";
+    try {
+      const fd = new FormData();
+      fd.append("name", opts.name || "");
+      fd.append("item_type", opts.type || "grocery");
+      fd.append("barcode", opts.barcode || "");
+      fd.append("kind", opts.kind || "");
+      fd.append("kind_label", opts.kindLabel || "");
+      fd.append("linked_item_id", opts.linked || "");
+      fd.append("action", opts.action || "check");
+      fd.append("caption", opts.caption || "");
+      if (opts.photo) fd.append("photo", opts.photo);
+      const res = await fetch("/api/items/quick", {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrfToken() },
+        body: fd,
+      });
+      const data = await res.json().catch(function () {
+        return {};
+      });
+      if (!res.ok || !data.item_id) {
+        statusEl.textContent = data.error || "Could not save. Try again.";
+        return;
+      }
+      statusEl.textContent = "Saved.";
+      window.location.href = "/items/" + data.item_id;
+    } catch (err) {
+      statusEl.textContent = "Could not save. Try again.";
+    } finally {
+      busy = false;
+    }
   }
 
   async function applyBarcode(barcode, forcedAction) {
@@ -213,12 +321,42 @@
 
   if (resultEl) {
     resultEl.addEventListener("click", function (e) {
+      const quick = e.target.closest("[data-quick]");
+      if (quick) {
+        const code = resultEl.dataset.barcode;
+        const heading = resultEl.querySelector("h2");
+        quickSave({
+          name: heading ? heading.textContent : "",
+          type: quick.getAttribute("data-type") || "grocery",
+          barcode: code,
+          kind: quick.getAttribute("data-kind") || "",
+          kindLabel: quick.getAttribute("data-kind-label") || "",
+          linked: quick.getAttribute("data-linked") || "",
+          action: quick.getAttribute("data-action") || "check",
+        });
+        return;
+      }
       const btn = e.target.closest("[data-rescan]");
       if (!btn) return;
       const code = resultEl.dataset.barcode;
       if (!code) return;
       lastAt = 0;
       applyBarcode(code, btn.getAttribute("data-rescan"));
+    });
+    resultEl.addEventListener("change", function (e) {
+      const input = e.target.closest("[data-wrong-upc]");
+      if (!input || !input.files || !input.files[0]) return;
+      const code = resultEl.dataset.barcode;
+      const heading = resultEl.querySelector("h2");
+      quickSave({
+        name: heading ? heading.textContent : "Photo item",
+        type: "grocery",
+        barcode: code,
+        kind: "",
+        caption: "UPC was wrong — this is the actual item",
+        photo: input.files[0],
+        action: "check",
+      });
     });
   }
 

@@ -19,7 +19,8 @@ class Invite(db.Model):
 
     @staticmethod
     def new_code():
-        return secrets.token_urlsafe(6).replace("-", "").replace("_", "")[:10].upper()
+        raw = secrets.token_urlsafe(6).replace("-", "").replace("_", "")[:8].upper()
+        return f"FAM-{raw}"
 
 
 def create_table():

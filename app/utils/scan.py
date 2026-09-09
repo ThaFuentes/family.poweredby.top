@@ -273,6 +273,32 @@ def _lookup_name(code: str) -> tuple[str, dict]:
     return name[:200], lookup
 
 
+def _classify_payload(household_id: int, lookup: dict, name: str) -> dict:
+    from app.builddb.table_households import Household
+    from app.utils.classify import classify, household_anchors
+
+    household = Household.query.get(household_id)
+    guess = classify(lookup, household=household, extra=name, use_ai=True)
+    anchors = household_anchors(household_id)
+    attach = guess.get("attach_to")
+    return {
+        "kind": guess.get("kind"),
+        "kind_label": guess.get("kind_label"),
+        "suggested_type": guess.get("item_type") or "grocery",
+        "attach_to": attach,
+        "location_hint": guess.get("location_hint"),
+        "questions": guess.get("questions") or [],
+        "confidence": guess.get("confidence"),
+        "classify_source": guess.get("source"),
+        "vehicles": anchors["vehicles"] if attach == "vehicle" else [],
+        "tools": anchors["tools"] if attach == "tool" else [],
+        "message": guess.get("message") or f"{name} isn't in the house yet.",
+        "image_url": (lookup.get("image_url") or "").strip() or None,
+        "brand": (lookup.get("brand") or "").strip() or None,
+        "facts": lookup.get("facts") or {},
+    }
+
+
 def ensure_wanted_item(household_id: int, user_id: int, barcode: str):
     """Create a catalog row for something we don't have yet (qty 0, never stocked)."""
     existing = find_item(household_id, barcode)
@@ -397,17 +423,20 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
             payload["action"] = action
             return payload
         name, lookup = _lookup_name(code)
+        extra = _classify_payload(household_id, lookup, name)
         db.session.commit()
-        return {
+        payload = {
             "found": False,
             "barcode": code,
             "create": True,
             "status": STATUS_WANT,
-            "headline": "Want",
+            "headline": extra.get("kind_label") or "Want",
             "name": name,
-            "brand": (lookup.get("brand") or "").strip() or None,
-            "message": f"{name} isn't in the house yet. Want it?",
+            "brand": extra.get("brand") or (lookup.get("brand") or "").strip() or None,
+            "message": extra.get("message") or f"{name} isn't in the house yet. Want it?",
         }
+        payload.update(extra)
+        return payload
 
     payload = {
         "found": True,

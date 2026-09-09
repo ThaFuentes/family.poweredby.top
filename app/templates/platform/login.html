@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% if setup %}Create owner{% else %}Platform sign in{% endif %} · Family OS</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
+  {% include "partials/theme_head.html" %}
+</head>
+<body class="auth">
+  <div class="auth-page">
+    <div class="wrap">
+      <div class="auth-hero">
+        <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
+        <h1>{% if setup %}First owner{% else %}Owner console{% endif %}</h1>
+        <p class="muted">Not a household login. This is the platform.</p>
+      </div>
+      {% if error %}<div class="flash danger">{{ error }}</div>{% endif %}
+      <div class="card">
+        <form method="post">
+          {% if setup %}
+          <label>Your name</label>
+          <input name="name" autocomplete="name" required>
+          <label>Username</label>
+          <input name="username" autocomplete="username" required>
+          <label>Email</label>
+          <input type="email" name="email" autocomplete="email" required>
+          <label>Password</label>
+          <input type="password" name="password" autocomplete="new-password" required>
+          <label>Confirm password</label>
+          <input type="password" name="confirm" autocomplete="new-password" required>
+          {% if token_needed %}
+          <label>Bootstrap token</label>
+          <input name="bootstrap_token" autocomplete="off" required>
+          <p class="muted">From PLATFORM_BOOTSTRAP_TOKEN in .env. One-time, then this form closes.</p>
+          {% endif %}
+          <div class="btn-row"><button class="btn block" type="submit">Create platform owner</button></div>
+          {% else %}
+          <label>Username or email</label>
+          <input name="username" autocomplete="username" required>
+          <label>Password</label>
+          <input type="password" name="password" autocomplete="current-password" required>
+          <div class="btn-row"><button class="btn block" type="submit">Continue</button></div>
+          {% endif %}
+        </form>
+      </div>
+      <p class="muted" style="text-align:center"><a href="{{ url_for('auth.login') }}">Household sign in</a></p>
+    </div>
+  </div>
+</body>
+</html>

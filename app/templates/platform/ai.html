@@ -1,0 +1,72 @@
+{% extends "platform/base.html" %}
+{% block title %}AI · Platform{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Fallback AI</h1>
+    <p>Households bring their own keys (Gemini, Grok, OpenAI, Claude, Groq, OpenRouter, or custom). This page is only the platform fallback if a household has none.</p>
+  </div>
+</div>
+<div class="card">
+  <p class="muted">{{ ai.hint }}</p>
+  <p>{% if ai.ready %}Active: {{ ai.label }} · {{ ai.model }} · key {{ ai.key_hint }}{% if ai.from_env %} (from .env){% endif %}{% else %}No fallback key yet.{% endif %}</p>
+</div>
+<form class="card" method="post" id="ai-form">
+  <label>Provider</label>
+  <select name="ai_provider" id="ai-provider">
+    {% for p in ai.providers %}
+      <option value="{{ p.id }}" {% if ai.provider==p.id %}selected{% endif %}>{{ p.label }}</option>
+    {% endfor %}
+  </select>
+  <p class="muted" id="ai-hint">{{ ai.hint }}</p>
+  <label>Model</label>
+  <input name="ai_model" id="ai-model" list="ai-models" value="{{ ai.model or '' }}" placeholder="Any model this key can use">
+  <datalist id="ai-models">
+    {% for m in ai.models %}<option value="{{ m }}">{% endfor %}
+  </datalist>
+  <label>API key</label>
+  <input type="password" name="ai_api_key" autocomplete="off" placeholder="{% if ai.has_key %}unchanged · {{ ai.key_hint }}{% else %}{{ ai.placeholder }}{% endif %}">
+  <label id="ai-base-label" {% if ai.provider != 'custom' %}hidden{% endif %}>Base URL</label>
+  <input name="ai_base_url" id="ai-base-url" value="{{ ai.base_url if ai.provider=='custom' else '' }}" placeholder="https://api.example.com/v1" {% if ai.provider != 'custom' %}hidden{% endif %}>
+  <p class="muted">Leave the key blank to keep the current one. Household keys always win.</p>
+  <div class="btn-row"><button class="btn" type="submit">Save fallback</button></div>
+</form>
+<form class="card" method="post" action="{{ url_for('platform.ai_test') }}">
+  <h2>Ping</h2>
+  <p class="muted">One-token “pong”. Does not log the key.</p>
+  <div class="btn-row"><button class="btn secondary" type="submit">Test connection</button></div>
+</form>
+<script>
+(function () {
+  const providers = {{ ai.providers|tojson }};
+  const sel = document.getElementById('ai-provider');
+  const hint = document.getElementById('ai-hint');
+  const list = document.getElementById('ai-models');
+  const model = document.getElementById('ai-model');
+  const base = document.getElementById('ai-base-url');
+  const baseLabel = document.getElementById('ai-base-label');
+  if (!sel) return;
+  function sync() {
+    const p = providers.find(function (x) { return x.id === sel.value; }) || providers[0];
+    if (hint) hint.textContent = p.hint || '';
+    if (list) {
+      list.innerHTML = '';
+      (p.models || []).forEach(function (m) {
+        const o = document.createElement('option');
+        o.value = m;
+        list.appendChild(o);
+      });
+    }
+    const showBase = !!p.needs_base;
+    if (base) base.hidden = !showBase;
+    if (baseLabel) baseLabel.hidden = !showBase;
+  }
+  sel.addEventListener('change', function () {
+    const p = providers.find(function (x) { return x.id === sel.value; });
+    if (p && p.models && p.models[0]) model.value = p.models[0];
+    sync();
+  });
+  sync();
+})();
+</script>
+{% endblock %}

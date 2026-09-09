@@ -1,0 +1,44 @@
+{% extends "platform/base.html" %}
+{% block title %}Email · Platform{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Email</h1>
+    <p>This is the mailbox households <strong>see</strong> on From: when Family OS emails them — password reset, maintenance due. They never see SMTP credentials.</p>
+  </div>
+</div>
+<form class="card" method="post">
+  <label>Mode</label>
+  <select name="mail_mode">
+    <option value="console" {% if mail.mode=='console' %}selected{% endif %}>Console (log only, laptop)</option>
+    <option value="smtp" {% if mail.mode=='smtp' %}selected{% endif %}>SMTP (real send)</option>
+  </select>
+  <label>From name</label>
+  <input name="mail_from_name" value="{{ mail.from_name or '' }}">
+  <label>From email</label>
+  <input type="email" name="mail_from_email" value="{{ mail.from_email or '' }}">
+  <label>Reply-To (optional)</label>
+  <input type="email" name="mail_reply_to" value="{{ mail.reply_to or '' }}">
+  <label>SMTP host</label>
+  <input name="smtp_host" value="{{ mail.smtp_host or '' }}" placeholder="smtp.example.com">
+  <label>Port</label>
+  <input name="smtp_port" inputmode="numeric" value="{{ mail.smtp_port or 587 }}">
+  <label>Encryption</label>
+  <select name="smtp_encryption">
+    <option value="tls" {% if mail.smtp_encryption=='tls' %}selected{% endif %}>STARTTLS</option>
+    <option value="ssl" {% if mail.smtp_encryption=='ssl' %}selected{% endif %}>SSL</option>
+    <option value="none" {% if mail.smtp_encryption=='none' %}selected{% endif %}>None</option>
+  </select>
+  <label>SMTP username</label>
+  <input name="smtp_username" value="{{ mail.smtp_username or '' }}" autocomplete="off">
+  <label>SMTP password</label>
+  <input type="password" name="smtp_password" autocomplete="new-password" placeholder="{% if mail.smtp_password_hint %}unchanged · {{ mail.smtp_password_hint }}{% else %}leave blank to keep{% endif %}">
+  <div class="btn-row"><button class="btn" type="submit">Save</button></div>
+</form>
+<form class="card" method="post" action="{{ url_for('platform.email_test') }}">
+  <h2>Send a test</h2>
+  <label>To</label>
+  <input type="email" name="to" value="{{ owner.email }}" required>
+  <div class="btn-row"><button class="btn secondary" type="submit">Send test</button></div>
+</form>
+{% endblock %}

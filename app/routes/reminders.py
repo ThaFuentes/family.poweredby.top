@@ -1,11 +1,20 @@
 from datetime import datetime
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, Response, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 
 from app.builddb.builddb import db
+from app.builddb.table_households import Household
 from app.builddb.table_reminders import Reminder
 from app.builddb.table_items import Item
+from app.utils.calendar import (
+    NOTIFY_CHOICES,
+    ensure_calendar_token,
+    household_ics,
+    household_reminders_via,
+    user_for_calendar_token,
+)
 from app.utils.household import household_id, scoped
+from app.utils.notify import announce_reminder, flush_due_emails
 from app.utils.permissions import require_perm
 
 reminders_bp = Blueprint("reminders", __name__, url_prefix="/reminders")
@@ -14,9 +23,23 @@ reminders_bp = Blueprint("reminders", __name__, url_prefix="/reminders")
 @reminders_bp.route("/")
 @login_required
 def index():
+    hid = household_id()
+    flush_due_emails(hid)
     rows = scoped(Reminder).order_by(Reminder.due_at.asc()).all()
     items = scoped(Item).order_by(Item.name.asc()).all()
-    return render_template("reminders.html", rows=rows, items=items)
+    household = Household.query.get(hid)
+    token = ensure_calendar_token(current_user)
+    cal_url = url_for("reminders.calendar_feed", token=token, _external=True)
+    webcal = cal_url.replace("https://", "webcal://", 1).replace("http://", "webcal://", 1)
+    return render_template(
+        "reminders.html",
+        rows=rows,
+        items=items,
+        reminders_via=household_reminders_via(household),
+        cal_url=cal_url,
+        webcal=webcal,
+        can_set_via=bool(current_user.is_leader),
+    )
 
 
 @reminders_bp.route("/add", methods=["POST"])
@@ -28,6 +51,8 @@ def add():
     due = (request.form.get("due_at") or "").strip()
     linked = request.form.get("linked_item_id") or None
     recurrence = (request.form.get("recurrence") or "").strip() or None
+    raw_via = (request.form.get("notify_via") or "").strip().lower()
+    via = raw_via if raw_via in NOTIFY_CHOICES else None
     if not title:
         flash("Title required.", "danger")
         return redirect(url_for("reminders.index"))
@@ -38,19 +63,20 @@ def add():
         except ValueError:
             due_at = None
     linked_id = int(linked) if linked else None
-    db.session.add(
-        Reminder(
-            household_id=household_id(),
-            title=title,
-            type=rtype,
-            due_at=due_at,
-            linked_item_id=linked_id,
-            recurrence=recurrence,
-            status="open",
-            created_by=current_user.id,
-        )
+    row = Reminder(
+        household_id=household_id(),
+        title=title,
+        type=rtype,
+        due_at=due_at,
+        linked_item_id=linked_id,
+        recurrence=recurrence,
+        notify_via=via,
+        status="open",
+        created_by=current_user.id,
     )
+    db.session.add(row)
     db.session.commit()
+    announce_reminder(row)
     return redirect(url_for("reminders.index"))
 
 
@@ -61,4 +87,32 @@ def done(rid):
     row = scoped(Reminder).filter_by(id=rid).first_or_404()
     row.status = "done"
     db.session.commit()
+    return redirect(url_for("reminders.index"))
+
+
+@reminders_bp.route("/calendar/<token>.ics")
+def calendar_feed(token):
+    user = user_for_calendar_token(token)
+    if user is None:
+        return Response("Unknown calendar.", status=404, mimetype="text/plain")
+    household = Household.query.get(user.household_id)
+    rows = (
+        Reminder.query.filter_by(household_id=user.household_id, status="open")
+        .order_by(Reminder.due_at.asc())
+        .all()
+    )
+    body = household_ics(household, rows)
+    resp = Response(body, mimetype="text/calendar; charset=utf-8")
+    resp.headers["Content-Disposition"] = 'inline; filename="family-os.ics"'
+    resp.headers["Cache-Control"] = "private, max-age=300"
+    return resp
+
+
+@reminders_bp.route("/calendar/rotate", methods=["POST"])
+@login_required
+def rotate_calendar():
+    from app.utils.calendar import rotate_calendar_token
+
+    rotate_calendar_token(current_user)
+    flash("New calendar link. Update the subscription on your phone.", "success")
     return redirect(url_for("reminders.index"))

@@ -4,9 +4,35 @@
 <div class="page-head">
   <div>
     <h1>Due</h1>
-    <p>Oil changes, blades, filters.</p>
+    <p>Oil changes, blades, filters. Email, calendar, or both — this household decides.</p>
   </div>
 </div>
+<div class="card">
+  <h2>Your calendar</h2>
+  <p class="muted">Subscribe in Apple Calendar, Google, or Outlook. Only this household’s open reminders.</p>
+  <div class="btn-row">
+    <a class="btn" href="{{ webcal }}">Subscribe</a>
+    <a class="btn secondary" href="{{ cal_url }}">Download .ics</a>
+  </div>
+  <label>Feed URL</label>
+  <input value="{{ cal_url }}" readonly onclick="this.select()">
+  <form method="post" action="{{ url_for('reminders.rotate_calendar') }}" class="btn-row">
+    <button class="btn sm secondary" type="submit">New calendar link</button>
+  </form>
+</div>
+{% if can_set_via %}
+<form class="card" method="post" action="{{ url_for('members.set_reminders_via') }}">
+  <input type="hidden" name="next" value="reminders">
+  <h2>This household</h2>
+  <p class="muted">Email (From: Family OS), calendar subscribe, or both.</p>
+  <select name="reminders_via">
+    <option value="email" {% if reminders_via=='email' %}selected{% endif %}>Email</option>
+    <option value="calendar" {% if reminders_via=='calendar' %}selected{% endif %}>Calendar</option>
+    <option value="both" {% if reminders_via=='both' %}selected{% endif %}>Email and calendar</option>
+  </select>
+  <div class="btn-row"><button class="btn" type="submit">Save</button></div>
+</form>
+{% endif %}
 <div class="card list">
   {% for row in rows %}
     <div class="row">
@@ -41,6 +67,13 @@
   </select>
   <label>Recurrence</label>
   <input name="recurrence" placeholder="180d">
+  <label>Notify</label>
+  <select name="notify_via">
+    <option value="">Household default ({{ reminders_via }})</option>
+    <option value="email">Email</option>
+    <option value="calendar">Calendar</option>
+    <option value="both">Email and calendar</option>
+  </select>
   <div class="btn-row"><button class="btn" type="submit">Save</button></div>
 </form>
 {% endblock %}
