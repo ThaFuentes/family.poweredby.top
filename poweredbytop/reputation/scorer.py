@@ -1150,7 +1150,7 @@ def stuck_high_score_offenders(limit: int = 40) -> list[str]:
             """
             SELECT e.ip AS ip, COUNT(*) AS c, COALESCE(r.score, 100) AS score
             FROM pbt_security_events e
-            LEFT JOIN pbt_reputation r ON r.ip = e.ip
+            LEFT JOIN pbt_reputation r ON r.ip COLLATE utf8mb4_unicode_ci = e.ip COLLATE utf8mb4_unicode_ci
             WHERE e.ip IS NOT NULL AND e.ip != '' AND e.ip != '0.0.0.0'
             GROUP BY e.ip, r.score
             HAVING c >= 3 AND COALESCE(r.score, 100) >= 85
