@@ -305,6 +305,48 @@ def rename_household():
     return redirect(url_for("members.index"))
 
 
+@members_bp.route("/handle", methods=["POST"])
+@login_required
+@require_perm("settings")
+def save_handle():
+    from app.utils.identity import valid_handle, norm_handle
+
+    h = Household.query.get(household_id())
+    raw = norm_handle(request.form.get("handle") or "")
+    if not valid_handle(raw):
+        flash("Handle: start with a letter, letters and numbers only. This is how you sign in.", "danger")
+        return redirect(url_for("members.index"))
+    taken = Household.query.filter(Household.handle == raw, Household.id != h.id).first()
+    if taken:
+        flash("That household handle is taken. Try another.", "danger")
+        return redirect(url_for("members.index"))
+    h.handle = raw
+    db.session.commit()
+    flash(f"Household handle is {raw}. Sign in with that plus your username.", "success")
+    return redirect(url_for("members.index"))
+
+
+@members_bp.route("/<int:user_id>/username", methods=["POST"])
+@login_required
+@require_perm("members")
+def set_username(user_id):
+    from app.utils.identity import norm_username, username_taken, valid_username
+
+    hid = household_id()
+    user = User.query.filter_by(id=user_id, household_id=hid).first_or_404()
+    raw = norm_username(request.form.get("username") or "")
+    if not valid_username(raw):
+        flash("Username: start with a letter, then letters, numbers, underscore.", "danger")
+        return redirect(url_for("members.index"))
+    if username_taken(hid, raw, exclude_id=user.id):
+        flash("Someone in this household already uses that username.", "danger")
+        return redirect(url_for("members.index"))
+    user.username = raw
+    db.session.commit()
+    flash(f"{user.name} signs in as {raw}.", "success")
+    return redirect(url_for("members.index"))
+
+
 @members_bp.route("/places", methods=["POST"])
 @login_required
 @require_perm("settings")

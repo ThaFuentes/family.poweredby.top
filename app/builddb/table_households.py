@@ -7,6 +7,7 @@ class Household(db.Model):
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     name = db.Column(db.String(150), nullable=False)
+    handle = db.Column(db.String(32), unique=True, nullable=True)
     invite_code = db.Column(db.String(32), unique=True, nullable=True)
     settings_json = db.Column(db.JSON, nullable=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
@@ -29,6 +30,7 @@ def create_table():
     evolve_table(
         "households",
         [
+            ("handle", "VARCHAR(32) NULL"),
             ("invite_code", "VARCHAR(32) NULL"),
             ("settings_json", "JSON NULL"),
             ("is_active", "TINYINT(1) NOT NULL DEFAULT 1"),
@@ -36,5 +38,43 @@ def create_table():
             ("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
             ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
         ],
-        indexes=[("idx_households_invite", "invite_code")],
+        indexes=[
+            ("idx_households_invite", "invite_code"),
+        ],
     )
+    _backfill_handles()
+    _unique_handle_index()
+
+
+def _backfill_handles():
+    try:
+        from app.utils.identity import unique_handle
+
+        rows = Household.query.filter(
+            (Household.handle.is_(None)) | (Household.handle == "")
+        ).all()
+        for h in rows:
+            h.handle = unique_handle(h.name or "house", exclude_id=h.id)
+        if rows:
+            db.session.commit()
+    except Exception as exc:
+        print(f"[BUILD-DB] household handle backfill: {exc}")
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
+
+def _unique_handle_index():
+    from sqlalchemy import text
+
+    try:
+        with db.engine.begin() as conn:
+            try:
+                conn.execute(text("ALTER TABLE households DROP INDEX `idx_households_handle`"))
+            except Exception:
+                pass
+            conn.execute(text("CREATE UNIQUE INDEX idx_households_handle ON households (handle)"))
+            print("[BUILD-DB] unique household handles")
+    except Exception as idx_e:
+        print(f"[BUILD-DB] household handle unique: {idx_e}")

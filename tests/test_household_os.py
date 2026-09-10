@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from app.builddb.table_platform_invites import PlatformInvite
 from app.utils.calendar import _rrule, household_ics, subscribe_links, vevent
 from app.utils.house_systems import HOUSE_SLOTS, HOUSE_SYSTEMS, house_systems_payload
+from app.utils.identity import norm_handle, norm_username, suggest_handle, valid_handle, valid_username
 from app.utils.places import DEFAULT_PLACES, _norm
 from app.utils.reminders_copy import parse_recurrence, recurrence_label, type_label
 from app.utils.search import _like
@@ -67,6 +68,20 @@ class HouseSystemTests(unittest.TestCase):
         grouped = group_parts([])
         self.assertTrue(grouped)
         self.assertEqual(grouped[0]["id"], "engine")
+
+
+class IdentityTests(unittest.TestCase):
+    def test_username_rules(self):
+        self.assertEqual(norm_username("Maya!"), "maya")
+        self.assertTrue(valid_username("dad"))
+        self.assertTrue(valid_username("kid_2"))
+        self.assertFalse(valid_username("1dad"))
+        self.assertFalse(valid_username(""))
+
+    def test_handle_from_house_name(self):
+        self.assertEqual(suggest_handle("The Fuentes house"), "fuentes")
+        self.assertTrue(valid_handle("fuentes"))
+        self.assertEqual(norm_handle("Fuentes!"), "fuentes")
 
 
 class OwnerKeyTests(unittest.TestCase):

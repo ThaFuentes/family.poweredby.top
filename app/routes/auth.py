@@ -26,13 +26,21 @@ def login():
         return redirect(url_for("home.home"))
     if request.method == "POST":
         ident = (request.form.get("username") or "").strip()
+        household = (request.form.get("household") or "").strip()
         password = request.form.get("password") or ""
         if not ident or not password:
-            flash("Enter your username or email and password.", "danger")
+            flash("Enter your household, username, and password.", "danger")
             return render_template("auth/login.html")
-        user = User.query.filter(
-            (User.username == ident) | (User.email == ident)
-        ).first()
+        from app.utils.identity import find_login
+
+        user = find_login(ident, household)
+        if user is None and ident and not household:
+            from sqlalchemy import func
+
+            n = User.query.filter(func.lower(User.username) == ident.lower()).count()
+            if n > 1:
+                flash("More than one household has that username. Type your household handle too.", "danger")
+                return render_template("auth/login.html")
         if user and user.account_locked_until:
             lock = user.account_locked_until
             if lock.tzinfo is None:
@@ -78,7 +86,7 @@ def login():
             update_reputation_on_login_attempt(get_real_ip(), ident or "unknown", success=False)
         except Exception:
             pass
-        flash("Invalid username or password.", "danger")
+        flash("Invalid household, username, or password.", "danger")
     return render_template("auth/login.html")
 
 
@@ -120,8 +128,15 @@ def register():
             ),
         )
 
+    from app.utils.identity import (
+        norm_username,
+        unique_handle,
+        username_taken,
+        valid_username,
+    )
+
     name = (request.form.get("name") or "").strip()
-    username = (request.form.get("username") or "").strip()
+    username = norm_username(request.form.get("username") or "")
     email = (request.form.get("email") or "").strip().lower() or None
     password = request.form.get("password") or ""
     household_name = (request.form.get("household_name") or "").strip()
@@ -141,11 +156,8 @@ def register():
     if not name or not username or not password:
         flash("Name, username, and password are required.", "danger")
         return render_template("auth/register.html", **ctx)
-    if not family_key and not email:
-        flash("Household leaders need an email so the platform can reach you.", "danger")
-        return render_template("auth/register.html", **ctx)
-    if User.query.filter_by(username=username).first():
-        flash("That username is already taken.", "danger")
+    if not valid_username(username):
+        flash("Username: start with a letter, then letters, numbers, underscore. Unique in your household.", "danger")
         return render_template("auth/register.html", **ctx)
     if email and User.query.filter_by(email=email).first():
         flash("That email is already registered.", "danger")
@@ -173,11 +185,14 @@ def register():
 
         if leader_count(household.id) == 0 and role != "child":
             make_leader = True
+        if username_taken(household.id, username):
+            flash("Someone in that household already uses that username. Pick another.", "danger")
+            return render_template("auth/register.html", **ctx)
     else:
         if not household_name:
             flash("Name your household, or paste a Family key to join one that already exists.", "danger")
             return render_template("auth/register.html", **ctx)
-        household = Household(name=household_name)
+        household = Household(name=household_name, handle=unique_handle(household_name))
         household.rotate_invite_code()
         db.session.add(household)
         db.session.flush()
@@ -221,7 +236,8 @@ def forgot():
 
     if request.method == "POST":
         ident = (request.form.get("username") or "").strip()
-        user = find_user_for_forgot(ident)
+        household = (request.form.get("household") or "").strip()
+        user = find_user_for_forgot(ident, household)
         if user is not None:
             token = issue_reset(user, requested_by=user.id)
             if token:

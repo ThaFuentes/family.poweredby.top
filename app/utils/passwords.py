@@ -61,14 +61,13 @@ def send_reset_email(user: User, token: str) -> tuple[bool, str]:
     return send_mail(user.email, "Reset your Family OS password", body)
 
 
-def find_user_for_forgot(ident: str) -> User | None:
-    ident = (ident or "").strip()
-    if not ident:
+def find_user_for_forgot(ident: str, household: str | None = None) -> User | None:
+    from app.utils.identity import find_login
+
+    user = find_login(ident, household)
+    if user is None or not user.is_active:
         return None
-    q = User.query.filter(User.is_active.is_(True))
-    if "@" in ident:
-        return q.filter(User.email == ident.lower()).first()
-    return q.filter(User.username == ident).first()
+    return user
 
 
 def consume_token(token: str) -> PasswordReset | None:

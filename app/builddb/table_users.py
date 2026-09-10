@@ -12,7 +12,7 @@ class User(UserMixin, db.Model):
     household_id = db.Column(
         db.Integer, db.ForeignKey("households.id", ondelete="CASCADE"), nullable=False
     )
-    username = db.Column(db.String(80), unique=True, nullable=False)
+    username = db.Column(db.String(80), nullable=False)
     name = db.Column(db.String(150), nullable=False, default="")
     email = db.Column(db.String(120), unique=True, nullable=True)
     password_hash = db.Column(db.String(256), nullable=False)
@@ -82,7 +82,50 @@ def create_table():
             ("idx_users_calendar_token", "calendar_token"),
         ],
     )
+    _scope_usernames()
     _backfill_leaders()
+
+
+def _scope_usernames():
+    """Usernames are unique inside a household, not across Family OS."""
+    from sqlalchemy import inspect, text
+
+    try:
+        inspector = inspect(db.engine)
+        if "users" not in inspector.get_table_names():
+            return
+        with db.engine.begin() as conn:
+            for idx in inspector.get_indexes("users"):
+                cols = idx.get("column_names") or []
+                if idx.get("unique") and cols == ["username"]:
+                    try:
+                        conn.execute(text(f"ALTER TABLE users DROP INDEX `{idx['name']}`"))
+                        print(f"[BUILD-DB] dropped global unique {idx['name']} on users.username")
+                    except Exception as drop_e:
+                        print(f"[BUILD-DB] drop username unique: {drop_e}")
+            for uq in inspector.get_unique_constraints("users"):
+                cols = uq.get("column_names") or []
+                if cols == ["username"]:
+                    try:
+                        conn.execute(text(f"ALTER TABLE users DROP INDEX `{uq['name']}`"))
+                    except Exception:
+                        pass
+            try:
+                conn.execute(text("ALTER TABLE users DROP INDEX `idx_users_household_username`"))
+            except Exception:
+                pass
+            try:
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX idx_users_household_username "
+                        "ON users (household_id, username)"
+                    )
+                )
+                print("[BUILD-DB] unique usernames per household")
+            except Exception as idx_e:
+                print(f"[BUILD-DB] household username unique: {idx_e}")
+    except Exception as exc:
+        print(f"[BUILD-DB] scope usernames: {exc}")
 
 
 def _backfill_leaders():

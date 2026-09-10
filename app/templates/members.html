@@ -24,6 +24,12 @@
   <input name="name" value="{{ household.name }}">
   <div class="btn-row"><button class="btn" type="submit">Rename</button></div>
 </form>
+<form class="card" method="post" action="{{ url_for('members.save_handle') }}">
+  <label>Household handle</label>
+  <input name="handle" value="{{ household.handle or '' }}" placeholder="fuentes" autocapitalize="none">
+  <p class="muted">How you sign in. Unique on Family OS. People use this + their username — not email.</p>
+  <div class="btn-row"><button class="btn" type="submit">Save handle</button></div>
+</form>
 <form class="card" method="post" action="{{ url_for('members.save_places') }}">
   <h2>Where things live</h2>
   <p class="muted">Fridge, Garage shelf 2, Junk drawer. One place per line. Scan and Find use these.</p>
@@ -38,10 +44,14 @@
       <div>
         <strong>{{ m.name }}</strong>
         {% if m.is_leader %}<span class="badge">Leader</span>{% endif %}
-        <div class="muted">{{ m.username }} · {{ m.role }}</div>
+        <div class="muted">{{ m.username }} · {{ m.role }}{% if household.handle %} · {{ household.handle }}{% endif %}</div>
         {% if can('members') %}
+        <form method="post" action="{{ url_for('members.set_username', user_id=m.id) }}" class="btn-row" style="margin:.35rem 0 0">
+          <input name="username" value="{{ m.username }}" placeholder="username" autocapitalize="none" style="width:auto;min-width:8rem">
+          <button class="btn sm secondary" type="submit">Save username</button>
+        </form>
         <form method="post" action="{{ url_for('members.set_email', user_id=m.id) }}" class="btn-row" style="margin:.35rem 0 0">
-          <input type="email" name="email" value="{{ m.email or '' }}" placeholder="email for leader contact" style="width:auto;min-width:12rem;flex:1">
+          <input type="email" name="email" value="{{ m.email or '' }}" placeholder="optional email" style="width:auto;min-width:12rem;flex:1">
           <button class="btn sm secondary" type="submit">Save email</button>
         </form>
         {% elif m.email %}

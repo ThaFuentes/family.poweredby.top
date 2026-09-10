@@ -42,12 +42,13 @@
         <form method="post">
           <label>Your name</label>
           <input name="name" required value="{{ name or '' }}" autocomplete="name">
-          <label>Username</label>
-          <input name="username" autocomplete="username" required value="{{ username or '' }}">
-          <label>Email</label>
+          <label>Username for this household</label>
+          <input name="username" autocomplete="username" required value="{{ username or '' }}" placeholder="maya">
+          <p class="muted" style="margin:.25rem 0 .7rem">Unique in your house — dad, maya, kid. Another family can use the same word.</p>
+          <label>Email (optional)</label>
           <input type="email" name="email" autocomplete="email" value="{{ email or '' }}">
           <p class="muted" style="margin:.35rem 0 0">
-            {% if trusted %}This email is on the trusted list — no Service key needed.{% elif bootstrap %}First household on this site — no Service key yet.{% else %}Required to start a household. Optional when joining with a Family key. If someone trusted this email, you can skip the Service key.{% endif %}
+            {% if trusted %}This email is on the trusted list — no Service key needed.{% elif bootstrap %}First household on this site — no Service key yet.{% else %}Skip it. Sign in with household + username. Email is only for password reset by mail, or if someone trusted this address.{% endif %}
           </p>
           <label>Password</label>
           <input type="password" name="password" autocomplete="new-password" required>
