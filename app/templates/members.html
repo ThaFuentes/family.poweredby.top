@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Household · Family OS{% endblock %}
 {% block content %}
+{% include "partials/key_issued.html" %}
 <div class="page-head">
   <div>
     <h1>{{ household.name }}</h1>
@@ -170,7 +171,11 @@
   {% endif %}
   {% for inv in invites %}
     <div class="row">
-      <div><strong>{{ inv.code }}</strong> <span class="muted">· {{ inv.role }} · expires {{ inv.expires_at }}</span></div>
+      <div>
+        <strong class="key-code">{{ inv.code }}</strong>
+        <button type="button" class="btn sm secondary" data-copy="{{ inv.code }}">Copy</button>
+        <span class="muted">· {{ inv.role }} · expires {{ inv.expires_at }}</span>
+      </div>
     </div>
   {% else %}
     <p class="muted">No open Family keys.</p>
@@ -194,7 +199,8 @@
   {% for k in service_keys %}
     <div class="row">
       <div>
-        <strong>{{ k.code }}</strong>
+        <strong class="key-code">{{ k.code }}</strong>
+        <button type="button" class="btn sm secondary" data-copy="{{ k.code }}">Copy</button>
         <div class="muted">
           {% if k.revoked_at %}revoked
           {% elif k.expires_at %}expires {{ k.expires_at }}{% endif %}

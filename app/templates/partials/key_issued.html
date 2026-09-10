@@ -1,0 +1,15 @@
+{% if issued_key and issued_key.code %}
+<div class="key-modal-backdrop" id="issued-key" role="dialog" aria-modal="true" aria-labelledby="issued-key-title">
+  <div class="key-modal">
+    <h2 id="issued-key-title">{{ issued_key.kind }}</h2>
+    {% if issued_key.hint %}<p class="muted">{{ issued_key.hint }}</p>{% endif %}
+    <div class="key-copy-row">
+      <input id="issued-code" readonly value="{{ issued_key.code }}" onclick="this.select()" aria-label="Key">
+      <button type="button" class="btn" data-copy="{{ issued_key.code }}">Copy</button>
+    </div>
+    <div class="btn-row">
+      <button type="button" class="btn secondary" data-close-issued>Done</button>
+    </div>
+  </div>
+</div>
+{% endif %}

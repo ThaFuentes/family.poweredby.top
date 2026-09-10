@@ -1,6 +1,7 @@
 {% extends "platform/base.html" %}
 {% block title %}Access · Platform{% endblock %}
 {% block content %}
+{% include "partials/key_issued.html" %}
 <div class="page-head">
   <div>
     <h1>Friends and family only</h1>
@@ -25,7 +26,8 @@
   {% for k in owner_keys or [] %}
     <div class="row">
       <div>
-        <strong>{{ k.code }}</strong>
+        <strong class="key-code">{{ k.code }}</strong>
+        <button type="button" class="btn sm secondary" data-copy="{{ k.code }}">Copy</button>
         <div class="muted">
           {% if k.revoked_at %}revoked{% elif k.expires_at %}expires {{ k.expires_at }}{% endif %}
           · {{ k.use_count }}/{{ k.max_uses }}
@@ -66,7 +68,8 @@
   {% for k in service_keys %}
     <div class="row">
       <div>
-        <strong>{{ k.code }}</strong>
+        <strong class="key-code">{{ k.code }}</strong>
+        <button type="button" class="btn sm secondary" data-copy="{{ k.code }}">Copy</button>
         <div class="muted">
           {% if k.revoked_at %}revoked{% elif k.expires_at %}expires {{ k.expires_at }}{% endif %}
           · {{ k.use_count }}/{{ k.max_uses }}

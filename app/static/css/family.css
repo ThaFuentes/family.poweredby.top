@@ -359,6 +359,29 @@ textarea { min-height: 5rem; }
 }
 .key-tag.fam { background: #eef4ff; color: #244a7a; }
 .key-tag.srv { background: #e8f5ee; color: var(--green); }
+.key-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .04em; }
+.key-copy-row {
+  display: flex; gap: .5rem; align-items: stretch; margin: .85rem 0 1rem;
+}
+.key-copy-row input {
+  flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 1.15rem; font-weight: 800; letter-spacing: .06em;
+  min-height: 3.1rem;
+}
+.key-modal-backdrop {
+  position: fixed; inset: 0; z-index: 80;
+  background: rgba(12, 18, 16, .45);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1.2rem;
+}
+.key-modal {
+  width: min(26rem, 100%);
+  background: var(--card);
+  border-radius: 1.2rem;
+  padding: 1.15rem 1.1rem 1.2rem;
+  box-shadow: 0 18px 50px rgba(0,0,0,.28);
+}
+.key-modal h2 { margin: 0 0 .35rem; font-size: 1.25rem; }
 .key-legend {
   display: flex; flex-direction: column; gap: .65rem;
   margin: 0 0 .75rem;

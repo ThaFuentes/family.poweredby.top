@@ -223,7 +223,14 @@ def access():
                 days=request.form.get("days") or 30,
             )
             audit("access.service_mint", owner_id=_owner_id(), ip=_ip(), detail={"code": row.code})
-            flash(f"Service key {row.code} — gets someone onto Family OS, not into a household.", "success")
+            from app.utils.keys_ui import stash_issued_key
+
+            stash_issued_key(
+                row.code,
+                "Service key",
+                "Gets someone onto Family OS. Does not put them in a household.",
+            )
+            flash("Service key ready — copy it from the window.", "success")
         elif kind == "trusted":
             ok, msg, _row = add_trusted_email(
                 email=request.form.get("email") or "",
@@ -259,7 +266,14 @@ def access():
                 days=request.form.get("days") or 14,
             )
             audit("access.owner_mint", owner_id=_owner_id(), ip=_ip(), detail={"code": row.code})
-            flash(f"Owner key {row.code} — they open /platform/ and paste it. Not a household key.", "success")
+            from app.utils.keys_ui import stash_issued_key
+
+            stash_issued_key(
+                row.code,
+                "Owner key",
+                "They open /platform/ and paste it. Not a household key.",
+            )
+            flash("Owner key ready — copy it from the window.", "success")
         elif kind == "revoke_owner":
             kid = request.form.get("id") or ""
             if str(kid).isdigit():
@@ -272,10 +286,12 @@ def access():
                     flash(f"{row.code} revoked.", "info")
         return redirect(url_for("platform.access"))
     from app.builddb.table_platform_invites import PlatformInvite
+    from app.utils.keys_ui import pop_issued_key
 
     return render_template(
         "platform/access.html",
         owner=current_owner(),
+        issued_key=pop_issued_key(),
         service_keys=ServicePass.query.order_by(ServicePass.created_at.desc()).limit(80).all(),
         trusted=TrustedEmail.query.order_by(TrustedEmail.created_at.desc()).all(),
         owner_keys=PlatformInvite.query.order_by(PlatformInvite.created_at.desc()).limit(40).all(),

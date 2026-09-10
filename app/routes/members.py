@@ -43,9 +43,11 @@ def index():
         .all()
     )
     from app.utils.places import list_places
+    from app.utils.keys_ui import pop_issued_key
 
     return render_template(
         "members.html",
+        issued_key=pop_issued_key(),
         members=members,
         invites=invites,
         household=household,
@@ -78,10 +80,14 @@ def invite():
         )
     )
     db.session.commit()
-    flash(
-        f"Family key {code} — this person joins THIS household as {role}. Not a Service key.",
-        "success",
+    from app.utils.keys_ui import stash_issued_key
+
+    stash_issued_key(
+        code,
+        "Family key",
+        f"Joins this household as {role}. Not a Service key.",
     )
+    flash("Family key ready — copy it from the window.", "success")
     return redirect(url_for("members.index"))
 
 
@@ -100,10 +106,14 @@ def mint_service_key():
         max_uses=request.form.get("max_uses") or 1,
         days=request.form.get("days") or 14,
     )
-    flash(
-        f"Service key {row.code} — this gets a friend onto Family OS. It does not put them in this household.",
-        "success",
+    from app.utils.keys_ui import stash_issued_key
+
+    stash_issued_key(
+        row.code,
+        "Service key",
+        "Gets a friend onto Family OS. Does not put them in this household.",
     )
+    flash("Service key ready — copy it from the window.", "success")
     return redirect(url_for("members.index"))
 
 
