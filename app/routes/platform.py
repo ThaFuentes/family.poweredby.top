@@ -332,6 +332,28 @@ def resume_household(hid):
     return redirect(url_for("platform.households"))
 
 
+@platform_bp.route("/households/<int:hid>/delete", methods=["POST"])
+@require_owner
+def delete_household(hid):
+    from app.utils.household_delete import confirm_matches, confirm_phrase, delete_household as wipe
+
+    h = Household.query.get_or_404(hid)
+    typed = request.form.get("confirm") or ""
+    if not confirm_matches(h, typed):
+        flash(f'Type "{confirm_phrase(h)}" to delete this household.', "danger")
+        return redirect(url_for("platform.households"))
+    name = wipe(h)
+    audit(
+        "household.delete",
+        owner_id=_owner_id(),
+        household_id=hid,
+        ip=_ip(),
+        detail={"name": name},
+    )
+    flash(f"{name} is gone. That cannot be undone.", "info")
+    return redirect(url_for("platform.households"))
+
+
 @platform_bp.route("/email", methods=["GET", "POST"])
 @require_owner
 def email_settings():

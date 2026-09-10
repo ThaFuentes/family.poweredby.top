@@ -210,6 +210,14 @@ h2 { font-size: 1.02rem; margin: 1.15rem 0 .55rem; letter-spacing: -0.02em; }
 }
 .badge.low { background: #fde8d8; color: var(--terracotta); }
 .badge.out { background: #fdecea; color: var(--danger); }
+.btn.danger {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+.btn.danger:hover { filter: brightness(1.05); }
+.danger-card { border-color: rgba(180, 35, 24, .28); }
+.danger-inline { margin-top: .85rem; padding-top: .75rem; border-top: 1px solid var(--edge); }
 .badge.want { background: #eef4ff; color: #244a7a; }
 
 label { display: block; font-weight: 700; font-size: .78rem; margin: .75rem 0 .3rem; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }

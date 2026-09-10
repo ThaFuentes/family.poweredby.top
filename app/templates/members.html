@@ -256,4 +256,15 @@
   {% endfor %}
 </div>
 {% endif %}
+{% if can('settings') %}
+<div class="card danger-card">
+  <h2>Delete this household</h2>
+  <p class="muted">Removes everyone, the pantry, tools, notes, photos, and keys. There is no undo.</p>
+  <form method="post" action="{{ url_for('members.delete_household') }}">
+    <label>Type <strong>{{ delete_confirm }}</strong> to confirm</label>
+    <input name="confirm" autocomplete="off" autocapitalize="none" required>
+    <div class="btn-row"><button class="btn danger" type="submit">Delete household</button></div>
+  </form>
+</div>
+{% endif %}
 {% endblock %}

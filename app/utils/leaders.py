@@ -104,6 +104,7 @@ def fleet_cards() -> list[dict]:
             {
                 "id": h.id,
                 "name": h.name,
+                "handle": h.handle or "",
                 "created_at": h.created_at,
                 "is_active": bool(h.is_active),
                 "people": int(counts.get(h.id) or 0),

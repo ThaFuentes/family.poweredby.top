@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from app.builddb.table_platform_invites import PlatformInvite
 from app.utils.calendar import _rrule, household_ics, subscribe_links, vevent
 from app.utils.house_systems import HOUSE_SLOTS, HOUSE_SYSTEMS, house_systems_payload
+from app.utils.household_delete import confirm_matches
 from app.utils.identity import norm_handle, norm_username, suggest_handle, valid_handle, valid_username
 from app.utils.places import DEFAULT_PLACES, _norm
 from app.utils.reminders_copy import parse_recurrence, recurrence_label, type_label
@@ -82,6 +83,15 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(suggest_handle("The Fuentes house"), "fuentes")
         self.assertTrue(valid_handle("fuentes"))
         self.assertEqual(norm_handle("Fuentes!"), "fuentes")
+
+
+class DeleteConfirmTests(unittest.TestCase):
+    def test_handle_match(self):
+        h = SimpleNamespace(handle="fuentes", name="The Fuentes house")
+        self.assertTrue(confirm_matches(h, "fuentes"))
+        self.assertTrue(confirm_matches(h, "Fuentes"))
+        self.assertFalse(confirm_matches(h, "The Fuentes house"))
+        self.assertFalse(confirm_matches(h, ""))
 
 
 class OwnerKeyTests(unittest.TestCase):

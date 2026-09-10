@@ -44,10 +44,12 @@ def index():
     )
     from app.utils.places import list_places
     from app.utils.keys_ui import pop_issued_key
+    from app.utils.household_delete import confirm_phrase
 
     return render_template(
         "members.html",
         issued_key=pop_issued_key(),
+        delete_confirm=confirm_phrase(household) if household else "",
         members=members,
         invites=invites,
         household=household,
@@ -324,6 +326,25 @@ def save_handle():
     db.session.commit()
     flash(f"Household handle is {raw}. Sign in with that plus your username.", "success")
     return redirect(url_for("members.index"))
+
+
+@members_bp.route("/delete", methods=["POST"])
+@login_required
+@require_perm("settings")
+def delete_household():
+    from flask_login import logout_user
+
+    from app.utils.household_delete import confirm_matches, confirm_phrase, delete_household as wipe
+
+    h = Household.query.get(household_id())
+    typed = request.form.get("confirm") or ""
+    if not confirm_matches(h, typed):
+        flash(f'Type "{confirm_phrase(h)}" to delete this household.', "danger")
+        return redirect(url_for("members.index"))
+    name = wipe(h)
+    logout_user()
+    flash(f"{name} is gone. That cannot be undone.", "info")
+    return redirect(url_for("home.home"))
 
 
 @members_bp.route("/<int:user_id>/username", methods=["POST"])

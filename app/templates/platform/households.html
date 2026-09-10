@@ -4,7 +4,7 @@
 <div class="page-head">
   <div>
     <h1>Households</h1>
-    <p>Read-only. Leader name and email — the household picks its own leaders. No pantry, notes, or other people.</p>
+    <p>Leader name and email — the household picks its own leaders. Pause, resume, or delete. No pantry, notes, or other people.</p>
   </div>
 </div>
 {% for h in cards %}
@@ -42,6 +42,13 @@
     </form>
     {% endif %}
   </div>
+  <form class="danger-inline" method="post" action="{{ url_for('platform.delete_household', hid=h.id) }}">
+    <label>Delete — type <strong>{{ h.handle or h.name }}</strong></label>
+    <div class="btn-row">
+      <input name="confirm" autocomplete="off" autocapitalize="none" required placeholder="{{ h.handle or h.name }}">
+      <button class="btn sm danger" type="submit">Delete household</button>
+    </div>
+  </form>
 </div>
 {% else %}
 <div class="card empty"><strong>No households yet</strong><span>The first family to register will show up here.</span></div>
