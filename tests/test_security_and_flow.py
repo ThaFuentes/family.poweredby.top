@@ -397,11 +397,37 @@ class FamilySecurityTests(unittest.TestCase):
             "/members/",
             "/appearance/",
             "/items/new",
+            "/find/",
+            "/items/labels",
         ):
             r = self.client.get(path)
             self.assertEqual(r.status_code, 200, f"{path} -> {r.status_code}")
             self.assertNotIn(b"Traceback", r.data)
             self.assertNotIn(b"Internal Server Error", r.data)
+        home = self.client.get("/")
+        body = home.data.decode("utf-8", "replace")
+        self.assertIn("What this household needs", body)
+        self.assertIn("House", body)
+        self.assertIn('action="/find/"', body)
+        find = self.client.get("/find/?q=milk")
+        self.assertEqual(find.status_code, 200)
+        self.assertNotIn(b"Traceback", find.data)
+        house = self.client.get("/house/", follow_redirects=True)
+        self.assertEqual(house.status_code, 200)
+        self.assertIn(b"Systems", house.data)
+        self.assertIn(b"HVAC", house.data)
+        members = self.client.get("/members/")
+        self.assertIn(b"Where things live", members.data)
+        rem = self.client.get("/reminders/")
+        self.assertIn(b"Oil change", rem.data)
+        self.assertIn(b"Every 6 months", rem.data)
+        self.assertNotIn(b"placeholder=\"oil_change\"", rem.data)
+        basket = self.client.get("/groceries/list")
+        self.assertIn(b"basket-live", basket.data)
+        self.assertIn(b'FAMILY_SCAN_KIND = "basket"', basket.data)
+        js = self.client.get("/groceries/list.json")
+        self.assertEqual(js.status_code, 200)
+        self.assertIn("rows", js.get_json())
 
 
 if __name__ == "__main__":

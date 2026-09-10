@@ -9,13 +9,18 @@
 </div>
 <div class="card">
   <h2>Your calendar</h2>
-  <p class="muted">Subscribe in Apple Calendar, Google, or Outlook. Only this household’s open reminders.</p>
+  <p class="muted">Family OS is the source. Apple Calendar, Google Calendar, and Outlook <em>subscribe</em> to this secret feed and refresh it. Not a Google or Microsoft login. Gmail is mail — a due email can attach one event; for a live calendar, subscribe below.</p>
+  <div class="cal-apps">
+    <a class="btn" href="{{ cal_links.apple }}">Add to Apple</a>
+    <a class="btn secondary" href="{{ cal_links.google }}" target="_blank" rel="noopener">Add to Google</a>
+    <a class="btn secondary" href="{{ cal_links.outlook }}" target="_blank" rel="noopener">Add to Outlook</a>
+  </div>
+  <p class="muted">Apple: tap Add to Apple. Google: Add to Google, or Calendar → Other calendars → + → From URL, paste the feed. Outlook: Add to Outlook, or Add calendar → Subscribe from web. Google and Outlook need the live site (https://family.poweredby.top), not this laptop.</p>
+  <label>Feed URL (paste this if a button does not open the app)</label>
+  <input value="{{ cal_url }}" readonly onclick="this.select()">
   <div class="btn-row">
-    <a class="btn" href="{{ webcal }}">Subscribe</a>
     <a class="btn secondary" href="{{ cal_url }}">Download .ics</a>
   </div>
-  <label>Feed URL</label>
-  <input value="{{ cal_url }}" readonly onclick="this.select()">
   <form method="post" action="{{ url_for('reminders.rotate_calendar') }}" class="btn-row">
     <button class="btn sm secondary" type="submit">New calendar link</button>
   </form>
@@ -38,7 +43,7 @@
     <div class="row">
       <div>
         <strong>{{ row.title }}</strong>
-        <div class="muted">{{ row.type }}{% if row.due_at %} · {{ row.due_at }}{% endif %} · {{ row.status }}</div>
+        <div class="muted">{{ type_label(row.type) }}{% if row.due_at %} · {{ row.due_at }}{% endif %}{% if row.recurrence %} · {{ recurrence_label(row.recurrence) }}{% endif %} · {{ row.status }}</div>
       </div>
       {% if row.status == 'open' %}
       <form method="post" action="{{ url_for('reminders.done', rid=row.id) }}">
@@ -54,8 +59,12 @@
   <h2>Add reminder</h2>
   <label>Title</label>
   <input name="title" required>
-  <label>Type</label>
-  <input name="type" placeholder="oil_change">
+  <label>What</label>
+  <select name="type">
+    {% for val, label in reminder_types %}
+      <option value="{{ val }}">{{ label }}</option>
+    {% endfor %}
+  </select>
   <label>Due</label>
   <input type="datetime-local" name="due_at">
   <label>Linked item</label>
@@ -65,8 +74,12 @@
       <option value="{{ it.id }}">{{ it.name }}</option>
     {% endfor %}
   </select>
-  <label>Recurrence</label>
-  <input name="recurrence" placeholder="180d">
+  <label>How often</label>
+  <select name="recurrence">
+    {% for val, label in recurrence_choices %}
+      <option value="{{ val }}">{{ label }}</option>
+    {% endfor %}
+  </select>
   <label>Notify</label>
   <select name="notify_via">
     <option value="">Household default ({{ reminders_via }})</option>

@@ -11,11 +11,19 @@ from app.utils.calendar import (
     ensure_calendar_token,
     household_ics,
     household_reminders_via,
+    subscribe_links,
     user_for_calendar_token,
 )
 from app.utils.household import household_id, scoped
 from app.utils.notify import announce_reminder, flush_due_emails
 from app.utils.permissions import require_perm
+from app.utils.reminders_copy import (
+    REMINDER_TYPES,
+    RECURRENCE,
+    parse_recurrence,
+    recurrence_label,
+    type_label,
+)
 
 reminders_bp = Blueprint("reminders", __name__, url_prefix="/reminders")
 
@@ -30,15 +38,20 @@ def index():
     household = Household.query.get(hid)
     token = ensure_calendar_token(current_user)
     cal_url = url_for("reminders.calendar_feed", token=token, _external=True)
-    webcal = cal_url.replace("https://", "webcal://", 1).replace("http://", "webcal://", 1)
+    links = subscribe_links(cal_url, f"Family OS · {(household.name if household else 'Reminders')}")
     return render_template(
         "reminders.html",
         rows=rows,
         items=items,
         reminders_via=household_reminders_via(household),
-        cal_url=cal_url,
-        webcal=webcal,
+        cal_url=links["https"],
+        webcal=links["webcal"],
+        cal_links=links,
         can_set_via=bool(current_user.is_leader),
+        reminder_types=REMINDER_TYPES,
+        recurrence_choices=RECURRENCE,
+        type_label=type_label,
+        recurrence_label=recurrence_label,
     )
 
 
@@ -48,9 +61,11 @@ def index():
 def add():
     title = (request.form.get("title") or "").strip()
     rtype = (request.form.get("type") or "custom").strip()
+    if rtype not in {k for k, _ in REMINDER_TYPES}:
+        rtype = "custom"
     due = (request.form.get("due_at") or "").strip()
     linked = request.form.get("linked_item_id") or None
-    recurrence = (request.form.get("recurrence") or "").strip() or None
+    recurrence = parse_recurrence(request.form.get("recurrence"))
     raw_via = (request.form.get("notify_via") or "").strip().lower()
     via = raw_via if raw_via in NOTIFY_CHOICES else None
     if not title:
@@ -103,8 +118,10 @@ def calendar_feed(token):
     )
     body = household_ics(household, rows)
     resp = Response(body, mimetype="text/calendar; charset=utf-8")
+    resp.headers["Content-Type"] = "text/calendar; charset=utf-8; method=PUBLISH"
     resp.headers["Content-Disposition"] = 'inline; filename="family-os.ics"'
-    resp.headers["Cache-Control"] = "private, max-age=300"
+    resp.headers["Cache-Control"] = "public, max-age=300"
+    resp.headers["Access-Control-Allow-Origin"] = "*"
     return resp
 
 

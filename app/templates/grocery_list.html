@@ -2,48 +2,63 @@
 {% block title %}Basket · Family OS{% endblock %}
 
 {% macro basket_row(row) %}
-  <div class="row">
-    <div>
+  <label class="basket-row" data-entry-id="{{ row.id }}">
+    {% if can_check %}
+    <input type="checkbox" class="basket-check" data-toggle="{{ row.id }}" {% if row.status == 'done' %}checked{% endif %}>
+    {% endif %}
+    <span>
       <strong>{{ row.name }}</strong>
-      <div class="muted">
+      <span class="muted">
         {% if row.added_reason == 'out' %}Had it — now out
         {% elif row.added_reason == 'want' %}Want
         {% elif row.added_reason in ('need_more', 'low', 'auto_threshold') %}Need more
         {% elif row.added_reason == 'manual' %}Want
         {% else %}{{ row.added_reason or 'Added' }}{% endif %}
         {% if row.quantity_needed %} · get {{ qty_label(row.quantity_needed) }}{% endif %}
-      </div>
-    </div>
-    {% if can_check %}
-    <form method="post" action="{{ url_for('groceries.list_done', entry_id=row.id) }}">
-      <button class="btn sm secondary" type="submit">Got it</button>
-    </form>
-    {% endif %}
-  </div>
+      </span>
+    </span>
+    <noscript>
+      {% if can_check %}
+      <form method="post" action="{{ url_for('groceries.list_done', entry_id=row.id) }}">
+        <button class="btn sm secondary" type="submit">Got it</button>
+      </form>
+      {% endif %}
+    </noscript>
+  </label>
 {% endmacro %}
 
 {% block content %}
 <div class="page-head">
   <div>
     <h1>Basket</h1>
-    <p>Need more of what we have. Want what we don’t — scan it in.</p>
+    <p>Check it off as you walk. Scan the box to mark it got.</p>
   </div>
 </div>
+{% set compact = true %}
+{% set scan_kind = "basket" %}
+{% set scan_title = "Scan what you just picked up" %}
+{% set scan_hint = "Marks it got and puts it back in stock." %}
+{% set scan_autostart = false %}
+{% set can_create = can_add %}
+{% include "partials/scan_strip.html" %}
+
+<div id="basket-live">
 {% if want_rows %}
 <h2>Want</h2>
-<div class="card list">
+<div class="card list basket-list" data-group="want">
   {% for row in want_rows %}{{ basket_row(row) }}{% endfor %}
 </div>
 {% endif %}
 {% if need_rows %}
 <h2>Need</h2>
-<div class="card list">
+<div class="card list basket-list" data-group="need">
   {% for row in need_rows %}{{ basket_row(row) }}{% endfor %}
 </div>
 {% endif %}
 {% if not rows %}
 <div class="card"><div class="empty"><strong>Basket is empty</strong>Scan something you want, or tap Needs more on what you have.</div></div>
 {% endif %}
+</div>
 {% if can_add %}
 <form class="card" method="post" action="{{ url_for('groceries.list_add') }}">
   <label>Want something — no barcode</label>
@@ -51,4 +66,7 @@
   <div class="btn-row"><button class="btn" type="submit">Add to want list</button></div>
 </form>
 {% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/basket.js') }}?v=os1"></script>
 {% endblock %}

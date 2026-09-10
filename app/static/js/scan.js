@@ -9,6 +9,36 @@
   let busy = false;
   let lastCode = "";
   let lastAt = 0;
+  const QUEUE_KEY = "family_scan_queue";
+
+  function readQueue() {
+    try {
+      const raw = localStorage.getItem(QUEUE_KEY);
+      const q = raw ? JSON.parse(raw) : [];
+      return Array.isArray(q) ? q : [];
+    } catch (e) {
+      return [];
+    }
+  }
+  function writeQueue(q) {
+    localStorage.setItem(QUEUE_KEY, JSON.stringify(q.slice(-40)));
+  }
+  function enqueueScan(barcode, action) {
+    const q = readQueue();
+    q.push({ barcode: barcode, action: action || "check", at: Date.now() });
+    writeQueue(q);
+    statusEl.textContent = "Saved for when you're back online.";
+  }
+  async function flushQueue() {
+    if (!navigator.onLine || busy) return;
+    const q = readQueue();
+    if (!q.length) return;
+    writeQueue([]);
+    for (let i = 0; i < q.length; i++) {
+      await applyBarcode(q[i].barcode, q[i].action, true);
+    }
+  }
+  window.addEventListener("online", flushQueue);
 
   function csrfToken() {
     const m = document.querySelector('meta[name="csrf-token"]');
@@ -252,7 +282,55 @@
     }
   }
 
-  async function applyBarcode(barcode, forcedAction) {
+  function mileageCard(data) {
+    const isTool = data.item_type === "tool";
+    const field = isTool ? "hours" : "mileage";
+    const current = isTool
+      ? data.hours_used != null
+        ? data.hours_used
+        : ""
+      : data.current_mileage != null
+        ? data.current_mileage
+        : "";
+    const label = isTool ? "Hours on this tool" : "Miles on the dash";
+    const btn = isTool ? "Log hours" : "Log miles";
+    const link = data.item_id
+      ? '<p><a class="btn secondary" href="/items/' + data.item_id + '">Open ' + encode(data.name || "item") + "</a></p>"
+      : "";
+    return (
+      '<div class="scan-status-card">' +
+      "<h2>" +
+      encode(data.name || "") +
+      "</h2>" +
+      "<p><strong>" +
+      encode(data.message || "Opened.") +
+      "</strong></p>" +
+      '<form class="mileage-form" data-mileage-form data-item="' +
+      encode(data.item_id || "") +
+      '" data-field="' +
+      field +
+      '">' +
+      "<label>" +
+      encode(label) +
+      "</label>" +
+      '<div class="btn-row">' +
+      '<input name="' +
+      field +
+      '" inputmode="numeric" value="' +
+      encode(current) +
+      '" placeholder="' +
+      (isTool ? "Hours" : "87432") +
+      '">' +
+      '<button class="btn" type="submit">' +
+      encode(btn) +
+      "</button>" +
+      "</div></form>" +
+      link +
+      "</div>"
+    );
+  }
+
+  async function applyBarcode(barcode, forcedAction, fromQueue) {
     if (!barcode || busy) return;
     const now = Date.now();
     if (!forcedAction && barcode === lastCode && now - lastAt < 2500) return;
@@ -270,6 +348,11 @@
             ? "Adding what you got…"
             : "Looking it up…";
     statusEl.textContent = verb;
+    if (!navigator.onLine && !fromQueue) {
+      enqueueScan(barcode, forcedAction || "check");
+      busy = false;
+      return;
+    }
     try {
       const res = await fetch("/scan/apply", {
         method: "POST",
@@ -279,7 +362,7 @@
         },
         body: JSON.stringify({
           barcode: barcode,
-          action: forcedAction || "check",
+          action: forcedAction || (scanKind === "basket" ? "got_more" : "check"),
           amount: 1,
         }),
       });
@@ -299,9 +382,25 @@
         statusEl.textContent = "Not in the house yet.";
         return;
       }
+      if (scanKind === "basket") {
+        showResult(
+          "<p><strong>" +
+            encode(data.message || "Updated the basket.") +
+            "</strong></p>",
+          statusClass(data)
+        );
+        statusEl.textContent = "Scan the next thing in the cart.";
+        window.dispatchEvent(new Event("family-basket-refresh"));
+        return;
+      }
       if (data.item_type === "grocery") {
         showResult(groceryCard(data), statusClass(data));
         statusEl.textContent = "Scan another, or tap what happened.";
+        return;
+      }
+      if (data.item_type === "vehicle" || data.item_type === "tool") {
+        showResult(mileageCard(data));
+        statusEl.textContent = "Type the reading, or scan the next thing.";
         return;
       }
       const link = data.item_id
@@ -309,11 +408,9 @@
         : "";
       showResult("<p><strong>" + encode(data.message || "Updated.") + "</strong></p>" + link);
       statusEl.textContent = "Ready for the next scan.";
-      if (data.item_type && data.item_type !== "grocery" && data.item_id) {
-        window.location.href = "/items/" + data.item_id;
-      }
     } catch (err) {
-      statusEl.textContent = "Scan failed. Try again.";
+      if (!fromQueue) enqueueScan(barcode, forcedAction || "check");
+      else statusEl.textContent = "Scan failed. Try again.";
     } finally {
       busy = false;
     }
@@ -342,6 +439,24 @@
       if (!code) return;
       lastAt = 0;
       applyBarcode(code, btn.getAttribute("data-rescan"));
+    });
+    resultEl.addEventListener("submit", function (e) {
+      const form = e.target.closest("[data-mileage-form]");
+      if (!form) return;
+      e.preventDefault();
+      const itemId = form.getAttribute("data-item");
+      if (!itemId) return;
+      const fd = new FormData(form);
+      fd.append("next", "scan");
+      fetch("/items/" + itemId + "/mileage", {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrfToken() },
+        body: fd,
+      }).then(function (res) {
+        statusEl.textContent = res.ok ? "Saved the reading." : "Could not save miles.";
+      }).catch(function () {
+        statusEl.textContent = "Could not save miles.";
+      });
     });
     resultEl.addEventListener("change", function (e) {
       const input = e.target.closest("[data-wrong-upc]");
@@ -412,4 +527,5 @@
   } else {
     startCamera();
   }
+  flushQueue();
 })();

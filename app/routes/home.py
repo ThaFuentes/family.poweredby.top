@@ -3,11 +3,12 @@ from flask_login import current_user
 from sqlalchemy import or_
 
 from app.builddb.table_grocery_list import GroceryListEntry
-from app.builddb.table_grocery_items import GroceryItem
-from app.builddb.table_reminders import Reminder
 from app.builddb.table_items import Item
 from app.builddb.table_notes import Note
-from app.utils.household import scoped
+from app.builddb.table_reminders import Reminder
+from app.utils.household import household_id, scoped
+from app.utils.needs import household_needs
+from app.utils.permissions import role_of
 
 home_bp = Blueprint("home", __name__)
 
@@ -16,41 +17,41 @@ home_bp = Blueprint("home", __name__)
 def home():
     if not current_user.is_authenticated:
         return render_template("landing.html")
+    hid = household_id()
     try:
         from app.utils.notify import flush_due_emails
-        from app.utils.household import household_id as _hid
 
-        flush_due_emails(_hid())
+        flush_due_emails(hid)
     except Exception:
         pass
+    is_child = role_of() == "child"
+    needs = household_needs(hid, is_child=is_child)
     grocery_open = scoped(GroceryListEntry).filter_by(status="open").count()
     reminders_open = scoped(Reminder).filter_by(status="open").count()
     notes_open = scoped(Note).filter(
         or_(Note.visibility == "household", Note.user_id == current_user.id)
     ).count()
-    pantry = scoped(GroceryItem)
-    had_filter = or_(
-        GroceryItem.last_restocked_at.isnot(None),
-        GroceryItem.last_consumed_at.isnot(None),
-        GroceryItem.consume_count > 0,
+    house = (
+        Item.query.filter_by(household_id=hid, item_type="house")
+        .order_by(Item.id.asc())
+        .first()
     )
-    out = pantry.filter(GroceryItem.is_in_stock.is_(False), had_filter).count()
-    want = pantry.filter(
-        GroceryItem.is_in_stock.is_(False),
-        GroceryItem.last_restocked_at.is_(None),
-        GroceryItem.last_consumed_at.is_(None),
-        GroceryItem.consume_count == 0,
-    ).count()
-    low = pantry.filter_by(is_in_stock=True, needs_restock=True).count()
     counts = {
         "groceries": scoped(Item).filter_by(item_type="grocery").count(),
         "tools": scoped(Item).filter_by(item_type="tool").count(),
         "vehicles": scoped(Item).filter_by(item_type="vehicle").count(),
         "list": grocery_open,
         "reminders": reminders_open,
-        "out": out,
-        "low": low,
-        "want": want,
+        "out": needs["out"],
+        "low": needs["low"],
+        "want": needs["want"],
         "notes": notes_open,
     }
-    return render_template("home.html", counts=counts)
+    tmpl = "home_kid.html" if is_child else "home.html"
+    return render_template(
+        tmpl,
+        counts=counts,
+        needs=needs,
+        house=house,
+        is_child=is_child,
+    )

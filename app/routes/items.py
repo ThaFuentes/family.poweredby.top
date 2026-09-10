@@ -45,12 +45,15 @@ def can_create_type(item_type: str) -> bool:
         return True
     if item_type == "grocery" and can("edit_grocery"):
         return True
-    if item_type in ("tool", "vehicle") and can("maintain"):
+    if item_type in ("tool", "vehicle", "house") and can("maintain"):
         return True
     return False
 
 
-def save_item_photo(item, upload, caption=None, user_id=None, part_id=None):
+PHOTO_KINDS = ("photo", "receipt", "serial", "connector")
+
+
+def save_item_photo(item, upload, caption=None, user_id=None, part_id=None, kind=None, warranty_until=None):
     """Save an encrypted household photo. Returns PhotoNote or None."""
     if not upload or not getattr(upload, "filename", None):
         return None
@@ -68,12 +71,23 @@ def save_item_photo(item, upload, caption=None, user_id=None, part_id=None):
     if len(data) > 20 * 1024 * 1024:
         return None
     write_encrypted_file(path, data)
+    kind = (kind or "photo").strip().lower()
+    if kind not in PHOTO_KINDS:
+        kind = "photo"
+    until = None
+    if warranty_until:
+        try:
+            until = datetime.strptime(str(warranty_until)[:10], "%Y-%m-%d").date()
+        except Exception:
+            until = None
     row = PhotoNote(
         household_id=hid,
         item_id=item.id,
         part_id=int(part_id) if part_id else None,
+        kind=kind,
         caption=(caption or "").strip() or None,
         image_path=f"{hid}/{item.id}/{name}",
+        warranty_until=until,
         created_by=user_id,
     )
     db.session.add(row)
@@ -146,7 +160,7 @@ def new_item():
         barcode=barcode,
         suggested=suggested,
         lookup=lookup,
-        types=[t for t in ITEM_TYPES if can_create_type(t)],
+        types=[t for t in ITEM_TYPES if can_create_type(t) and t != "house"],
         barcode_optional=True,
         vehicles=anchors["vehicles"],
         tools=anchors["tools"],
@@ -173,6 +187,13 @@ def _attach_type_row(item, form):
         g.image_url = (form.get("image_url") or "").strip() or None
         g.is_in_stock = g.quantity > 0
         g.needs_restock = g.quantity <= g.restock_threshold
+        extra = dict(g.extra_data or {}) if isinstance(g.extra_data, dict) else {}
+        exp = (form.get("expires_on") or "").strip()
+        if exp:
+            extra["expires_on"] = exp[:10]
+        elif "expires_on" in extra:
+            extra.pop("expires_on", None)
+        g.extra_data = extra or None
         if form.get("product_facts"):
             extra = dict(g.extra_data or {})
             extra["product"] = extra.get("product") or {}
@@ -317,6 +338,24 @@ def quick_create_item(
             )
         except Exception:
             pass
+    try:
+        from app.builddb.table_households import Household
+        from app.utils.places import remember_upc
+
+        if barcode:
+            remember_upc(
+                Household.query.get(hid),
+                barcode,
+                {
+                    "name": item.name,
+                    "item_type": item.item_type,
+                    "linked_item_id": item.linked_item_id,
+                    "kind": kind,
+                    "location": location,
+                },
+            )
+    except Exception:
+        pass
     db.session.commit()
     return item, "ok"
 
@@ -429,7 +468,7 @@ def detail(item_id):
     item = _item_or_404(item_id)
     tab = (request.args.get("tab") or "").strip()
     if not tab:
-        tab = "systems" if item.item_type == "vehicle" else "overview"
+        tab = "systems" if item.item_type in ("vehicle", "house") else "overview"
     hid = household_id()
     maint = (
         MaintenanceRecord.query.filter_by(household_id=hid, parent_id=item.id)
@@ -476,7 +515,8 @@ def detail(item_id):
     systems = []
     systems_catalog = []
     part_photos = {}
-    if item.item_type == "vehicle":
+    systems_host = item.item_type if item.item_type in ("vehicle", "house") else None
+    if systems_host:
         from app.builddb.table_vehicle_parts import VehiclePart
         from app.utils.vehicle_systems import (
             group_parts,
@@ -484,16 +524,23 @@ def detail(item_id):
             systems_payload,
         )
 
-        seeded = seed_from_vehicle_fields(item)
-        if seeded:
-            db.session.commit()
+        if item.item_type == "vehicle":
+            seeded = seed_from_vehicle_fields(item)
+            if seeded:
+                db.session.commit()
         vparts = (
             VehiclePart.query.filter_by(household_id=hid, vehicle_item_id=item.id)
             .order_by(VehiclePart.system.asc(), VehiclePart.slot.asc(), VehiclePart.created_at.desc())
             .all()
         )
-        systems = group_parts(vparts)
-        systems_catalog = systems_payload()
+        if item.item_type == "house":
+            from app.utils.house_systems import group_house_parts, house_systems_payload
+
+            systems = group_house_parts(vparts)
+            systems_catalog = house_systems_payload()
+        else:
+            systems = group_parts(vparts)
+            systems_catalog = systems_payload()
         for ph in photos:
             if ph.part_id:
                 part_photos.setdefault(ph.part_id, []).append(ph)
@@ -523,6 +570,9 @@ def detail(item_id):
         systems=systems,
         systems_catalog=systems_catalog,
         part_photos=part_photos,
+        systems_host=systems_host,
+        photo_kinds=PHOTO_KINDS,
+        expires_on=((item.grocery.extra_data or {}).get("expires_on") if item.grocery and isinstance(item.grocery.extra_data, dict) else None),
     )
 
 
@@ -689,14 +739,34 @@ def maintenance(item_id):
 def add_photo(item_id):
     item = _item_or_404(item_id)
     f = request.files.get("photo")
-    row = save_item_photo(item, f, request.form.get("caption"), current_user.id)
+    kind = (request.form.get("kind") or "photo").strip().lower()
+    warranty = (request.form.get("warranty_until") or "").strip()
+    row = save_item_photo(
+        item,
+        f,
+        request.form.get("caption"),
+        current_user.id,
+        kind=kind,
+        warranty_until=warranty,
+    )
     if not row:
         flash("Choose a jpg, png, webp, or gif.", "danger")
         return redirect(url_for("items.detail", item_id=item.id, tab="photos"))
+    if row.warranty_until:
+        rem = Reminder(
+            household_id=household_id(),
+            linked_item_id=item.id,
+            type="custom",
+            title=f"Warranty — {item.name}",
+            due_at=datetime.combine(row.warranty_until, datetime.min.time()),
+            status="open",
+            created_by=current_user.id,
+        )
+        db.session.add(rem)
     db.session.commit()
     flash("Photo saved.", "success")
     nxt = (request.form.get("next") or "photos").strip() or "photos"
-    if nxt not in ("overview", "photos", "notes", "maintenance", "history"):
+    if nxt not in ("overview", "photos", "notes", "maintenance", "history", "systems"):
         nxt = "photos"
     return redirect(url_for("items.detail", item_id=item.id, tab=nxt))
 
@@ -724,6 +794,145 @@ def qr_png(item_id):
     payload = ensure_item_barcode(item)
     db.session.commit()
     return qr_png_response(payload, f"{item.name}-qr.png")
+
+
+@items_bp.route("/labels")
+@login_required
+def labels():
+    hid = household_id()
+    rows = (
+        Item.query.filter_by(household_id=hid)
+        .filter(Item.item_type.in_(("tool", "vehicle", "house", "custom")))
+        .order_by(Item.item_type.asc(), Item.name.asc())
+        .all()
+    )
+    for item in rows:
+        ensure_item_barcode(item)
+    db.session.commit()
+    return render_template("labels.html", items=rows)
+
+
+@items_bp.route("/<int:item_id>/mileage", methods=["POST"])
+@login_required
+def set_mileage(item_id):
+    if not (can("scan") or can("maintain") or can("edit_meta")):
+        abort(403)
+    item = _item_or_404(item_id)
+    raw = (request.form.get("mileage") or request.form.get("hours") or "").replace(",", "").strip()
+    if item.item_type == "vehicle" and item.vehicle:
+        try:
+            item.vehicle.current_mileage = int(raw)
+        except Exception:
+            flash("Type the miles as a number.", "danger")
+            return redirect(url_for("items.detail", item_id=item.id))
+        db.session.commit()
+        flash(f"{item.name} is at {item.vehicle.current_mileage:,} miles.", "success")
+    elif item.item_type == "tool" and item.tool:
+        try:
+            item.tool.hours_used = _dec(raw, "0")
+        except Exception:
+            flash("Type the hours as a number.", "danger")
+            return redirect(url_for("items.detail", item_id=item.id))
+        db.session.commit()
+        flash(f"{item.name} is at {item.tool.hours_used} hours.", "success")
+    else:
+        abort(404)
+    nxt = (request.form.get("next") or "").strip()
+    if nxt == "scan":
+        return redirect(url_for("scan.scan_page"))
+    return redirect(url_for("items.detail", item_id=item.id, tab="overview"))
+
+
+@items_bp.route("/<int:item_id>/parts", methods=["POST"])
+@login_required
+def add_part(item_id):
+    if not (can("maintain") or can("edit_meta")):
+        abort(403)
+    item = _item_or_404(item_id)
+    if item.item_type not in ("vehicle", "house"):
+        abort(404)
+    name = (request.form.get("name") or "").strip()
+    if not name:
+        flash("Name the part.", "danger")
+        return redirect(url_for("items.detail", item_id=item.id, tab="systems"))
+    hid = household_id()
+    if item.item_type == "house":
+        from app.utils.house_systems import HOUSE_SLOTS, install_house_part
+        from app.utils.vehicle_systems import valid_slot, valid_system
+
+        system = valid_system(request.form.get("system"), HOUSE_SLOTS)
+        slot = valid_slot(system, request.form.get("slot"), HOUSE_SLOTS)
+        row = install_house_part(
+            hid=hid,
+            vehicle_item_id=item.id,
+            user_id=current_user.id,
+            system=system,
+            slot=slot,
+            name=name,
+            brand=request.form.get("brand"),
+            spec=request.form.get("spec"),
+            part_number=request.form.get("part_number"),
+            status=(request.form.get("status") or "installed").strip().lower(),
+            installed_on=request.form.get("installed_on"),
+            installed_mileage=request.form.get("installed_mileage"),
+            notes=request.form.get("notes"),
+            replace_current=(request.form.get("status") or "installed").strip().lower() == "installed",
+        )
+    else:
+        from app.utils.vehicle_systems import install_part, valid_slot, valid_system
+
+        system = valid_system(request.form.get("system"))
+        slot = valid_slot(system, request.form.get("slot"))
+        row = install_part(
+            hid=hid,
+            vehicle_item_id=item.id,
+            user_id=current_user.id,
+            system=system,
+            slot=slot,
+            name=name,
+            brand=request.form.get("brand"),
+            spec=request.form.get("spec"),
+            part_number=request.form.get("part_number"),
+            status=(request.form.get("status") or "installed").strip().lower(),
+            installed_on=request.form.get("installed_on"),
+            installed_mileage=request.form.get("installed_mileage")
+            or (item.vehicle.current_mileage if item.vehicle else None),
+            notes=request.form.get("notes"),
+            replace_current=(request.form.get("status") or "installed").strip().lower() == "installed",
+        )
+    photo = request.files.get("photo")
+    if photo and photo.filename and row:
+        save_item_photo(
+            item,
+            photo,
+            request.form.get("caption") or name,
+            current_user.id,
+            part_id=row.id,
+            kind="connector",
+        )
+    db.session.commit()
+    flash(f"{name} saved on {item.name}.", "success")
+    return redirect(url_for("items.detail", item_id=item.id, tab="systems"))
+
+
+@items_bp.route("/<int:item_id>/parts/<int:part_id>/retire", methods=["POST"])
+@login_required
+def retire_part(item_id, part_id):
+    if not (can("maintain") or can("edit_meta")):
+        abort(403)
+    item = _item_or_404(item_id)
+    from app.builddb.table_vehicle_parts import VehiclePart
+
+    row = (
+        VehiclePart.query.filter_by(
+            id=part_id, household_id=household_id(), vehicle_item_id=item.id
+        ).first_or_404()
+    )
+    row.is_current = False
+    row.status = "retired"
+    db.session.commit()
+    flash(f"{row.name} moved to history.", "info")
+    return redirect(url_for("items.detail", item_id=item.id, tab="systems"))
 
 
 @items_bp.route("/<int:item_id>/delete", methods=["POST"])

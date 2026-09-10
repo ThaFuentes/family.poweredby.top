@@ -96,8 +96,17 @@ def create_app():
             household_name = None
         from app.utils.scan import qty_label as _qty_label
         from app.utils.themes import read_theme, THEMES
+        from app.utils.places import list_places as _list_places
+        from app.utils.permissions import role_of as _role_of
 
         theme_id = read_theme()
+        places = []
+        hh = getattr(current_user, "household", None) if getattr(current_user, "is_authenticated", False) else None
+        if hh is not None:
+            try:
+                places = _list_places(hh)
+            except Exception:
+                places = []
         return {
             "SITE_MODE": "family",
             "SITE_NAME": "Family OS",
@@ -106,6 +115,8 @@ def create_app():
             "qty_label": _qty_label,
             "current_theme": theme_id,
             "theme_color": THEMES[theme_id]["color"],
+            "places": places,
+            "is_child": _role_of() == "child" if getattr(current_user, "is_authenticated", False) else False,
         }
 
     from app.routes.auth import auth_bp
@@ -121,6 +132,8 @@ def create_app():
     from app.routes.appearance import appearance_bp
     from app.routes.notes import notes_bp
     from app.routes.platform import platform_bp
+    from app.routes.find import find_bp
+    from app.routes.house import house_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(home_bp)
@@ -135,6 +148,8 @@ def create_app():
     app.register_blueprint(appearance_bp)
     app.register_blueprint(notes_bp)
     app.register_blueprint(platform_bp)
+    app.register_blueprint(find_bp)
+    app.register_blueprint(house_bp)
 
     @app.before_request
     def _block_paused_household():

@@ -23,6 +23,12 @@
   <input name="name" value="{{ household.name }}">
   <div class="btn-row"><button class="btn" type="submit">Rename</button></div>
 </form>
+<form class="card" method="post" action="{{ url_for('members.save_places') }}">
+  <h2>Where things live</h2>
+  <p class="muted">Fridge, Garage shelf 2, Junk drawer. One place per line. Scan and Find use these.</p>
+  <textarea name="places" rows="8">{{ places_text }}</textarea>
+  <div class="btn-row"><button class="btn" type="submit">Save places</button></div>
+</form>
 {% endif %}
 <div class="card list">
   <h2>People</h2>

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Find · Family OS{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Find</h1>
+    <p>Name, brand, barcode, place, or a part number.</p>
+  </div>
+</div>
+<form class="card" method="get" action="{{ url_for('find.index') }}">
+  <label for="q">Search</label>
+  <div class="btn-row">
+    <input id="q" name="q" value="{{ q }}" placeholder="10mm, Civic battery, bar oil" autofocus>
+    <button class="btn" type="submit">Find</button>
+  </div>
+</form>
+{% if q and not hits.item_rows and not hits.note_rows and not hits.part_rows %}
+<div class="card"><div class="empty"><strong>Nothing matches</strong>Try a shorter word.</div></div>
+{% endif %}
+{% if hits.item_rows %}
+<h2>Things</h2>
+<div class="card list">
+  {% for item in hits.item_rows %}
+    <a class="row" href="{{ url_for('items.detail', item_id=item.id) }}">
+      <div>
+        <strong>{{ item.name }}</strong>
+        <div class="muted">{{ item.item_type }}{% if item.grocery and item.grocery.default_location %} · {{ item.grocery.default_location }}{% endif %}{% if item.grocery and item.grocery.brand %} · {{ item.grocery.brand }}{% endif %}</div>
+      </div>
+      <span class="badge">{{ item.item_type }}</span>
+    </a>
+  {% endfor %}
+</div>
+{% endif %}
+{% if hits.part_rows %}
+<h2>Parts</h2>
+<div class="card list">
+  {% for p in hits.part_rows %}
+    <a class="row" href="{{ url_for('items.detail', item_id=p.vehicle_item_id, tab='systems') }}">
+      <div>
+        <strong>{{ p.name }}</strong>
+        <div class="muted">{{ p.system }} · {{ p.slot.replace('_',' ') }}{% if p.part_number %} · #{{ p.part_number }}{% endif %}</div>
+      </div>
+    </a>
+  {% endfor %}
+</div>
+{% endif %}
+{% if hits.note_rows %}
+<h2>Notes</h2>
+<div class="card list">
+  {% for n in hits.note_rows %}
+    <a class="row" href="{{ url_for('notes.index') }}">
+      <div>
+        <strong>{{ n.title }}</strong>
+        {% if n.body %}<div class="muted">{{ n.body[:120] }}</div>{% endif %}
+      </div>
+    </a>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

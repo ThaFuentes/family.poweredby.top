@@ -4,18 +4,60 @@
 <div class="page-head">
   <div>
     <h1>Home</h1>
-    <p>Scan a code and type the rest — or type the whole thing. Both always work.</p>
+    <p>What this household needs. Scan from the button below.</p>
   </div>
 </div>
-{% if counts.out or counts.low or counts.want %}
-<a class="attention {% if counts.out %}is-out{% endif %}" href="{{ url_for('groceries.index') }}">
-  {% if counts.out %}<strong>{{ counts.out }} out</strong>{% endif %}
-  {% if counts.out and (counts.low or counts.want) %} · {% endif %}
-  {% if counts.low %}{{ counts.low }} need more{% endif %}
-  {% if counts.low and counts.want %} · {% endif %}
-  {% if counts.want %}{{ counts.want }} want{% endif %}
-</a>
+
+{% if needs.due or needs.out or needs.low or needs.expiring %}
+<section class="needs-stack" aria-label="Needs you">
+  {% for row in needs.due %}
+  <a class="need-card {% if row.overdue %}is-out{% endif %}" href="{% if row.item_id %}{{ url_for('items.detail', item_id=row.item_id) }}{% else %}{{ url_for('reminders.index') }}{% endif %}">
+    <span class="kicker">{% if row.overdue %}Overdue{% else %}Due{% endif %}</span>
+    <strong>{{ row.title }}</strong>
+    {% if row.due_at %}<span class="muted">{{ row.due_at }}</span>{% endif %}
+  </a>
+  {% endfor %}
+  {% if needs.out %}
+  <a class="need-card is-out" href="{{ url_for('groceries.index') }}">
+    <span class="kicker">Pantry</span>
+    <strong>{{ needs.out }} out</strong>
+    <span class="muted">Tap to see what ran out</span>
+  </a>
+  {% endif %}
+  {% if needs.low %}
+  <a class="need-card is-low" href="{{ url_for('groceries.grocery_list') }}">
+    <span class="kicker">Need more</span>
+    <strong>{{ needs.low }} running low</strong>
+    <span class="muted">On the basket</span>
+  </a>
+  {% endif %}
+  {% for row in needs.expiring %}
+  <a class="need-card {% if row.gone %}is-out{% else %}is-low{% endif %}" href="{{ url_for('items.detail', item_id=row.item.id) }}">
+    <span class="kicker">{% if row.gone %}Expired{% else %}Expires{% endif %}</span>
+    <strong>{{ row.item.name }}</strong>
+    <span class="muted">{{ row.expires_on }}</span>
+  </a>
+  {% endfor %}
+</section>
 {% endif %}
+
+{% if needs.activity %}
+<section class="card list activity-strip">
+  <h2>Today</h2>
+  {% for ev in needs.activity %}
+    {% if ev.item_id %}
+    <a class="row" href="{{ url_for('items.detail', item_id=ev.item_id) }}">
+      <div><strong>{{ ev.line }}</strong><div class="muted">{{ ev.at }}</div></div>
+    </a>
+    {% else %}
+    <div class="row">
+      <div><strong>{{ ev.line }}</strong><div class="muted">{{ ev.at }}</div></div>
+    </div>
+    {% endif %}
+  {% endfor %}
+</section>
+{% endif %}
+
 <div class="grid">
   <a class="tile tile-scan" href="{{ url_for('scan.scan_page') }}">
     <span class="ico" aria-hidden="true">
@@ -38,6 +80,12 @@
     <span class="kicker">Shopping</span>
     <span class="label">Basket</span>
     <span class="count">{% if counts.list %}{{ counts.list }} in the basket{% else %}Caught up{% endif %}</span>
+  </a>
+  <a class="tile" href="{{ url_for('house.index') }}">
+    <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"/></svg></span>
+    <span class="kicker">Building</span>
+    <span class="label">House</span>
+    <span class="count">HVAC, water, smoke, filters</span>
   </a>
   <a class="tile" href="{{ url_for('tools.index') }}">
     <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 0 0 5.4-5.4l-2.2 2.2-1.8-1.8z"/></svg></span>

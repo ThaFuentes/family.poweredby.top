@@ -36,6 +36,8 @@ _ACTION_ALIASES = {
     "bought": "restock",
     "got_more": "restock",
     "got-more": "restock",
+    "got_it": "restock",
+    "got-it": "restock",
     "needs_more": "need_more",
     "needs-more": "need_more",
     "need-more": "need_more",
@@ -43,6 +45,9 @@ _ACTION_ALIASES = {
     "wish": "want",
     "wishlist": "want",
     "want_this": "want",
+    "miles": "mileage",
+    "odometer": "mileage",
+    "hours": "hours",
 }
 
 
@@ -424,6 +429,23 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
             return payload
         name, lookup = _lookup_name(code)
         extra = _classify_payload(household_id, lookup, name)
+        try:
+            from app.builddb.table_households import Household
+            from app.utils.places import recall_upc
+
+            remembered = recall_upc(Household.query.get(household_id), code)
+        except Exception:
+            remembered = None
+        if remembered:
+            extra["remembered"] = True
+            extra["kind"] = remembered.get("kind") or extra.get("kind")
+            extra["kind_label"] = extra.get("kind_label")
+            extra["suggested_type"] = remembered.get("item_type") or extra.get("suggested_type")
+            extra["location_hint"] = remembered.get("location") or extra.get("location_hint")
+            if remembered.get("linked_item_id"):
+                extra["linked_item_id"] = remembered.get("linked_item_id")
+            if remembered.get("name"):
+                name = remembered["name"]
         db.session.commit()
         payload = {
             "found": False,
@@ -495,14 +517,37 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
             if t:
                 payload["oil_type"] = t.oil_type
                 payload["fuel_type"] = t.fuel_type
+                payload["hours_used"] = float(t.hours_used) if t.hours_used is not None else None
                 payload["last_maintenance_at"] = (
                     t.last_maintenance_at.isoformat() if t.last_maintenance_at else None
                 )
+                if action == "hours":
+                    try:
+                        hours = float(str(amount).replace(",", "").strip())
+                    except Exception:
+                        hours = None
+                    if hours is not None:
+                        t.hours_used = hours
+                        payload["hours_used"] = hours
+                        payload["message"] = f"{item.name} is at {hours:g} hours."
+                        action = "hours"
         if item.item_type == "vehicle":
             v = Vehicle.query.filter_by(household_id=household_id, item_id=item.id).first()
             if v:
                 payload["oil_type"] = v.oil_type
                 payload["current_mileage"] = v.current_mileage
+                if action == "mileage":
+                    try:
+                        miles = int(str(amount).replace(",", "").strip())
+                    except Exception:
+                        miles = None
+                    if miles is not None:
+                        v.current_mileage = miles
+                        payload["current_mileage"] = miles
+                        payload["message"] = f"{item.name} is at {miles:,} miles."
+                        action = "mileage"
+        if item.item_type in ("vehicle", "tool", "house"):
+            payload["stay"] = True
 
     event.item_id = item.id
     event.action = action

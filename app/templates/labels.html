@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}QR labels · Family OS{% endblock %}
+{% block content %}
+<div class="page-head no-print">
+  <div>
+    <h1>QR labels</h1>
+    <p>Print these for tools, cars, and the house. Stick them where the thing lives.</p>
+  </div>
+  <button class="btn" type="button" onclick="window.print()">Print</button>
+</div>
+<div class="label-sheet">
+  {% for item in items %}
+  <figure class="qr-label">
+    <img src="{{ url_for('items.qr_png', item_id=item.id) }}" alt="QR for {{ item.name }}">
+    <figcaption>
+      <strong>{{ item.name }}</strong>
+      <span>{{ item.item_type }}</span>
+    </figcaption>
+  </figure>
+  {% else %}
+  <div class="card no-print"><div class="empty"><strong>Nothing to label yet</strong>Add a tool, car, or open House first.</div></div>
+  {% endfor %}
+</div>
+{% endblock %}

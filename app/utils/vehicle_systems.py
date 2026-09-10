@@ -170,15 +170,17 @@ def slot_hint(system_id: str, slot_id: str) -> str:
     return ""
 
 
-def valid_system(system_id: str) -> str:
+def valid_system(system_id: str, slots=None) -> str:
+    slot_map = slots or SLOTS
     s = (system_id or "").strip().lower()
-    return s if s in SLOTS else "other"
+    return s if s in slot_map else "other"
 
 
-def valid_slot(system_id: str, slot_id: str) -> str:
-    system_id = valid_system(system_id)
+def valid_slot(system_id: str, slot_id: str, slots=None) -> str:
+    slot_map = slots or SLOTS
+    system_id = valid_system(system_id, slot_map)
     s = (slot_id or "").strip().lower()
-    ordered = [row[0] for row in SLOTS.get(system_id) or ()]
+    ordered = [row[0] for row in slot_map.get(system_id) or ()]
     if s in ordered:
         return s
     return ordered[0] if ordered else "misc"
@@ -205,9 +207,11 @@ def guess_slot(kind: str | None = None, name: str = "", category: str = "") -> t
     return "other", "misc"
 
 
-def systems_payload() -> list[dict]:
+def systems_payload(systems=None, slots=None) -> list[dict]:
+    catalog = systems or SYSTEMS
+    slot_map = slots or SLOTS
     out = []
-    for sid, label, hint in SYSTEMS:
+    for sid, label, hint in catalog:
         out.append(
             {
                 "id": sid,
@@ -215,7 +219,7 @@ def systems_payload() -> list[dict]:
                 "hint": hint,
                 "slots": [
                     {"id": slot, "label": slabel, "hint": shint}
-                    for slot, slabel, shint in SLOTS.get(sid) or ()
+                    for slot, slabel, shint in slot_map.get(sid) or ()
                 ],
             }
         )
@@ -239,6 +243,7 @@ def install_part(
     notes: str | None = None,
     catalog_item_id=None,
     replace_current: bool = True,
+    catalog_slots=None,
 ):
     from datetime import date
 
@@ -248,8 +253,9 @@ def install_part(
     name = (name or "").strip()
     if not name:
         return None
-    system = valid_system(system)
-    slot = valid_slot(system, slot)
+    slot_map = catalog_slots or SLOTS
+    system = valid_system(system, slot_map)
+    slot = valid_slot(system, slot, slot_map)
     status = (status or "installed").strip().lower()
     if status not in ("installed", "spare", "retired"):
         status = "installed"
@@ -319,10 +325,17 @@ def attach_scanned_part(
 ):
     from app.builddb.table_items import Item
 
-    vehicle = Item.query.filter_by(id=vehicle_item_id, household_id=hid, item_type="vehicle").first()
-    if vehicle is None:
+    vehicle = Item.query.filter_by(id=vehicle_item_id, household_id=hid).first()
+    if vehicle is None or vehicle.item_type not in ("vehicle", "house"):
         return None
     system, slot = guess_slot(kind, name=name, category=getattr(catalog_item, "category", "") or "")
+    catalog_slots = None
+    if vehicle.item_type == "house":
+        from app.utils.house_systems import HOUSE_SLOTS
+
+        catalog_slots = HOUSE_SLOTS
+        if (kind or "") in ("filter", "hvac_filter") or "filter" in (name or "").lower():
+            system, slot = "hvac", "filter"
     spec = None
     if catalog_item is not None and getattr(catalog_item, "grocery", None):
         spec = catalog_item.grocery.size
@@ -337,6 +350,7 @@ def attach_scanned_part(
         spec=spec,
         catalog_item_id=getattr(catalog_item, "id", None),
         status="installed",
+        catalog_slots=catalog_slots,
     )
 
 
@@ -375,21 +389,23 @@ def seed_from_vehicle_fields(vehicle_item) -> int:
     return n
 
 
-def group_parts(parts) -> list[dict]:
+def group_parts(parts, systems=None, slots=None) -> list[dict]:
     """parts: iterable of VehiclePart. Current first, then history."""
-    by_sys: dict[str, list] = {sid: [] for sid, _l, _h in SYSTEMS}
+    catalog = systems or SYSTEMS
+    slot_map = slots or SLOTS
+    by_sys: dict[str, list] = {sid: [] for sid, _l, _h in catalog}
     for p in parts:
-        sid = valid_system(getattr(p, "system", None) or "other")
+        sid = valid_system(getattr(p, "system", None) or "other", slot_map)
         by_sys.setdefault(sid, []).append(p)
     grouped = []
-    for sid, label, hint in SYSTEMS:
+    for sid, label, hint in catalog:
         rows = by_sys.get(sid) or []
         current = [p for p in rows if getattr(p, "is_current", False) and (p.status or "installed") != "retired"]
         history = [p for p in rows if p not in current]
         filled_slots = {p.slot for p in current}
         empty = [
             {"id": slot, "label": slabel, "hint": shint}
-            for slot, slabel, shint in SLOTS.get(sid) or ()
+            for slot, slabel, shint in slot_map.get(sid) or ()
             if slot not in filled_slots
         ]
         grouped.append(

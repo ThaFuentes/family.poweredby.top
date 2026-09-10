@@ -1,7 +1,7 @@
-<p class="muted" style="margin:0 0 .85rem">Not a notepad. Each system holds the actual part — spec, brand, number, photo of the connector.</p>
+<p class="muted" style="margin:0 0 .85rem">{% if systems_host == 'house' %}Filter size, water heater, smoke, the panel. Photo the data plate.{% else %}Not a notepad. Each system holds the actual part — spec, brand, number, photo of the connector.{% endif %}</p>
 
 {% if can_maintain or can_edit %}
-<form class="card" id="part-form" method="post" action="{{ url_for('vehicles.add_part', item_id=item.id) }}" enctype="multipart/form-data">
+<form class="card" id="part-form" method="post" action="{{ url_for('items.add_part', item_id=item.id) }}" enctype="multipart/form-data">
   <h2>Add or replace a part</h2>
   <p class="muted">Installing a battery on Electrical replaces the one that’s there and keeps the old one in history.</p>
   <label>System</label>
@@ -25,8 +25,8 @@
     <option value="installed">Installed on the vehicle</option>
     <option value="spare">Spare in the garage</option>
   </select>
-  <label>Installed mileage</label>
-  <input name="installed_mileage" inputmode="numeric" value="{{ item.vehicle.current_mileage or '' }}">
+  <label>{% if systems_host == 'house' %}Hours / reading (optional){% else %}Installed mileage{% endif %}</label>
+  <input name="installed_mileage" inputmode="numeric" value="{{ (item.vehicle.current_mileage if item.vehicle else '') }}">
   <label>Date</label>
   <input type="date" name="installed_on">
   <label>Photo — connectors, stamp, the actual part</label>
@@ -78,7 +78,7 @@
           </div>
         {% endif %}
         {% if can_maintain or can_edit %}
-        <form method="post" action="{{ url_for('vehicles.retire_part', item_id=item.id, part_id=p.id) }}">
+        <form method="post" action="{{ url_for('items.retire_part', item_id=item.id, part_id=p.id) }}">
           <button class="btn sm secondary" type="submit">Retire</button>
         </form>
         {% endif %}

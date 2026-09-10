@@ -1,7 +1,7 @@
 from app.builddb.builddb import db, evolve_table
 from app.utils.crypto import EncryptedText
 
-ITEM_TYPES = ("grocery", "tool", "vehicle", "custom")
+ITEM_TYPES = ("grocery", "tool", "vehicle", "house", "custom")
 
 
 class Item(db.Model):

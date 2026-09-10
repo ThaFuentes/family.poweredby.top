@@ -61,8 +61,19 @@ def send_mail(
         msg["Reply-To"] = cfg["reply_to"]
     msg.set_content(body or "")
     if ics:
+        raw = ics if isinstance(ics, (bytes, bytearray)) else str(ics).encode("utf-8")
+        try:
+            msg.add_alternative(
+                raw.decode("utf-8"),
+                subtype="calendar",
+            )
+            alt = msg.get_payload()[-1]
+            alt.set_param("method", "PUBLISH")
+            alt.set_param("charset", "UTF-8")
+        except Exception:
+            pass
         msg.add_attachment(
-            ics,
+            raw,
             maintype="text",
             subtype="calendar",
             filename=ics_name,

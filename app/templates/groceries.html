@@ -35,6 +35,14 @@
   </div>
   <a class="btn sm secondary" href="{{ url_for('groceries.grocery_list') }}">Basket</a>
 </div>
+{% if places %}
+<div class="place-chips no-print">
+  <a class="{% if not place %}on{% endif %}" href="{{ url_for('groceries.index') }}">All</a>
+  {% for p in places %}
+    <a class="{% if place==p %}on{% endif %}" href="{{ url_for('groceries.index', place=p) }}">{{ p }}</a>
+  {% endfor %}
+</div>
+{% endif %}
 {% set compact = true %}
 {% set scan_kind = "grocery" %}
 {% set scan_title = "Scan a grocery UPC" %}
@@ -53,7 +61,12 @@
   <label>Brand</label>
   <input name="brand">
   <label>Where it lives</label>
-  <input name="default_location" placeholder="Fridge door">
+  <select name="default_location">
+    <option value="">—</option>
+    {% for p in places %}
+      <option value="{{ p }}">{{ p }}</option>
+    {% endfor %}
+  </select>
   <label>Photo (optional)</label>
   <input type="file" name="photo" accept="image/*" capture="environment">
   <label>Photo caption</label>

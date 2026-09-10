@@ -18,16 +18,23 @@
       </span>
     </a>
     {% if current_user.is_authenticated %}
+    <form class="find-box" method="get" action="{{ url_for('find.index') }}" role="search">
+      <label class="sr-only" for="top-find">Find</label>
+      <input id="top-find" name="q" placeholder="Find…" value="{{ request.args.get('q','') if request.endpoint == 'find.index' else '' }}" autocomplete="off">
+    </form>
     <div class="who who-menu" id="who-menu">
       <button class="who-chip" type="button" id="who-toggle" aria-haspopup="true">
         <span class="avatar">{{ (current_user.name or current_user.username or '?')[0]|upper }}</span>
       </button>
       <div class="sheet" role="menu">
         <div class="muted" style="padding:.45rem .75rem .2rem;font-size:.75rem">{{ current_user.name or current_user.username }} · {{ current_user.role }}</div>
+        <a href="{{ url_for('find.index') }}">Find</a>
         <a href="{{ url_for('notes.index') }}">Notes</a>
+        <a href="{{ url_for('house.index') }}">House</a>
         <a href="{{ url_for('appearance.picker') }}">Look</a>
         {% if current_user.role != 'child' %}
         <a href="{{ url_for('members.index') }}">Household</a>
+        <a href="{{ url_for('items.labels') }}">Print QR labels</a>
         {% endif %}
         {% if current_user.is_admin %}
         <a href="{{ url_for('items.new_item') }}">Add item</a>
@@ -70,7 +77,7 @@
     </a>
   </nav>
   {% endif %}
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=os6"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=os7"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

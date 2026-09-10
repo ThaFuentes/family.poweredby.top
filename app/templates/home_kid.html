@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Home · Family OS{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Scan</h1>
+    <p>Point the camera. Then tap Just used, Needs more, or Got more.</p>
+  </div>
+</div>
+{% set scan_kind = "any" %}
+{% set scan_title = "Scan a code" %}
+{% set can_create = false %}
+{% include "partials/scan_strip.html" %}
+
+{% if needs.activity %}
+<section class="card list activity-strip">
+  <h2>Just now</h2>
+  {% for ev in needs.activity %}
+    <div class="row">
+      <div><strong>{{ ev.line }}</strong><div class="muted">{{ ev.at }}</div></div>
+    </div>
+  {% endfor %}
+</section>
+{% endif %}
+{% endblock %}

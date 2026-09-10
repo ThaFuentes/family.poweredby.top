@@ -42,6 +42,8 @@ def index():
         .order_by(TrustedEmail.created_at.desc())
         .all()
     )
+    from app.utils.places import list_places
+
     return render_template(
         "members.html",
         members=members,
@@ -54,6 +56,7 @@ def index():
         service_keys=service_keys,
         trusted=trusted,
         can_mint_service=current_user.role != "child",
+        places_text="\n".join(list_places(household)),
     )
 
 
@@ -289,4 +292,17 @@ def rename_household():
     h.name = name
     db.session.commit()
     flash("Household renamed.", "success")
+    return redirect(url_for("members.index"))
+
+
+@members_bp.route("/places", methods=["POST"])
+@login_required
+@require_perm("settings")
+def save_places():
+    from app.utils.places import save_places as _save
+
+    h = Household.query.get(household_id())
+    names = _save(h, request.form.get("places") or "")
+    db.session.commit()
+    flash(f"Saved {len(names)} places.", "success")
     return redirect(url_for("members.index"))

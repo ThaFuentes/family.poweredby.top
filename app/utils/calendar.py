@@ -102,17 +102,50 @@ def _fold(line: str) -> str:
     return "\r\n".join(out)
 
 
-def _fmt(dt: datetime) -> str:
+def _fmt_utc(dt: datetime) -> str:
     if dt.tzinfo is not None:
         dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
     return dt.strftime("%Y%m%dT%H%M%SZ")
 
 
+def _fmt_local(dt: datetime) -> str:
+    """Floating local time — datetime-local from the phone, not UTC."""
+    if dt.tzinfo is not None:
+        dt = dt.replace(tzinfo=None)
+    return dt.strftime("%Y%m%dT%H%M%S")
+
+
+def _fmt_date(dt: datetime) -> str:
+    return dt.strftime("%Y%m%d")
+
+
+def _is_all_day(dt: datetime) -> bool:
+    return dt.hour == 0 and dt.minute == 0 and dt.second == 0
+
+
 def _rrule(recurrence: str | None) -> str | None:
+    """Map household 'how often' onto RFC 5545. Miles/hours stay in Family OS only."""
     raw = (recurrence or "").strip().lower()
+    named = {
+        "30d": "RRULE:FREQ=MONTHLY;INTERVAL=1",
+        "90d": "RRULE:FREQ=MONTHLY;INTERVAL=3",
+        "180d": "RRULE:FREQ=MONTHLY;INTERVAL=6",
+        "365d": "RRULE:FREQ=YEARLY;INTERVAL=1",
+    }
+    if raw in named:
+        return named[raw]
+    if raw.endswith("mi") or raw.endswith("h"):
+        return None
     m = re.fullmatch(r"(\d+)\s*d", raw)
     if m:
-        return f"RRULE:FREQ=DAILY;INTERVAL={int(m.group(1))}"
+        n = int(m.group(1))
+        if n == 7:
+            return "RRULE:FREQ=WEEKLY;INTERVAL=1"
+        if n % 365 == 0:
+            return f"RRULE:FREQ=YEARLY;INTERVAL={n // 365}"
+        if n % 30 == 0:
+            return f"RRULE:FREQ=MONTHLY;INTERVAL={n // 30}"
+        return f"RRULE:FREQ=DAILY;INTERVAL={n}"
     m = re.fullmatch(r"(\d+)\s*w", raw)
     if m:
         return f"RRULE:FREQ=WEEKLY;INTERVAL={int(m.group(1))}"
@@ -122,24 +155,69 @@ def _rrule(recurrence: str | None) -> str | None:
     return None
 
 
+def subscribe_links(https_url: str, name: str = "Family OS") -> dict:
+    """Deep links Apple / Google / Outlook understand. Feed itself is the https ICS URL."""
+    from urllib.parse import quote, urlsplit, urlunsplit
+
+    url = (https_url or "").strip()
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    local = host in ("127.0.0.1", "localhost", "::1")
+    if parts.scheme in ("http", "https"):
+        feed_scheme = "http" if local and parts.scheme == "http" else "https"
+        https = urlunsplit((feed_scheme, parts.netloc, parts.path, parts.query, parts.fragment))
+        webcal = urlunsplit(("webcal", parts.netloc, parts.path, parts.query, parts.fragment))
+    else:
+        https = url
+        webcal = url.replace("https://", "webcal://", 1).replace("http://", "webcal://", 1)
+    label = (name or "Family OS")[:80]
+    enc_https = quote(https, safe="")
+    enc_name = quote(label, safe="")
+    return {
+        "https": https,
+        "webcal": webcal,
+        "apple": webcal,
+        "google": f"https://calendar.google.com/calendar/render?cid={enc_https}",
+        "outlook": f"https://outlook.live.com/calendar/0/addfromweb?url={enc_https}&name={enc_name}",
+        "outlook_office": f"https://outlook.office.com/calendar/0/addfromweb?url={enc_https}&name={enc_name}",
+        "name": label,
+    }
+
+
 def vevent(row: Reminder, household_name: str = "") -> str | None:
     if not row or not row.due_at:
         return None
     start = row.due_at
-    end = start + timedelta(hours=1)
     uid = f"family-rem-{row.id}@family.poweredby.top"
     summary = _ics_escape(row.title or "Reminder")
-    desc = _ics_escape(row.notes or row.type or "Family OS reminder")
+    bits = [row.notes or "", row.type or "", "Family OS reminder"]
+    rec = (row.recurrence or "").strip()
+    if rec.endswith("mi"):
+        bits.append("Repeats by mileage in Family OS — your calendar shows this due date.")
+    elif rec.endswith("h"):
+        bits.append("Repeats by hours in Family OS — your calendar shows this due date.")
+    desc = _ics_escape(" · ".join(b for b in bits if b))
+    stamp = _fmt_utc(getattr(row, "updated_at", None) or _utcnow())
     lines = [
         "BEGIN:VEVENT",
         f"UID:{uid}",
-        f"DTSTAMP:{_fmt(_utcnow())}",
-        f"DTSTART:{_fmt(start)}",
-        f"DTEND:{_fmt(end)}",
+        f"DTSTAMP:{_fmt_utc(_utcnow())}",
+        f"LAST-MODIFIED:{stamp}",
         f"SUMMARY:{summary}",
         f"DESCRIPTION:{desc}",
         "STATUS:CONFIRMED",
+        "TRANSP:TRANSPARENT",
+        "SEQUENCE:0",
     ]
+    if _is_all_day(start):
+        day = start.date()
+        nxt = day + timedelta(days=1)
+        lines.insert(3, f"DTSTART;VALUE=DATE:{day.strftime('%Y%m%d')}")
+        lines.insert(4, f"DTEND;VALUE=DATE:{nxt.strftime('%Y%m%d')}")
+    else:
+        end = start + timedelta(hours=1)
+        lines.insert(3, f"DTSTART:{_fmt_local(start)}")
+        lines.insert(4, f"DTEND:{_fmt_local(end)}")
     rrule = _rrule(row.recurrence)
     if rrule:
         lines.append(rrule)
@@ -175,14 +253,18 @@ def household_ics(household: Household, rows: list[Reminder], method: str = "PUB
         "PRODID:-//Family OS//Reminders//EN",
         "CALSCALE:GREGORIAN",
         f"METHOD:{method}",
+        "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
+        "X-PUBLISHED-TTL:PT1H",
+        f"NAME:Family OS · {_ics_escape(name)}",
         f"X-WR-CALNAME:Family OS · {_ics_escape(name)}",
+        "X-WR-CALDESC:Oil, filters, blades — this household only.",
     ]
-    body = "\r\n".join(_fold(x) for x in lines)
+    chunks = [_fold(x) for x in lines]
     if events:
-        body += "\r\n" + "\r\n".join(events)
-    body += "\r\nEND:VCALENDAR\r\n"
-    return body
+        chunks.extend(events)
+    chunks.append("END:VCALENDAR")
+    return "\r\n".join(chunks) + "\r\n"
 
 
-def reminder_ics(row: Reminder, household: Household, method: str = "REQUEST") -> str:
+def reminder_ics(row: Reminder, household: Household, method: str = "PUBLISH") -> str:
     return household_ics(household, [row], method=method)

@@ -11,8 +11,10 @@ class PhotoNote(db.Model):
     )
     item_id = db.Column(db.Integer, db.ForeignKey("items.id", ondelete="CASCADE"), nullable=False)
     part_id = db.Column(db.Integer, nullable=True)
+    kind = db.Column(db.String(20), nullable=False, default="photo")
     caption = db.Column(EncryptedText, nullable=True)
     image_path = db.Column(db.String(400), nullable=False)
+    warranty_until = db.Column(db.Date, nullable=True)
     created_by = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.current_timestamp())
 
@@ -28,8 +30,10 @@ def create_table():
             ("household_id", "INT NOT NULL"),
             ("item_id", "INT NOT NULL"),
             ("part_id", "INT NULL"),
+            ("kind", "VARCHAR(20) NOT NULL DEFAULT 'photo'"),
             ("caption", "TEXT NULL"),
             ("image_path", "VARCHAR(400) NOT NULL"),
+            ("warranty_until", "DATE NULL"),
             ("created_by", "INT NULL"),
         ],
         indexes=[

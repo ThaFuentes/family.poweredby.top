@@ -65,8 +65,9 @@ def email_reminder(row: Reminder) -> None:
         f"{row.title}\n"
         f"Due: {when}\n"
         f"Type: {row.type or 'reminder'}\n\n"
-        "This is from your household on Family OS. Add it to your calendar from the attached invite, "
-        "or subscribe to the household calendar on the Due page.\n"
+        "This is from your household on Family OS. The attached .ics is this one due date "
+        "(opens in Apple Calendar, Google Calendar, Outlook, or Gmail). "
+        "For a live calendar that stays in sync, subscribe on the Due page.\n"
     )
     ics = reminder_ics(row, household).encode("utf-8")
     any_ok = False

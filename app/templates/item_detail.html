@@ -8,7 +8,7 @@
   </div>
 </div>
 <div class="tabs">
-  {% if item.vehicle %}
+  {% if systems_host %}
   <a class="{% if tab=='systems' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='systems') }}">Systems</a>
   {% endif %}
   <a class="{% if tab=='overview' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='overview') }}">Overview</a>
@@ -18,7 +18,7 @@
   <a class="{% if tab=='history' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='history') }}">History</a>
 </div>
 
-{% if tab == 'systems' and item.vehicle %}
+{% if tab == 'systems' and systems_host %}
   {% include "partials/vehicle_systems.html" %}
 {% elif tab == 'overview' %}
   <div class="card">
@@ -48,11 +48,21 @@
       </form>
       {% endif %}
     {% endif %}
+    {% if item.item_type == 'house' %}
+      <p>HVAC filter, water heater, smoke, the panel. Same file as a car — just the building.</p>
+      <p><a class="btn" href="{{ url_for('items.detail', item_id=item.id, tab='systems') }}">House systems</a></p>
+    {% endif %}
     {% if item.tool %}
       <p>Type: {{ item.tool.type or '—' }} · Power: {{ item.tool.power_source or '—' }}</p>
       <p>Oil: <strong>{{ item.tool.oil_type or '—' }}</strong> · Fuel: <strong>{{ item.tool.fuel_type or '—' }}</strong></p>
       <p class="muted">{{ item.tool.usage_notes or '' }}</p>
-      <p class="muted">Last maintenance: {{ item.tool.last_maintenance_at or 'never' }}</p>
+      <p class="muted">Hours: {{ item.tool.hours_used or '—' }} · Last maintenance: {{ item.tool.last_maintenance_at or 'never' }}</p>
+      {% if can_scan or can_maintain or can_edit %}
+      <form method="post" action="{{ url_for('items.set_mileage', item_id=item.id) }}" class="btn-row">
+        <input name="hours" inputmode="decimal" placeholder="Hours" value="{{ item.tool.hours_used or '' }}" style="max-width:9rem">
+        <button class="btn" type="submit">Log hours</button>
+      </form>
+      {% endif %}
     {% endif %}
     {% if item.vehicle %}
       <p>{{ item.vehicle.year or '' }} {{ item.vehicle.make or '' }} {{ item.vehicle.model or '' }} {% if item.vehicle.trim %}{{ item.vehicle.trim }}{% endif %}</p>
@@ -63,6 +73,12 @@
       {% if item.vehicle.transmission %}<p>Transmission: {{ item.vehicle.transmission }}</p>{% endif %}
       <p>Mileage: {{ item.vehicle.current_mileage or '—' }} · Last oil: {{ item.vehicle.last_oil_change_date or '—' }}
         @ {{ item.vehicle.last_oil_change_mileage or '—' }}</p>
+      {% if can_scan or can_maintain or can_edit %}
+      <form method="post" action="{{ url_for('items.set_mileage', item_id=item.id) }}" class="btn-row">
+        <input name="mileage" inputmode="numeric" placeholder="87432" value="{{ item.vehicle.current_mileage or '' }}" style="max-width:9rem">
+        <button class="btn" type="submit">Log miles</button>
+      </form>
+      {% endif %}
       <p><a class="btn" href="{{ url_for('items.detail', item_id=item.id, tab='systems') }}">Systems — battery, alt, oil, exhaust</a></p>
     {% endif %}
     {% if parts %}
@@ -166,7 +182,17 @@
       <label>Brand</label><input name="brand" value="{{ item.grocery.brand or '' }}">
       <label>Size</label><input name="size" value="{{ item.grocery.size or '' }}">
       <label>Unit</label><input name="unit" value="{{ item.grocery.unit or 'each' }}">
-      <label>Location</label><input name="default_location" value="{{ item.grocery.default_location or '' }}">
+      <label>Where it lives</label>
+      <select name="default_location">
+        <option value="">—</option>
+        {% for p in places %}
+          <option value="{{ p }}" {% if item.grocery.default_location==p %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+        {% if item.grocery.default_location and item.grocery.default_location not in places %}
+          <option value="{{ item.grocery.default_location }}" selected>{{ item.grocery.default_location }}</option>
+        {% endif %}
+      </select>
+      <label>Expires</label><input type="date" name="expires_on" value="{{ expires_on or '' }}">
       <label>Ingredients</label><textarea name="ingredients">{{ item.grocery.ingredients or '' }}</textarea>
       <label>Allergens</label><input name="allergens" value="{{ item.grocery.allergens or '' }}">
       <label>Serving size</label><input name="serving_size" value="{{ item.grocery.serving_size or '' }}">
@@ -215,7 +241,7 @@
     {% for p in photos %}
       <figure>
         <img src="{{ url_for('items.serve_photo', photo_id=p.id) }}" alt="{{ p.caption or item.name }}">
-        {% if p.caption %}<figcaption class="muted">{{ p.caption }}</figcaption>{% endif %}
+        <figcaption class="muted">{% if p.kind and p.kind != 'photo' %}{{ p.kind }} · {% endif %}{{ p.caption or '' }}{% if p.warranty_until %} · warranty {{ p.warranty_until }}{% endif %}</figcaption>
       </figure>
     {% else %}
       <p class="muted">No photos yet.</p>
@@ -223,10 +249,19 @@
   </div>
   {% if can_photo %}
   <form class="card" method="post" action="{{ url_for('items.add_photo', item_id=item.id) }}" enctype="multipart/form-data">
+    <label>This photo is</label>
+    <select name="kind">
+      <option value="photo">Just a photo</option>
+      <option value="connector">Connector / how it hooks up</option>
+      <option value="serial">Serial plate</option>
+      <option value="receipt">Receipt / warranty</option>
+    </select>
     <label>Photo</label>
     <input type="file" name="photo" accept="image/*" capture="environment" required>
     <label>Caption</label>
     <input name="caption" placeholder="Connectors, serial plate, the actual mower, wrong UPC box">
+    <label>Warranty until (receipts)</label>
+    <input type="date" name="warranty_until">
     <div class="btn-row"><button class="btn" type="submit">Upload</button></div>
   </form>
   {% endif %}

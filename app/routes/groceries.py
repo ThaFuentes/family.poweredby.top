@@ -1,5 +1,5 @@
 from datetime import datetime
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
 
 from app.builddb.builddb import db
@@ -7,7 +7,7 @@ from app.builddb.table_items import Item
 from app.builddb.table_grocery_list import GroceryListEntry
 from app.utils.household import household_id, scoped
 from app.utils.permissions import require_perm, can
-from app.utils.scan import stock_status, STATUS_OUT, STATUS_LOW, STATUS_WANT
+from app.utils.scan import stock_status, STATUS_OUT, STATUS_LOW, STATUS_WANT, apply_grocery_stock, qty_label
 
 groceries_bp = Blueprint("groceries", __name__, url_prefix="/groceries")
 
@@ -28,15 +28,23 @@ def _pantry_groups(items):
     return want, out, low, ok
 
 
+def _place_of(item):
+    g = getattr(item, "grocery", None)
+    return ((g.default_location if g else None) or "").strip()
+
+
 @groceries_bp.route("/")
 @login_required
 def index():
     hid = household_id()
+    place = (request.args.get("place") or "").strip()
     q = (
         Item.query.filter_by(household_id=hid, item_type="grocery")
         .order_by(Item.name.asc())
         .all()
     )
+    if place:
+        q = [item for item in q if _place_of(item).lower() == place.lower()]
     want_items, out_items, low_items, ok_items = _pantry_groups(q)
     return render_template(
         "groceries.html",
@@ -45,7 +53,30 @@ def index():
         out_items=out_items,
         low_items=low_items,
         ok_items=ok_items,
+        place=place,
     )
+
+
+def _basket_payload(rows):
+    out = []
+    for r in rows:
+        place = ""
+        if r.item_id:
+            item = Item.query.filter_by(id=r.item_id, household_id=r.household_id).first()
+            if item and item.grocery:
+                place = (item.grocery.default_location or "").strip()
+        out.append(
+            {
+                "id": r.id,
+                "name": r.name,
+                "reason": r.added_reason or "",
+                "quantity_needed": qty_label(r.quantity_needed) if r.quantity_needed else "",
+                "item_id": r.item_id,
+                "place": place,
+                "status": r.status,
+            }
+        )
+    return out
 
 
 @groceries_bp.route("/list")
@@ -67,6 +98,18 @@ def grocery_list():
         can_add=can("scan") or can("edit_grocery"),
         can_check=can("scan") or can("edit_grocery"),
     )
+
+
+@groceries_bp.route("/list.json")
+@login_required
+def grocery_list_json():
+    rows = (
+        scoped(GroceryListEntry)
+        .filter_by(status="open")
+        .order_by(GroceryListEntry.created_at.desc())
+        .all()
+    )
+    return jsonify({"rows": _basket_payload(rows)})
 
 
 @groceries_bp.route("/list/add", methods=["POST"])
@@ -92,6 +135,28 @@ def list_add():
     return redirect(url_for("groceries.grocery_list"))
 
 
+def _check_off(row, *, restock=True):
+    if restock and row.item_id:
+        item = Item.query.filter_by(id=row.item_id, household_id=row.household_id).first()
+        if item and item.grocery:
+            apply_grocery_stock(
+                item.grocery,
+                item,
+                "restock",
+                row.quantity_needed or 1,
+                current_user.id,
+            )
+    row.status = "done"
+    row.completed_at = datetime.utcnow()
+    if row.item_id:
+        extras = GroceryListEntry.query.filter_by(
+            household_id=row.household_id, item_id=row.item_id, status="open"
+        ).all()
+        for extra in extras:
+            extra.status = "done"
+            extra.completed_at = row.completed_at
+
+
 @groceries_bp.route("/list/<int:entry_id>/done", methods=["POST"])
 @login_required
 def list_done(entry_id):
@@ -99,10 +164,26 @@ def list_done(entry_id):
         flash("Ask a grown-up to check that off.", "warning")
         return redirect(url_for("groceries.grocery_list"))
     row = scoped(GroceryListEntry).filter_by(id=entry_id).first_or_404()
-    row.status = "done"
-    row.completed_at = datetime.utcnow()
+    _check_off(row)
     db.session.commit()
+    if request.is_json or request.headers.get("X-Requested-With") == "fetch":
+        return jsonify({"ok": True, "id": row.id, "status": "done"})
     return redirect(url_for("groceries.grocery_list"))
+
+
+@groceries_bp.route("/list/<int:entry_id>/toggle", methods=["POST"])
+@login_required
+def list_toggle(entry_id):
+    if not (can("scan") or can("edit_grocery")):
+        return jsonify({"error": "not allowed"}), 403
+    row = scoped(GroceryListEntry).filter_by(id=entry_id).first_or_404()
+    if row.status == "open":
+        _check_off(row)
+    else:
+        row.status = "open"
+        row.completed_at = None
+    db.session.commit()
+    return jsonify({"ok": True, "id": row.id, "status": row.status})
 
 
 @groceries_bp.route("/list/<int:entry_id>/remove", methods=["POST"])

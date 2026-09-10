@@ -37,7 +37,12 @@
     <label>Need more when at or below</label>
     <input name="restock_threshold" value="1">
     <label>Where it lives</label>
-    <input name="default_location" placeholder="{{ lookup.location_hint or 'Fridge door, garage shelf' }}" value="{{ lookup.location_hint or '' }}">
+    <select name="default_location">
+      <option value="">{{ lookup.location_hint or '—' }}</option>
+      {% for p in places %}
+        <option value="{{ p }}" {% if lookup.location_hint==p %}selected{% endif %}>{{ p }}</option>
+      {% endfor %}
+    </select>
     <label>Brand</label>
     <input name="brand" value="{{ lookup.brand or '' }}">
     <details class="more">
