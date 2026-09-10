@@ -28,6 +28,7 @@ from app.utils.platform_auth import (
     mark_login_success,
     mint_owner_invite,
     needs_setup,
+    owner_count,
     owner_invite_ok,
     owner_is_locked,
     require_owner,
