@@ -10,7 +10,7 @@ from datetime import datetime
 from types import SimpleNamespace
 
 from app.builddb.table_platform_invites import PlatformInvite
-from app.utils.calendar import _rrule, household_ics, subscribe_links, vevent
+from app.utils.calendar import _rrule, household_ics, member_subscribe, subscribe_links, vevent
 from app.utils.house_systems import HOUSE_SLOTS, HOUSE_SYSTEMS, house_systems_payload
 from app.utils.household_delete import confirm_matches
 from app.utils.identity import norm_handle, norm_username, suggest_handle, valid_handle, valid_username
@@ -142,6 +142,16 @@ class CalendarIcsTests(unittest.TestCase):
         self.assertIn("REFRESH-INTERVAL;VALUE=DURATION:PT1H", body)
         self.assertIn("\r\n", body)
         self.assertTrue(body.endswith("END:VCALENDAR\r\n") or body.strip().endswith("END:VCALENDAR"))
+
+    def test_member_subscribe_is_personal(self):
+        user = SimpleNamespace(name="Maya Fuentes", username="maya")
+        house = SimpleNamespace(name="Fuentes")
+        links = member_subscribe(
+            user, house, "https://family.poweredby.top/reminders/calendar/tok.ics"
+        )
+        self.assertEqual(links["who"], "Maya")
+        self.assertTrue(links["apple"].startswith("webcal://"))
+        self.assertIn("calendar.google.com", links["google"])
 
     def test_subscribe_links(self):
         links = subscribe_links(

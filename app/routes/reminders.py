@@ -11,7 +11,7 @@ from app.utils.calendar import (
     ensure_calendar_token,
     household_ics,
     household_reminders_via,
-    subscribe_links,
+    member_subscribe,
     user_for_calendar_token,
 )
 from app.utils.household import household_id, scoped
@@ -38,7 +38,7 @@ def index():
     household = Household.query.get(hid)
     token = ensure_calendar_token(current_user)
     cal_url = url_for("reminders.calendar_feed", token=token, _external=True)
-    links = subscribe_links(cal_url, f"Family OS · {(household.name if household else 'Reminders')}")
+    links = member_subscribe(current_user, household, cal_url)
     return render_template(
         "reminders.html",
         rows=rows,
@@ -47,6 +47,7 @@ def index():
         cal_url=links["https"],
         webcal=links["webcal"],
         cal_links=links,
+        cal_next="reminders",
         can_set_via=bool(current_user.is_leader),
         reminder_types=REMINDER_TYPES,
         recurrence_choices=RECURRENCE,
@@ -116,7 +117,7 @@ def calendar_feed(token):
         .order_by(Reminder.due_at.asc())
         .all()
     )
-    body = household_ics(household, rows)
+    body = household_ics(household, rows, member_feed=True)
     resp = Response(body, mimetype="text/calendar; charset=utf-8")
     resp.headers["Content-Type"] = "text/calendar; charset=utf-8; method=PUBLISH"
     resp.headers["Content-Disposition"] = 'inline; filename="family-os.ics"'
@@ -132,4 +133,9 @@ def rotate_calendar():
 
     rotate_calendar_token(current_user)
     flash("New calendar link. Update the subscription on your phone.", "success")
+    nxt = (request.form.get("next") or "").strip()
+    if nxt == "look":
+        return redirect(url_for("appearance.picker") + "#calendar")
+    if nxt == "home":
+        return redirect(url_for("home.home"))
     return redirect(url_for("reminders.index"))

@@ -32,6 +32,7 @@
         <a href="{{ url_for('notes.index') }}">Notes</a>
         <a href="{{ url_for('house.index') }}">House</a>
         <a href="{{ url_for('appearance.picker') }}">Look</a>
+        <a href="{{ url_for('appearance.picker') }}#calendar">Your calendar</a>
         {% if current_user.role != 'child' %}
         <a href="{{ url_for('members.index') }}">Household</a>
         <a href="{{ url_for('items.labels') }}">Print QR labels</a>

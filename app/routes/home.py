@@ -47,6 +47,13 @@ def home():
         "want": needs["want"],
         "notes": notes_open,
     }
+    from app.utils.calendar import ensure_calendar_token, member_subscribe
+    from app.builddb.table_households import Household as HouseholdRow
+
+    household = HouseholdRow.query.get(hid)
+    token = ensure_calendar_token(current_user)
+    cal_url = url_for("reminders.calendar_feed", token=token, _external=True)
+    cal_links = member_subscribe(current_user, household, cal_url)
     tmpl = "home_kid.html" if is_child else "home.html"
     return render_template(
         tmpl,
@@ -54,4 +61,7 @@ def home():
         needs=needs,
         house=house,
         is_child=is_child,
+        cal_url=cal_links["https"],
+        cal_links=cal_links,
+        cal_next="home",
     )

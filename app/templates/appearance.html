@@ -20,6 +20,7 @@
   </button>
   {% endfor %}
 </div>
+{% include "partials/calendar_connect.html" %}
 <form class="card" method="post" action="{{ url_for('appearance.set_notify') }}">
   <h2>Your reminders</h2>
   <p class="muted">Mute just yourself. Household default still lives on Due / Household.</p>

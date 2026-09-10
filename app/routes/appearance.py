@@ -10,10 +10,21 @@ appearance_bp = Blueprint("appearance", __name__, url_prefix="/appearance")
 @appearance_bp.route("/")
 @login_required
 def picker():
+    from app.builddb.table_households import Household
+    from app.utils.calendar import ensure_calendar_token, member_subscribe
+    from app.utils.household import household_id
+
+    household = Household.query.get(household_id())
+    token = ensure_calendar_token(current_user)
+    cal_url = url_for("reminders.calendar_feed", token=token, _external=True)
+    links = member_subscribe(current_user, household, cal_url)
     return render_template(
         "appearance.html",
         themes=list(THEMES.values()),
         current=read_theme(),
+        cal_url=links["https"],
+        cal_links=links,
+        cal_next="look",
     )
 
 

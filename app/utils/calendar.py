@@ -236,13 +236,29 @@ def vevent(row: Reminder, household_name: str = "") -> str | None:
     return "\r\n".join(_fold(x) for x in lines)
 
 
-def household_ics(household: Household, rows: list[Reminder], method: str = "PUBLISH") -> str:
+def member_subscribe(user: User, household: Household | None, feed_url: str) -> dict:
+    """Per-person Apple / Google / Outlook links. Secret feed is this member's token."""
+    house_name = getattr(household, "name", None) or "Family OS"
+    who = (getattr(user, "name", None) or getattr(user, "username", None) or "You").split()[0]
+    links = subscribe_links(feed_url, f"Family OS · {house_name}")
+    links["who"] = who
+    links["house"] = house_name
+    return links
+
+
+def household_ics(
+    household: Household,
+    rows: list[Reminder],
+    method: str = "PUBLISH",
+    *,
+    member_feed: bool = False,
+) -> str:
     name = getattr(household, "name", None) or "Family OS"
     events = []
     for row in rows:
         if (row.status or "open") != "open":
             continue
-        if not wants_calendar(reminder_via(row, household)):
+        if not member_feed and not wants_calendar(reminder_via(row, household)):
             continue
         block = vevent(row, name)
         if block:

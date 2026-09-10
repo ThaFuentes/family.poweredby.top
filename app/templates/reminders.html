@@ -4,27 +4,10 @@
 <div class="page-head">
   <div>
     <h1>Due</h1>
-    <p>Oil changes, blades, filters. Email, calendar, or both — this household decides.</p>
+    <p>Oil, blades, filters. Each person adds this household to their own Apple, Google, or Outlook.</p>
   </div>
 </div>
-<div class="card">
-  <h2>Your calendar</h2>
-  <p class="muted">Family OS is the source. Apple Calendar, Google Calendar, and Outlook <em>subscribe</em> to this secret feed and refresh it. Not a Google or Microsoft login. Gmail is mail — a due email can attach one event; for a live calendar, subscribe below.</p>
-  <div class="cal-apps">
-    <a class="btn" href="{{ cal_links.apple }}">Add to Apple</a>
-    <a class="btn secondary" href="{{ cal_links.google }}" target="_blank" rel="noopener">Add to Google</a>
-    <a class="btn secondary" href="{{ cal_links.outlook }}" target="_blank" rel="noopener">Add to Outlook</a>
-  </div>
-  <p class="muted">Apple: tap Add to Apple. Google: Add to Google, or Calendar → Other calendars → + → From URL, paste the feed. Outlook: Add to Outlook, or Add calendar → Subscribe from web. Google and Outlook need the live site (https://family.poweredby.top), not this laptop.</p>
-  <label>Feed URL (paste this if a button does not open the app)</label>
-  <input value="{{ cal_url }}" readonly onclick="this.select()">
-  <div class="btn-row">
-    <a class="btn secondary" href="{{ cal_url }}">Download .ics</a>
-  </div>
-  <form method="post" action="{{ url_for('reminders.rotate_calendar') }}" class="btn-row">
-    <button class="btn sm secondary" type="submit">New calendar link</button>
-  </form>
-</div>
+{% include "partials/calendar_connect.html" %}
 {% if can_set_via %}
 <form class="card" method="post" action="{{ url_for('members.set_reminders_via') }}">
   <input type="hidden" name="next" value="reminders">

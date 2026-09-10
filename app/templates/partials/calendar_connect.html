@@ -1,0 +1,22 @@
+<section class="card cal-connect" id="calendar">
+  <h2>Your calendar</h2>
+  <p class="muted">This is <strong>yours</strong> — {{ cal_links.who }}, not the platform owner. Adds this household’s due dates to the calendar app on <em>your</em> phone.</p>
+  <div class="cal-apps">
+    <a class="btn" href="{{ cal_links.apple }}">Add to Apple</a>
+    <a class="btn secondary" href="{{ cal_links.google }}" target="_blank" rel="noopener">Add to Google</a>
+    <a class="btn secondary" href="{{ cal_links.outlook }}" target="_blank" rel="noopener">Add to Outlook</a>
+  </div>
+  <p class="muted">Apple: tap Add to Apple. Google: Add to Google, or Calendar → Other calendars → From URL. Outlook: Add calendar → Subscribe from web. Needs https://family.poweredby.top, not a laptop.</p>
+  <label>Your private feed</label>
+  <div class="key-copy-row">
+    <input readonly value="{{ cal_url }}" onclick="this.select()" aria-label="Calendar feed">
+    <button type="button" class="btn" data-copy="{{ cal_url }}">Copy</button>
+  </div>
+  <div class="btn-row">
+    <a class="btn secondary" href="{{ cal_url }}">Download .ics</a>
+    <form method="post" action="{{ url_for('reminders.rotate_calendar') }}">
+      {% if cal_next %}<input type="hidden" name="next" value="{{ cal_next }}">{% endif %}
+      <button class="btn sm secondary" type="submit">New calendar link</button>
+    </form>
+  </div>
+</section>
