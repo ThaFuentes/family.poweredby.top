@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>{% if setup %}Create owner{% else %}Platform sign in{% endif %} · Family OS</title>
+  <title>{% if setup %}First owner{% elif joining %}Join the desk{% else %}Platform sign in{% endif %} · Family OS</title>
   <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
   {% include "partials/theme_head.html" %}
 </head>
@@ -12,13 +12,16 @@
     <div class="wrap">
       <div class="auth-hero">
         <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
-        <h1>{% if setup %}First owner{% else %}Owner console{% endif %}</h1>
-        <p class="muted">Not a household login. This is the platform.</p>
+        <h1>{% if setup %}You're first{% elif joining %}Join the desk{% else %}Owner console{% endif %}</h1>
+        <p class="muted">
+          {% if setup %}Nobody owns this desk yet. That's you. Pick a name and a password.{% elif joining %}The first owner sent you a key. This is still not a household login.{% else %}Not a household login. This is the platform.{% endif %}
+        </p>
       </div>
       {% if error %}<div class="flash danger">{{ error }}</div>{% endif %}
       <div class="card">
+        {% if setup or joining %}
         <form method="post">
-          {% if setup %}
+          {% if joining %}<input type="hidden" name="owner_key" value="{{ owner_key }}">{% endif %}
           <label>Your name</label>
           <input name="name" autocomplete="name" required>
           <label>Username</label>
@@ -29,20 +32,25 @@
           <input type="password" name="password" autocomplete="new-password" required>
           <label>Confirm password</label>
           <input type="password" name="confirm" autocomplete="new-password" required>
-          {% if token_needed %}
-          <label>Bootstrap token</label>
-          <input name="bootstrap_token" autocomplete="off" required>
-          <p class="muted">From PLATFORM_BOOTSTRAP_TOKEN in .env. One-time, then this form closes.</p>
-          {% endif %}
-          <div class="btn-row"><button class="btn block" type="submit">Create platform owner</button></div>
-          {% else %}
+          <div class="btn-row"><button class="btn block" type="submit">{% if setup %}Take the desk{% else %}Join as owner{% endif %}</button></div>
+        </form>
+        {% else %}
+        <form method="post">
           <label>Username or email</label>
           <input name="username" autocomplete="username" required>
           <label>Password</label>
           <input type="password" name="password" autocomplete="current-password" required>
           <div class="btn-row"><button class="btn block" type="submit">Continue</button></div>
-          {% endif %}
         </form>
+        <form method="get" style="margin-top:1.1rem">
+          <label>Have an owner key from the first owner?</label>
+          <p class="muted">Starts with OWN-. They mint it on Access.</p>
+          <div class="btn-row">
+            <input name="owner_key" placeholder="OWN-…" autocapitalize="characters" autocomplete="off">
+            <button class="btn secondary" type="submit">Use key</button>
+          </div>
+        </form>
+        {% endif %}
       </div>
       <p class="muted" style="text-align:center"><a href="{{ url_for('auth.login') }}">Household sign in</a></p>
     </div>

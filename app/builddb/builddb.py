@@ -66,6 +66,7 @@ def init_tenant_system(app):
             "table_trusted_emails",
             "table_password_resets",
             "table_platform_owners",
+            "table_platform_invites",
             "table_platform_settings",
             "table_platform_audit",
         ]

@@ -1,13 +1,13 @@
 """Platform owner identity. Separate from household Flask-Login users."""
 from __future__ import annotations
 
-import os
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 
 from flask import redirect, request, session, url_for
 
 from app.builddb.builddb import db
+from app.builddb.table_platform_invites import PlatformInvite
 from app.builddb.table_platform_owners import PlatformOwner
 
 SESSION_OWNER_ID = "family_platform_owner_id"
@@ -28,21 +28,68 @@ def needs_setup() -> bool:
     return owner_count() == 0
 
 
-def bootstrap_token_required() -> bool:
-    token = (os.getenv("PLATFORM_BOOTSTRAP_TOKEN") or "").strip()
-    if token:
-        return True
-    debug = (os.getenv("DEBUG_MODE") or "").strip().lower() in ("1", "true", "yes", "on")
-    return not debug
+def normalize_owner_code(raw: str | None) -> str:
+    return (raw or "").strip().upper().replace(" ", "").replace("—", "-")
 
 
-def bootstrap_token_ok(given: str) -> bool:
-    expected = (os.getenv("PLATFORM_BOOTSTRAP_TOKEN") or "").strip()
-    if expected:
-        return bool(given) and given == expected
-    if bootstrap_token_required():
-        return False
-    return True
+def find_owner_invite(code: str) -> PlatformInvite | None:
+    c = normalize_owner_code(code)
+    if not c:
+        return None
+    variants = [c]
+    if c.startswith("OWN-"):
+        pass
+    elif not c.startswith(("SRV-", "FAM-")):
+        variants.append("OWN-" + c)
+    for variant in variants:
+        row = PlatformInvite.query.filter_by(code=variant).first()
+        if row:
+            return row
+    return None
+
+
+def owner_invite_ok(invite: PlatformInvite | None) -> tuple[bool, str]:
+    if invite is None:
+        return False, "Need an owner key from the first owner."
+    if invite.revoked_at:
+        return False, "That owner key was revoked."
+    if invite.expires_at and invite.expires_at < _utcnow():
+        return False, "That owner key expired."
+    if invite.use_count >= (invite.max_uses or 1):
+        return False, "That owner key is used up."
+    return True, ""
+
+
+def consume_owner_invite(invite: PlatformInvite) -> None:
+    invite.use_count = int(invite.use_count or 0) + 1
+    invite.last_used_at = _utcnow()
+    db.session.add(invite)
+
+
+def mint_owner_invite(*, created_by=None, label: str = "", max_uses=1, days=30) -> PlatformInvite:
+    try:
+        uses = max(1, int(max_uses or 1))
+    except Exception:
+        uses = 1
+    try:
+        life = max(1, int(days or 30))
+    except Exception:
+        life = 30
+    row = PlatformInvite(
+        code=PlatformInvite.new_code(),
+        created_by=created_by,
+        label=(label or "").strip() or None,
+        max_uses=uses,
+        expires_at=_utcnow() + timedelta(days=life),
+    )
+    db.session.add(row)
+    db.session.commit()
+    return row
+
+
+def revoke_owner_invite(row: PlatformInvite) -> None:
+    row.revoked_at = _utcnow()
+    db.session.commit()
 
 
 def current_owner() -> PlatformOwner | None:

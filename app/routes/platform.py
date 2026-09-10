@@ -1,8 +1,6 @@
 """Owner / platform console. You are not a household user."""
 from __future__ import annotations
 
-import os
-
 from flask import (
     Blueprint,
     flash,
@@ -19,18 +17,21 @@ from app.utils.ai import public_ai_config, ping_ai, normalize_provider
 from app.utils.leaders import fleet_cards
 from app.utils.mail import mail_config, send_mail
 from app.utils.platform_auth import (
-    bootstrap_token_ok,
-    bootstrap_token_required,
+    consume_owner_invite,
     current_owner,
     find_owner,
+    find_owner_invite,
     is_owner,
     login_owner,
     logout_owner,
     mark_login_failure,
     mark_login_success,
+    mint_owner_invite,
     needs_setup,
+    owner_invite_ok,
     owner_is_locked,
     require_owner,
+    revoke_owner_invite,
 )
 from app.utils.platform_settings import audit, mask_secret, set_setting
 
@@ -58,55 +59,81 @@ def _owner_id():
     return None if row is None else row.id
 
 
+def _create_owner_form_error(username, email, password, confirm):
+    if len(username) < 2:
+        return "Pick a username."
+    if PlatformOwner.query.filter_by(username=username).first():
+        return "That username is taken."
+    if "@" not in email:
+        return "Need an email."
+    if PlatformOwner.query.filter_by(email=email).first():
+        return "That email is already an owner."
+    if len(password) < 8:
+        return "Password needs at least 8 characters."
+    if password != confirm:
+        return "Passwords do not match."
+    return None
+
+
 @platform_bp.route("/login", methods=["GET", "POST"])
 def login():
     if is_owner():
         return redirect(url_for("platform.home"))
     setup = needs_setup()
-    token_needed = setup and bootstrap_token_required()
+    owner_key = (request.values.get("owner_key") or request.values.get("owner") or "").strip()
+    invite = find_owner_invite(owner_key) if owner_key else None
+    joining = (not setup) and bool(owner_key)
     if request.method != "POST":
+        join_err = None
+        if joining:
+            ok, join_err = owner_invite_ok(invite)
+            if not ok:
+                joining = False
         return render_template(
             "platform/login.html",
             setup=setup,
-            token_needed=token_needed,
-            error=None,
+            joining=joining,
+            owner_key=owner_key if joining else "",
+            error=join_err if joining is False and owner_key else None,
         )
 
-    if setup:
+    if setup or joining:
         username = (request.form.get("username") or "").strip()
         name = (request.form.get("name") or "").strip() or username
         email = (request.form.get("email") or "").strip().lower()
         password = request.form.get("password") or ""
         confirm = request.form.get("confirm") or ""
-        token = request.form.get("bootstrap_token") or ""
-        err = None
-        if len(username) < 2:
-            err = "Pick a username."
-        elif "@" not in email:
-            err = "Platform owner needs an email."
-        elif len(password) < 8:
-            err = "Password needs at least 8 characters."
-        elif password != confirm:
-            err = "Passwords do not match."
-        elif not bootstrap_token_ok(token):
-            if (os.getenv("PLATFORM_BOOTSTRAP_TOKEN") or "").strip():
-                err = "Bootstrap token does not match."
-            else:
-                err = "Set PLATFORM_BOOTSTRAP_TOKEN in .env, then reload. First owner is locked until then."
+        err = _create_owner_form_error(username, email, password, confirm)
+        invite_row = None
+        if not err and setup and owner_count() > 0:
+            err = "Someone already took the desk. Sign in, or paste an owner key."
+        if not err and not setup:
+            invite_row = find_owner_invite(owner_key)
+            ok, msg = owner_invite_ok(invite_row)
+            if not ok:
+                err = msg
         if err:
             return render_template(
                 "platform/login.html",
-                setup=True,
-                token_needed=token_needed,
+                setup=setup,
+                joining=not setup,
+                owner_key=owner_key,
                 error=err,
             ), 400
         owner = PlatformOwner(username=username, name=name, email=email, is_active=True)
         owner.set_password(password)
         db.session.add(owner)
+        if invite_row is not None:
+            consume_owner_invite(invite_row)
         db.session.commit()
         login_owner(owner)
-        audit("owner.bootstrap", owner_id=owner.id, ip=_ip(), detail={"username": username})
-        flash("Platform owner created. This login is not a household account.", "success")
+        audit(
+            "owner.first" if setup else "owner.join",
+            owner_id=owner.id,
+            ip=_ip(),
+            detail={"username": username, "key": (invite_row.code if invite_row else None)},
+        )
+        flash("You're on the owner desk. This is not a household login.", "success")
         return redirect(_safe_next())
 
     ident = (request.form.get("username") or "").strip()
@@ -116,7 +143,8 @@ def login():
         return render_template(
             "platform/login.html",
             setup=False,
-            token_needed=False,
+            joining=False,
+            owner_key="",
             error="Account temporarily locked. Try again later.",
         ), 429
     if owner and owner.is_active and owner.check_password(password):
@@ -129,7 +157,8 @@ def login():
     return render_template(
         "platform/login.html",
         setup=False,
-        token_needed=False,
+        joining=False,
+        owner_key="",
         error="Wrong username or password.",
     ), 401
 
@@ -221,12 +250,34 @@ def access():
                     db.session.commit()
                     audit("access.untrust", owner_id=_owner_id(), ip=_ip(), detail={"email": addr})
                     flash(f"{addr} removed from the trusted list.", "info")
+        elif kind == "owner":
+            row = mint_owner_invite(
+                created_by=_owner_id(),
+                label=(request.form.get("label") or "").strip(),
+                max_uses=request.form.get("max_uses") or 1,
+                days=request.form.get("days") or 14,
+            )
+            audit("access.owner_mint", owner_id=_owner_id(), ip=_ip(), detail={"code": row.code})
+            flash(f"Owner key {row.code} — they open /platform/ and paste it. Not a household key.", "success")
+        elif kind == "revoke_owner":
+            kid = request.form.get("id") or ""
+            if str(kid).isdigit():
+                from app.builddb.table_platform_invites import PlatformInvite
+
+                row = PlatformInvite.query.get(int(kid))
+                if row:
+                    revoke_owner_invite(row)
+                    audit("access.owner_revoke", owner_id=_owner_id(), ip=_ip(), detail={"code": row.code})
+                    flash(f"{row.code} revoked.", "info")
         return redirect(url_for("platform.access"))
+    from app.builddb.table_platform_invites import PlatformInvite
+
     return render_template(
         "platform/access.html",
         owner=current_owner(),
         service_keys=ServicePass.query.order_by(ServicePass.created_at.desc()).limit(80).all(),
         trusted=TrustedEmail.query.order_by(TrustedEmail.created_at.desc()).all(),
+        owner_keys=PlatformInvite.query.order_by(PlatformInvite.created_at.desc()).limit(40).all(),
     )
 
 

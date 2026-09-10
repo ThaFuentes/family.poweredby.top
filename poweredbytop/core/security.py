@@ -477,6 +477,9 @@ def _is_public_safe_path(path: str) -> bool:
             return True
     if p in ("/guard/login", "/auth/login", "/login", "/sign-in"):
         return True
+    # First owner + platform sign-in must load from a fresh browser / Tor.
+    if p in ("/platform", "/platform/login") or p.startswith("/platform/login"):
+        return True
     return False
 
 

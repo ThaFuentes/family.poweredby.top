@@ -4,8 +4,45 @@
 <div class="page-head">
   <div>
     <h1>Friends and family only</h1>
-    <p>Two keys. Service key = get onto Family OS. Family key = enter a household (households mint those themselves).</p>
+    <p>Owner key = another person on this desk. Service key = get onto Family OS. Family key = enter a household (households mint those themselves).</p>
   </div>
+</div>
+
+<div class="card key-card vital">
+  <span class="key-tag srv">Owner key · OWN-</span>
+  <h2>Invite another owner</h2>
+  <p class="muted">You were first, so this desk is yours. Anyone else needs a key from you. Not a household key.</p>
+  <form method="post">
+    <input type="hidden" name="kind" value="owner">
+    <label>Note</label>
+    <input name="label" placeholder="cousin who helps run the site">
+    <label>Uses</label>
+    <input name="max_uses" value="1">
+    <label>Days</label>
+    <input name="days" value="14">
+    <div class="btn-row"><button class="btn" type="submit">Make owner key</button></div>
+  </form>
+  {% for k in owner_keys or [] %}
+    <div class="row">
+      <div>
+        <strong>{{ k.code }}</strong>
+        <div class="muted">
+          {% if k.revoked_at %}revoked{% elif k.expires_at %}expires {{ k.expires_at }}{% endif %}
+          · {{ k.use_count }}/{{ k.max_uses }}
+          {% if k.label %} · {{ k.label }}{% endif %}
+        </div>
+      </div>
+      {% if not k.revoked_at %}
+      <form method="post">
+        <input type="hidden" name="kind" value="revoke_owner">
+        <input type="hidden" name="id" value="{{ k.id }}">
+        <button class="btn sm secondary" type="submit">Revoke</button>
+      </form>
+      {% endif %}
+    </div>
+  {% else %}
+    <p class="muted">No extra owners invited yet.</p>
+  {% endfor %}
 </div>
 
 <div class="card key-card vital">

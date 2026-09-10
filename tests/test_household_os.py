@@ -9,6 +9,7 @@ if ROOT not in sys.path:
 from datetime import datetime
 from types import SimpleNamespace
 
+from app.builddb.table_platform_invites import PlatformInvite
 from app.utils.calendar import _rrule, household_ics, subscribe_links, vevent
 from app.utils.house_systems import HOUSE_SLOTS, HOUSE_SYSTEMS, house_systems_payload
 from app.utils.places import DEFAULT_PLACES, _norm
@@ -66,6 +67,13 @@ class HouseSystemTests(unittest.TestCase):
         grouped = group_parts([])
         self.assertTrue(grouped)
         self.assertEqual(grouped[0]["id"], "engine")
+
+
+class OwnerKeyTests(unittest.TestCase):
+    def test_own_prefix(self):
+        code = PlatformInvite.new_code()
+        self.assertTrue(code.startswith("OWN-"))
+        self.assertGreaterEqual(len(code), 8)
 
 
 class CalendarIcsTests(unittest.TestCase):
