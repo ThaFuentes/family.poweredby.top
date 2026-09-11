@@ -465,14 +465,18 @@ class FamilySecurityTests(unittest.TestCase):
         user = f"noname_{self.suffix}"
         r = self._register(user, household="", name="Maya")
         self.assertEqual(r.status_code, 200)
-        body = r.data.decode("utf-8", "replace").replace("&#39;", "'")
+        body = r.data.decode("utf-8", "replace")
+        self.assertIn(b"Name your household", r.data)
+        with self.app.app_context():
+            self.assertIsNone(User.query.filter_by(username=user).first())
+        r2 = self._register(user, household="Garcias", name="Maya")
+        self.assertEqual(r2.status_code, 200)
+        body = r2.data.decode("utf-8", "replace").replace("&#39;", "'")
         self.assertIn("You're in, Maya", body)
-        self.assertIn("side-nav", body)
-        self.assertIn("Records", body)
         with self.app.app_context():
             u = User.query.filter_by(username=user).first()
             self.assertIsNotNone(u)
-            self.assertEqual(u.household.name, "Maya's house")
+            self.assertEqual(u.household.name, "Garcias")
 
     def test_family_key_note_and_legal_record(self):
         admin = f"rec_a_{self.suffix}"

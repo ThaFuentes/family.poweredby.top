@@ -129,7 +129,6 @@ def register():
         )
 
     from app.utils.identity import (
-        default_household_name,
         norm_username,
         unique_handle,
         username_taken,
@@ -190,8 +189,10 @@ def register():
             flash("Someone in that household already uses that username. Pick another.", "danger")
             return render_template("auth/register.html", **ctx)
     else:
-        label = household_name or default_household_name(name)
-        household = Household(name=label, handle=unique_handle(username or label))
+        if not household_name:
+            flash("Name your household however you want.", "danger")
+            return render_template("auth/register.html", **ctx)
+        household = Household(name=household_name, handle=unique_handle(household_name))
         household.rotate_invite_code()
         db.session.add(household)
         db.session.flush()

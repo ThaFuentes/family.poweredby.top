@@ -111,11 +111,11 @@ def mint_service_key():
     )
     from app.utils.keys_ui import stash_issued_key
 
-    stash_issued_key(
-        row.code,
-        "Service key",
-        "Gets a friend onto Family OS. Does not put them in this household.",
-    )
+    note = (row.label or "").strip()
+    hint = "They start their own household and name it themselves. Not yours."
+    if note:
+        hint = f"Your note: {note}. {hint}"
+    stash_issued_key(row.code, "Service key", hint)
     flash("Service key ready — copy it from the window.", "success")
     return redirect(url_for("members.index"))
 
@@ -300,12 +300,11 @@ def rename_household():
     name = (request.form.get("name") or "").strip()
     h = Household.query.get(household_id())
     if not name:
-        from app.utils.identity import default_household_name
-
-        name = default_household_name(current_user.name or current_user.username or "House")
+        flash("Name your household. We will not name it for you.", "danger")
+        return redirect(url_for("members.index"))
     h.name = name
     db.session.commit()
-    flash("Household label saved. People still use their own names.", "success")
+    flash("Household name saved.", "success")
     return redirect(url_for("members.index"))
 
 

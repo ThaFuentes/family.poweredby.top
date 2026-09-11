@@ -74,9 +74,9 @@
           </div>
 
           <div id="new-house-block">
-            <label>Household label (optional)</label>
-            <input name="household_name" placeholder="Leave blank — we’ll use your name" value="{{ household_name or '' }}">
-            <p class="muted">Only if you are starting a household. A note for the house, not a required family name. You still sign in with your username.</p>
+            <label>Name your household</label>
+            <input id="household_name" name="household_name" placeholder="Whatever you want to call it" value="{{ household_name or '' }}">
+            <p class="muted">You name your family. The person who handed you the key only wrote a note for themselves.</p>
           </div>
           <div class="btn-row">
             <button class="btn block" type="submit">Continue</button>
@@ -90,9 +90,12 @@
   (function () {
     var fam = document.getElementById("family_key");
     var block = document.getElementById("new-house-block");
+    var house = document.getElementById("household_name");
     function sync() {
       if (!fam || !block) return;
-      block.hidden = !!(fam.value || "").trim();
+      var joining = !!(fam.value || "").trim();
+      block.hidden = joining;
+      if (house) house.required = !joining;
     }
     if (fam) {
       fam.addEventListener("input", sync);

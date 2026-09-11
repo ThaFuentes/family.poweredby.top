@@ -20,10 +20,10 @@
 
 {% if can('settings') %}
 <form class="card" method="post" action="{{ url_for('members.rename_household') }}">
-  <label>Household label (optional)</label>
+  <label>Household name</label>
   <input name="name" value="{{ household.name }}">
-  <p class="muted">A note for this house — not a required family name. People here use the names they picked.</p>
-  <div class="btn-row"><button class="btn" type="submit">Save label</button></div>
+  <p class="muted">You name this household. People still pick their own names.</p>
+  <div class="btn-row"><button class="btn" type="submit">Save name</button></div>
 </form>
 <form class="card" method="post" action="{{ url_for('members.save_handle') }}">
   <label>Household handle</label>
@@ -192,7 +192,7 @@
         <button type="button" class="btn sm secondary" data-copy="{{ inv.code }}">Copy</button>
         <div class="muted">
           {{ inv.role }} · expires {{ inv.expires_at }}
-          {% if inv.label %} · note: {{ inv.label }}{% endif %}
+          {% if inv.label %} · your note: {{ inv.label }}{% endif %}
         </div>
       </div>
     </div>
@@ -207,8 +207,9 @@
   <h2>Get a friend onto Family OS</h2>
   <p class="muted">Share this with someone you trust so they can <em>use the site</em>. Friends and family only — this is how we keep bad actors out. It does <strong>not</strong> put them in this household. If they should live here too, also send a Family key.</p>
   <form method="post" action="{{ url_for('members.mint_service_key') }}">
-    <label>Note (optional)</label>
-    <input name="label" placeholder="Cousin Mike">
+    <label>Note — who you gave this key to</label>
+    <input name="label" placeholder="Tyler F">
+    <p class="muted">Only you see this. Tyler names his own household.</p>
     <label>How many people can use it</label>
     <input name="max_uses" value="1" inputmode="numeric">
     <label>Expires in days</label>
@@ -224,7 +225,7 @@
           {% if k.revoked_at %}revoked
           {% elif k.expires_at %}expires {{ k.expires_at }}{% endif %}
           · {{ k.use_count }}/{{ k.max_uses }} used
-          {% if k.label %} · {{ k.label }}{% endif %}
+          {% if k.label %} · your note: {{ k.label }}{% endif %}
         </div>
       </div>
       {% if not k.revoked_at %}
