@@ -4,7 +4,7 @@
 <div class="page-head">
   <div>
     <h1>Owner</h1>
-    <p>SMTP From identity, fallback AI, and leader name/email. Households bring their own AI keys. You do not pick their leaders or reset their passwords.</p>
+    <p>SMTP From identity and leader name/email. Households bring their own AI keys — Gemini is free. You do not pick their leaders, share your key, or reset their passwords. No ads.</p>
   </div>
 </div>
 <div class="stat-grid">
@@ -19,9 +19,9 @@
     <span class="count">{% if mail.ready %}Ready{% else %}Needs setup{% endif %}</span>
   </a>
   <a class="tile" href="{{ url_for('platform.ai_settings') }}">
-    <span class="kicker">AI fallback</span>
-    <span class="label">{{ ai.label if ai.ready else 'No key' }}</span>
-    <span class="count">{% if ai.ready %}{{ ai.key_hint }}{% else %}Paste a key{% endif %}</span>
+    <span class="kicker">Owner AI</span>
+    <span class="label">{{ ai.label if ai.ready else 'Not used by families' }}</span>
+    <span class="count">BYOK — households paste their own</span>
   </a>
 </div>
 

@@ -8,7 +8,6 @@ from app.utils.ai import (
     DEFAULT_MODEL,
     DEFAULT_PROVIDER,
     PROVIDERS,
-    _env_key_for,
     _pack,
     normalize_provider,
 )
@@ -35,10 +34,6 @@ def household_config(household) -> dict:
     blob = _ai_blob(household)
     provider = normalize_provider(blob.get("provider") or DEFAULT_PROVIDER)
     key = _decrypt_key(blob.get("api_key") or "")
-    from_env = False
-    if not key:
-        key = _env_key_for(provider)
-        from_env = bool(key)
     model = (blob.get("model") or "").strip()
     base = (blob.get("base_url") or "").strip()
     enabled = blob.get("enabled")
@@ -48,7 +43,7 @@ def household_config(household) -> dict:
         model,
         base,
         source="household",
-        from_env=from_env,
+        from_env=False,
     )
     if enabled is False:
         cfg["ready"] = False

@@ -8,12 +8,19 @@
   {% include "partials/theme_head.html" %}
 </head>
 <body class="auth">
+  <header class="auth-desk-bar">
+    <a class="brand" href="{{ url_for('home.home') }}">
+      <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
+      <span class="brand-meta"><strong>Family OS</strong><small>Sign in</small></span>
+    </a>
+    <a href="{{ url_for('auth.register') }}">Join</a>
+  </header>
   <div class="auth-page">
     <div class="wrap">
       <div class="auth-hero">
         <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
         <h1>Family OS</h1>
-        <p class="muted">Household handle + username. Email only if you added one.</p>
+        <p class="muted">Your username. Household handle if more than one house uses the same word. Email only if you added one.</p>
       </div>
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
@@ -28,9 +35,9 @@
       </div>
       <div class="card">
         <form method="post">
-          <label>Household</label>
-          <input name="household" autocomplete="organization" placeholder="fuentes">
-          <p class="muted" style="margin:.25rem 0 .7rem">Short name of your house. Skip if you sign in with email.</p>
+          <label>Household handle</label>
+          <input name="household" autocomplete="organization" placeholder="optional">
+          <p class="muted" style="margin:.25rem 0 .7rem">Skip if you sign in with email, or if your username is the only one.</p>
           <label>Username</label>
           <input name="username" autocomplete="username" required placeholder="maya">
           <label>Password</label>

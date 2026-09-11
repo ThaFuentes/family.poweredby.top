@@ -100,12 +100,28 @@
     <span class="label">Vehicles</span>
     <span class="count">{{ counts.vehicles }} vehicles</span>
   </a>
+  {% if current_user.role != 'child' %}
+  <a class="tile" href="{{ url_for('sort.index') }}">
+    <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h10M4 18h7"/><path d="M15 12l3 3 4-6"/></svg></span>
+    <span class="kicker">Inbox</span>
+    <span class="label">Sort</span>
+    <span class="count">Paste Discord notes. AI files them.</span>
+  </a>
+  {% endif %}
   <a class="tile" href="{{ url_for('notes.index') }}">
     <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 4h9l5 5v11H6z"/><path d="M15 4v5h5"/><path d="M8 13h8M8 17h5"/></svg></span>
     <span class="kicker">Notebook</span>
     <span class="label">Notes</span>
     <span class="count">{% if counts.notes %}{{ counts.notes }} saved{% else %}Car, project, just you{% endif %}</span>
   </a>
+  {% if current_user.role != 'child' %}
+  <a class="tile" href="{{ url_for('legal.index') }}">
+    <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h8l4 4v14H7z"/><path d="M15 3v4h4"/><path d="M10 12h6M10 16h4"/></svg></span>
+    <span class="kicker">Paper trail</span>
+    <span class="label">Records</span>
+    <span class="count">{% if counts.legal %}{{ counts.legal }} open{% else %}Citations, notices, tickets{% endif %}</span>
+  </a>
+  {% endif %}
   <a class="tile" href="{{ url_for('reminders.index') }}">
     <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 1.5M9 3h6"/></svg></span>
     <span class="kicker">Calendar</span>

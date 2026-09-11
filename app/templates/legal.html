@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Records · Family OS{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Records</h1>
+    <p>Citations, notices, tickets, letters. Keep the paper so you can go back to it — or file if a city keeps stacking it on you.</p>
+  </div>
+</div>
+
+<div class="stat-grid rec-stats">
+  <div class="tile">
+    <span class="kicker">Open</span>
+    <span class="label">{{ open_count }}</span>
+    <span class="count">Still live</span>
+  </div>
+  <div class="tile">
+    <span class="kicker">All</span>
+    <span class="label">{{ total_count }}</span>
+    <span class="count">In this household</span>
+  </div>
+</div>
+
+<div class="tabs">
+  <a class="{% if not status %}active{% endif %}" href="{{ url_for('legal.index', kind=kind, agency=agency_q) }}">All status</a>
+  {% for s in statuses %}
+  <a class="{% if status==s %}active{% endif %}" href="{{ url_for('legal.index', status=s, kind=kind, agency=agency_q) }}">{{ status_labels[s] }}</a>
+  {% endfor %}
+</div>
+<div class="tabs">
+  <a class="{% if not kind %}active{% endif %}" href="{{ url_for('legal.index', status=status, agency=agency_q) }}">All kinds</a>
+  {% for k in kinds %}
+  <a class="{% if kind==k %}active{% endif %}" href="{{ url_for('legal.index', kind=k, status=status, agency=agency_q) }}">{{ kind_labels[k] }}</a>
+  {% endfor %}
+</div>
+{% if agencies %}
+<div class="place-chips" aria-label="Who sent it">
+  <a class="{% if not agency_q %}on{% endif %}" href="{{ url_for('legal.index', kind=kind, status=status) }}">Any city</a>
+  {% for name, n in agencies %}
+  <a class="{% if agency_q==name %}on{% endif %}" href="{{ url_for('legal.index', kind=kind, status=status, agency=name) }}">{{ name }} · {{ n }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<form class="card" method="post" action="{{ url_for('legal.add') }}" enctype="multipart/form-data">
+  <h2>Add a record</h2>
+  <p class="muted">Say what it is. Snap the paper. That’s the file. City, amount, and dates can wait.</p>
+  <label>What is it</label>
+  <input name="title" required placeholder="Parking ticket, code notice, court date, letter on the door">
+  <div class="desk-form">
+    <div>
+      <label>Type of paper</label>
+      <select name="kind">
+        {% for k in kinds %}
+          <option value="{{ k }}">{{ kind_labels[k] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>If it’s something else</label>
+      <input name="kind_detail" placeholder="Tow slip, red tag, HOA fine…">
+    </div>
+  </div>
+  <label>Take a photo of it</label>
+  <input type="file" name="file" accept="image/*" capture="environment">
+  <label>More photos or a PDF</label>
+  <input type="file" name="file" accept="image/*,.pdf" multiple>
+  <details class="more">
+    <summary>City, dates, amount, number</summary>
+    <div class="desk-form">
+      <div>
+        <label>Who sent it</label>
+        <input name="agency" placeholder="City, county, HOA, police, court">
+      </div>
+      <div>
+        <label>Citation / case number</label>
+        <input name="case_number" placeholder="Optional">
+      </div>
+      <div>
+        <label>Where</label>
+        <input name="location" placeholder="Street, lot, address">
+      </div>
+      <div>
+        <label>Date on the paper</label>
+        <input type="date" name="issued_on">
+      </div>
+      <div>
+        <label>Due / court date</label>
+        <input type="date" name="due_on">
+      </div>
+      <div>
+        <label>Amount</label>
+        <input name="amount" inputmode="decimal" placeholder="75.00">
+      </div>
+      <div>
+        <label>Status</label>
+        <select name="status">
+          {% for s in statuses %}
+            <option value="{{ s }}">{{ status_labels[s] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <label>What happened</label>
+    <textarea name="body" placeholder="What they said. What you did. Keep it factual."></textarea>
+  </details>
+  <div class="btn-row"><button class="btn" type="submit">Save record</button></div>
+</form>
+
+{% if rows %}
+<div class="rec-table">
+  <div class="rec-row rec-head no-print">
+    <span>Date</span>
+    <span>Record</span>
+    <span>Who sent it</span>
+    <span>Amount</span>
+    <span>Status</span>
+  </div>
+  {% for r in rows %}
+  <a class="rec-row" href="{{ url_for('legal.detail', record_id=r.id) }}">
+    <span class="muted">{{ r.issued_on or '—' }}</span>
+    <span>
+      <strong>{{ r.title }}</strong>
+      <span class="muted rec-kind">{{ kind_labels.get(r.kind, r.kind) }}{% if r.extra_data and r.extra_data.get('kind_detail') %} · {{ r.extra_data.get('kind_detail') }}{% endif %}{% if r.case_number %} · {{ r.case_number }}{% endif %}</span>
+    </span>
+    <span>{{ r.agency or '—' }}</span>
+    <span>{% if r.amount %}${{ '%.2f'|format(r.amount|float) }}{% else %}—{% endif %}</span>
+    <span><span class="badge {% if r.status=='open' %}low{% elif r.status in ('dismissed','closed','paid') %}{% else %}want{% endif %}">{{ status_labels.get(r.status, r.status) }}</span></span>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card"><div class="empty"><strong>Nothing in the file yet</strong>Add the first citation or notice. Keep the paper.</div></div>
+{% endif %}
+{% endblock %}

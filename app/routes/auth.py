@@ -129,6 +129,7 @@ def register():
         )
 
     from app.utils.identity import (
+        default_household_name,
         norm_username,
         unique_handle,
         username_taken,
@@ -189,10 +190,8 @@ def register():
             flash("Someone in that household already uses that username. Pick another.", "danger")
             return render_template("auth/register.html", **ctx)
     else:
-        if not household_name:
-            flash("Name your household, or paste a Family key to join one that already exists.", "danger")
-            return render_template("auth/register.html", **ctx)
-        household = Household(name=household_name, handle=unique_handle(household_name))
+        label = household_name or default_household_name(name)
+        household = Household(name=label, handle=unique_handle(username or label))
         household.rotate_invite_code()
         db.session.add(household)
         db.session.flush()
@@ -216,7 +215,15 @@ def register():
         consume_service_pass(bits["pass"])
     db.session.commit()
     login_user(user)
-    flash(f"Welcome to {household.name}.", "success")
+    handle = household.handle or ""
+    if invite is not None:
+        flash(f"You're in, {user.name}. Sign in as {user.username}.", "success")
+    else:
+        flash(
+            f"You're in, {user.name}. Your username is {user.username}"
+            + (f". Household handle: {handle}." if handle else "."),
+            "success",
+        )
     return redirect(url_for("home.home"))
 
 

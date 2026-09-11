@@ -11,6 +11,7 @@ class Invite(db.Model):
     )
     code = db.Column(db.String(32), unique=True, nullable=False)
     role = db.Column(db.String(20), nullable=False, default="member")
+    label = db.Column(db.String(120), nullable=True)
     created_by = db.Column(db.Integer, nullable=True)
     expires_at = db.Column(db.DateTime, nullable=True)
     used_by = db.Column(db.Integer, nullable=True)
@@ -30,6 +31,7 @@ def create_table():
             ("household_id", "INT NOT NULL"),
             ("code", "VARCHAR(32) NOT NULL"),
             ("role", "VARCHAR(20) NOT NULL DEFAULT 'member'"),
+            ("label", "VARCHAR(120) NULL"),
             ("created_by", "INT NULL"),
             ("expires_at", "TIMESTAMP NULL"),
             ("used_by", "INT NULL"),

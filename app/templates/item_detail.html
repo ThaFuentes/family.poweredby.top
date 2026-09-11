@@ -79,7 +79,7 @@
         <button class="btn" type="submit">Log miles</button>
       </form>
       {% endif %}
-      <p><a class="btn" href="{{ url_for('items.detail', item_id=item.id, tab='systems') }}">Systems — battery, alt, oil, exhaust</a></p>
+      <p><a class="btn" href="{{ url_for('items.detail', item_id=item.id, tab='systems') }}">Systems — body, electrical, electronics, engine</a></p>
     {% endif %}
     {% if parts %}
       <p class="muted" style="margin-top:.6rem">Catalog items linked here</p>
@@ -240,7 +240,14 @@
   <div class="photo-grid">
     {% for p in photos %}
       <figure>
-        <img src="{{ url_for('items.serve_photo', photo_id=p.id) }}" alt="{{ p.caption or item.name }}">
+        {% if p.kind == 'receipt' or '.pdf' in (p.image_path or '')|lower %}
+          <a class="rec-pdf" href="{{ url_for('items.serve_photo', photo_id=p.id) }}" target="_blank" rel="noopener">
+            <strong>{{ p.caption or 'Receipt' }}</strong>
+            <span class="muted">Open</span>
+          </a>
+        {% else %}
+          <img src="{{ url_for('items.serve_photo', photo_id=p.id) }}" alt="{{ p.caption or item.name }}">
+        {% endif %}
         <figcaption class="muted">{% if p.kind and p.kind != 'photo' %}{{ p.kind }} · {% endif %}{{ p.caption or '' }}{% if p.warranty_until %} · warranty {{ p.warranty_until }}{% endif %}</figcaption>
       </figure>
     {% else %}
@@ -256,8 +263,8 @@
       <option value="serial">Serial plate</option>
       <option value="receipt">Receipt / warranty</option>
     </select>
-    <label>Photo</label>
-    <input type="file" name="photo" accept="image/*" capture="environment" required>
+    <label>Photo or PDF</label>
+    <input type="file" name="photo" accept="image/*,.pdf" capture="environment" required>
     <label>Caption</label>
     <input name="caption" placeholder="Connectors, serial plate, the actual mower, wrong UPC box">
     <label>Warranty until (receipts)</label>

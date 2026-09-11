@@ -26,6 +26,9 @@ class VehiclePart(db.Model):
     installed_on = db.Column(db.Date, nullable=True)
     installed_mileage = db.Column(db.Integer, nullable=True)
     notes = db.Column(EncryptedText, nullable=True)
+    source = db.Column(db.String(200), nullable=True)
+    cost = db.Column(db.Numeric(12, 2), nullable=True)
+    warranty_until = db.Column(db.Date, nullable=True)
     replaced_id = db.Column(db.Integer, nullable=True)
     created_by = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.current_timestamp())
@@ -54,6 +57,9 @@ def create_table():
             ("installed_on", "DATE NULL"),
             ("installed_mileage", "INT NULL"),
             ("notes", "TEXT NULL"),
+            ("source", "VARCHAR(200) NULL"),
+            ("cost", "DECIMAL(12,2) NULL"),
+            ("warranty_until", "DATE NULL"),
             ("replaced_id", "INT NULL"),
             ("created_by", "INT NULL"),
         ],

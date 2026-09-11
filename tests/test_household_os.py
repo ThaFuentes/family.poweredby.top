@@ -13,7 +13,14 @@ from app.builddb.table_platform_invites import PlatformInvite
 from app.utils.calendar import _rrule, household_ics, member_subscribe, subscribe_links, vevent
 from app.utils.house_systems import HOUSE_SLOTS, HOUSE_SYSTEMS, house_systems_payload
 from app.utils.household_delete import confirm_matches
-from app.utils.identity import norm_handle, norm_username, suggest_handle, valid_handle, valid_username
+from app.utils.identity import (
+    default_household_name,
+    norm_handle,
+    norm_username,
+    suggest_handle,
+    valid_handle,
+    valid_username,
+)
 from app.utils.places import DEFAULT_PLACES, _norm
 from app.utils.reminders_copy import parse_recurrence, recurrence_label, type_label
 from app.utils.search import _like
@@ -83,6 +90,11 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(suggest_handle("The Fuentes house"), "fuentes")
         self.assertTrue(valid_handle("fuentes"))
         self.assertEqual(norm_handle("Fuentes!"), "fuentes")
+
+    def test_household_label_from_person_name(self):
+        self.assertEqual(default_household_name("Maya Fuentes"), "Maya's house")
+        self.assertEqual(default_household_name("James"), "James' house")
+        self.assertEqual(default_household_name(""), "House")
 
 
 class DeleteConfirmTests(unittest.TestCase):
@@ -161,6 +173,34 @@ class CalendarIcsTests(unittest.TestCase):
         self.assertIn("calendar.google.com/calendar/render?cid=", links["google"])
         self.assertIn("outlook.live.com/calendar/0/addfromweb", links["outlook"])
         self.assertIn("family.poweredby.top", links["google"])
+
+
+class ByokTests(unittest.TestCase):
+    def test_household_never_inherits_owner_env_key(self):
+        old = os.environ.get("GEMINI_API_KEY")
+        os.environ["GEMINI_API_KEY"] = "owner-secret-key"
+        try:
+            from app.utils.ai import DEFAULT_PROVIDER, get_ai_config
+            from app.utils.household_ai import household_config
+
+            h = SimpleNamespace(settings_json={})
+            cfg = household_config(h)
+            self.assertFalse(cfg["has_key"])
+            self.assertFalse(cfg.get("from_env"))
+            self.assertEqual(cfg["source"], "household")
+            self.assertEqual(DEFAULT_PROVIDER, "gemini")
+            via = get_ai_config(h)
+            self.assertFalse(via["has_key"])
+            self.assertEqual(via["source"], "household")
+            self.assertNotEqual(via.get("api_key"), "owner-secret-key")
+            empty = get_ai_config(None, household_only=True)
+            self.assertFalse(empty["has_key"])
+            self.assertEqual(empty["source"], "household")
+        finally:
+            if old is None:
+                os.environ.pop("GEMINI_API_KEY", None)
+            else:
+                os.environ["GEMINI_API_KEY"] = old
 
 
 if __name__ == "__main__":

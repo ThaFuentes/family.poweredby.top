@@ -1,7 +1,7 @@
-"""Bring-your-own-key AI. Household first, platform fallback, then env.
+"""Bring-your-own-key AI. Households paste their own key. Never the owner's.
 
 The site is not an AI product. Keys parse scans, photos, and UPC guesses
-(car battery vs AA vs food). Never sent to the browser.
+(car battery vs AA vs food). Never sent to the browser. Gemini has a free key.
 """
 from __future__ import annotations
 
@@ -17,16 +17,6 @@ from app.utils.platform_settings import get_setting, mask_secret
 
 # OpenAI-compatible unless kind says otherwise.
 PROVIDERS: dict[str, dict[str, Any]] = {
-    "xai": {
-        "label": "SpaceXAI (Grok)",
-        "kind": "openai",
-        "base_url": "https://api.x.ai/v1",
-        "models": ("grok-4.6", "grok-4.5", "grok-4", "grok-3-mini"),
-        "hint": "console.x.ai — free-tier or paid. OpenAI-compatible.",
-        "env": "XAI_API_KEY",
-        "placeholder": "xai-…",
-        "vision": True,
-    },
     "gemini": {
         "label": "Google Gemini",
         "kind": "gemini",
@@ -37,9 +27,19 @@ PROVIDERS: dict[str, dict[str, Any]] = {
             "gemini-2.5-pro",
             "gemini-2.0-flash-lite",
         ),
-        "hint": "aistudio.google.com — a free Gemini key works.",
+        "hint": "aistudio.google.com/apikey — free Gemini key. Family OS never uses the owner's.",
         "env": "GEMINI_API_KEY",
         "placeholder": "AIza…",
+        "vision": True,
+    },
+    "xai": {
+        "label": "SpaceXAI (Grok)",
+        "kind": "openai",
+        "base_url": "https://api.x.ai/v1",
+        "models": ("grok-4.6", "grok-4.5", "grok-4", "grok-3-mini"),
+        "hint": "console.x.ai — your key, not the platform's.",
+        "env": "XAI_API_KEY",
+        "placeholder": "xai-…",
         "vision": True,
     },
     "openai": {
@@ -112,11 +112,11 @@ PROVIDERS: dict[str, dict[str, Any]] = {
     },
 }
 
-DEFAULT_PROVIDER = "xai"
-DEFAULT_MODEL = "grok-4.6"
+DEFAULT_PROVIDER = "gemini"
+DEFAULT_MODEL = "gemini-2.5-flash"
 # Back-compat for the old platform page.
-MODELS = PROVIDERS["xai"]["models"]
-BASE_URL = PROVIDERS["xai"]["base_url"]
+MODELS = PROVIDERS["gemini"]["models"]
+BASE_URL = PROVIDERS["gemini"]["base_url"]
 
 _JSON_FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.S | re.I)
 
@@ -235,15 +235,13 @@ def platform_config() -> dict:
 
 
 def get_ai_config(household=None, *, household_only: bool = False) -> dict:
-    """Public config (key never leaves as full secret except internally)."""
+    """Household work is BYOK only. Platform key is never used by a family."""
     if household is not None:
         from app.utils.household_ai import household_config
 
-        hh = household_config(household)
-        if hh.get("has_key") or household_only:
-            return hh
-        if household_only:
-            return hh
+        return household_config(household)
+    if household_only:
+        return _pack(DEFAULT_PROVIDER, "", DEFAULT_MODEL, "", source="household", from_env=False)
     return platform_config()
 
 
@@ -279,7 +277,7 @@ def complete(
     cfg = get_ai_config(household, household_only=household_only)
     key = (cfg.get("api_key") or "").strip()
     if not key:
-        return False, "No AI key on this household. Paste a Gemini, Grok, or other key in Household."
+        return False, "No AI key on this household. Paste your own Gemini (free) or other key in Household. Family OS does not share the owner's key."
     kind = cfg.get("kind") or "openai"
     try:
         if kind == "gemini":
@@ -328,8 +326,9 @@ def parse_json_object(text: str) -> dict | None:
 def ping_ai(household=None, *, household_only: bool = False) -> tuple[bool, str]:
     cfg = get_ai_config(household, household_only=household_only)
     if not cfg.get("has_key"):
-        who = "this household" if household_only else "this household or the platform"
-        return False, f"No AI key on {who} yet."
+        if household is not None or household_only:
+            return False, "No AI key on this household yet. Paste your own — Gemini is free."
+        return False, "No owner-console AI key. Families never use this page."
     ok, text = complete(
         "Reply with the single word pong.",
         max_tokens=16,

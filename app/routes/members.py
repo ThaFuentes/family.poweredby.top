@@ -71,12 +71,14 @@ def invite():
     role = (request.form.get("role") or "member").strip().lower()
     if role not in ROLES:
         role = "member"
+    note = (request.form.get("label") or "").strip()[:120]
     code = Invite.new_code()
     db.session.add(
         Invite(
             household_id=household_id(),
             code=code,
             role=role,
+            label=note or None,
             created_by=current_user.id,
             expires_at=datetime.utcnow() + timedelta(days=14),
         )
@@ -84,11 +86,10 @@ def invite():
     db.session.commit()
     from app.utils.keys_ui import stash_issued_key
 
-    stash_issued_key(
-        code,
-        "Family key",
-        f"Joins this household as {role}. Not a Service key.",
-    )
+    hint = f"Joins this household as {role}. They type their own name. Not a Service key."
+    if note:
+        hint = f"Note for you: {note}. {hint}"
+    stash_issued_key(code, f"Family key {code}", hint)
     flash("Family key ready — copy it from the window.", "success")
     return redirect(url_for("members.index"))
 
@@ -276,7 +277,7 @@ def save_ai():
         enabled=(request.form.get("ai_enabled") or "1") != "0",
         clear_key=(request.form.get("ai_clear_key") or "") == "1",
     )
-    flash("Household AI key saved. It stays on this household — never in the browser.", "success")
+    flash("Household AI key saved. Yours only — Family OS never uses the owner's key.", "success")
     return redirect(url_for("members.index"))
 
 
@@ -297,13 +298,14 @@ def test_ai():
 @require_perm("settings")
 def rename_household():
     name = (request.form.get("name") or "").strip()
-    if not name:
-        flash("Household name required.", "danger")
-        return redirect(url_for("members.index"))
     h = Household.query.get(household_id())
+    if not name:
+        from app.utils.identity import default_household_name
+
+        name = default_household_name(current_user.name or current_user.username or "House")
     h.name = name
     db.session.commit()
-    flash("Household renamed.", "success")
+    flash("Household label saved. People still use their own names.", "success")
     return redirect(url_for("members.index"))
 
 

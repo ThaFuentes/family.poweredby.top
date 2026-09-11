@@ -74,6 +74,13 @@
   box-shadow: none;
   margin-top: -0.55rem;
 }
+[data-theme="clean"] .side-nav {
+  border-right: 1px solid var(--edge);
+  background: #fff;
+}
+[data-theme="clean"] .side-links a.active { background: #111; color: #fff; border-radius: 0.2rem; }
+[data-theme="clean"] .side-brand img { border-radius: 0.25rem; box-shadow: none; }
+[data-theme="clean"] .rec-table, [data-theme="clean"] .rec-row { border-radius: 0.2rem; }
 [data-theme="clean"] input,
 [data-theme="clean"] select,
 [data-theme="clean"] textarea {
@@ -134,6 +141,10 @@
 [data-theme="dark"] .nav {
   background: rgba(12, 13, 14, 0.92);
   border-top-color: var(--edge);
+}
+[data-theme="dark"] .side-nav {
+  background: #121416;
+  border-right-color: var(--edge);
 }
 [data-theme="dark"] .btn.secondary {
   background: #1c1e21;
@@ -450,6 +461,21 @@
 }
 [data-theme="when99"] .nav .scan-fab svg { stroke: #000; width: 12px; height: 12px; }
 [data-theme="when99"] .nav .scan-fab::after { content: "Scan"; }
+[data-theme="when99"] .side-nav {
+  background: #c0c0c0;
+  border-right: 2px solid #fff;
+  box-shadow: inset -1px 0 0 #808080;
+}
+[data-theme="when99"] .side-links a {
+  border-radius: 0;
+  font-weight: 400;
+  font-size: 12px;
+}
+[data-theme="when99"] .side-links a.active {
+  background: #000080;
+  color: #fff;
+}
+[data-theme="when99"] .side-brand img { border-radius: 0; box-shadow: none; }
 [data-theme="when99"] .tabs a {
   border-radius: 0;
   background: #c0c0c0;

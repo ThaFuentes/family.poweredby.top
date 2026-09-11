@@ -1,9 +1,42 @@
 """Vehicle systems and part slots. Structured like a shop file, not a notepad."""
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
+
+
+def parse_cost(raw):
+    s = str(raw or "").strip().replace("$", "").replace(",", "")
+    if not s:
+        return None
+    try:
+        d = Decimal(s)
+    except (InvalidOperation, ValueError):
+        return None
+    if d < 0 or d > Decimal("99999999.99"):
+        return None
+    return d.quantize(Decimal("0.01"))
+
+
+def parse_day(raw):
+    from datetime import date
+
+    if raw in (None, ""):
+        return None
+    if hasattr(raw, "isoformat") and not isinstance(raw, str):
+        return raw
+    s = str(raw).strip()[:10]
+    if not s:
+        return None
+    try:
+        return date.fromisoformat(s)
+    except Exception:
+        return None
+
+
 SYSTEMS: tuple[tuple[str, str, str], ...] = (
     ("engine", "Engine", "Oil, filters, plugs, belts"),
     ("electrical", "Electrical", "Battery, alternator, starter, lights"),
+    ("electronics", "Electronics", "Radio, cameras, computer, sensors"),
     ("exhaust", "Exhaust", "Muffler, catalytic, O2 sensors"),
     ("cooling", "Cooling", "Radiator, hoses, water pump"),
     ("fuel", "Fuel", "Filter, pump, injectors"),
@@ -11,7 +44,7 @@ SYSTEMS: tuple[tuple[str, str, str], ...] = (
     ("brakes", "Brakes", "Pads, rotors, fluid"),
     ("steering", "Steering & suspension", "Shocks, tie rods, PS fluid"),
     ("tires", "Tires & wheels", "Size, brand, TPMS"),
-    ("body", "Body", "Wipers, panels, glass"),
+    ("body", "Body", "Wipers, panels, glass, doors"),
     ("hvac", "Cabin / HVAC", "Cabin filter, A/C"),
     ("other", "Other", "Anything that does not fit above"),
 )
@@ -36,6 +69,15 @@ SLOTS: dict[str, tuple[tuple[str, str, str], ...]] = {
         ("fuses", "Fuses / relays", ""),
         ("headlights", "Headlights", "H11, 9005…"),
         ("tail_lights", "Tail lights", ""),
+    ),
+    "electronics": (
+        ("radio", "Radio / stereo", ""),
+        ("infotainment", "Screen / infotainment", ""),
+        ("cameras", "Cameras", "Backup, dash, trailer"),
+        ("sensors", "Sensors", "Parking, ABS, TPMS module"),
+        ("ecu", "Computer / module", ""),
+        ("alarm", "Alarm / remote", ""),
+        ("trailer_plug", "Trailer plug / wiring", ""),
     ),
     "exhaust": (
         ("manifold", "Exhaust manifold", ""),
@@ -97,6 +139,12 @@ SLOTS: dict[str, tuple[tuple[str, str, str], ...]] = {
         ("glass", "Glass / windshield", ""),
         ("paint", "Paint / panels", "Color code"),
         ("locks", "Locks / latches", ""),
+        ("bumper", "Bumper", ""),
+        ("doors", "Doors / handles", ""),
+        ("tailgate", "Tailgate / trunk", ""),
+        ("bed", "Bed / liner", ""),
+        ("interior", "Interior / seats", ""),
+        ("grill", "Grill / trim", ""),
     ),
     "hvac": (
         ("cabin_filter", "Cabin filter", ""),
@@ -138,6 +186,11 @@ _SLOT_HINTS = (
     ("thermostat", "cooling", "thermostat"),
     ("water pump", "cooling", "water_pump"),
     ("headlight", "electrical", "headlights"),
+    ("radio", "electronics", "radio"),
+    ("stereo", "electronics", "radio"),
+    ("backup cam", "electronics", "cameras"),
+    ("camera", "electronics", "cameras"),
+    ("ecu", "electronics", "ecu"),
     ("cv axle", "drivetrain", "cv_axle"),
     ("transmission fluid", "drivetrain", "trans_fluid"),
     ("shock", "steering", "shocks_front"),
@@ -241,6 +294,9 @@ def install_part(
     installed_on=None,
     installed_mileage=None,
     notes: str | None = None,
+    source: str | None = None,
+    cost=None,
+    warranty_until=None,
     catalog_item_id=None,
     replace_current: bool = True,
     catalog_slots=None,
@@ -282,12 +338,7 @@ def install_part(
             miles = int(str(installed_mileage).replace(",", "").strip())
         except Exception:
             miles = None
-    when = installed_on
-    if isinstance(when, str):
-        try:
-            when = date.fromisoformat(when.strip()) if when.strip() else None
-        except Exception:
-            when = None
+    when = parse_day(installed_on)
     if when is None and status == "installed":
         when = date.today()
     row = VehiclePart(
@@ -305,6 +356,9 @@ def install_part(
         installed_on=when,
         installed_mileage=miles,
         notes=(notes or "").strip() or None,
+        source=(source or "").strip()[:200] or None,
+        cost=parse_cost(cost),
+        warranty_until=parse_day(warranty_until),
         replaced_id=replaced_id,
         created_by=user_id,
     )

@@ -13,7 +13,7 @@ from app.builddb.builddb import db
 from app.builddb.table_households import Household
 from app.builddb.table_platform_audit import PlatformAudit
 from app.builddb.table_platform_owners import PlatformOwner
-from app.utils.ai import public_ai_config, ping_ai, normalize_provider
+from app.utils.ai import DEFAULT_MODEL, public_ai_config, ping_ai, normalize_provider
 from app.utils.leaders import fleet_cards
 from app.utils.mail import mail_config, send_mail
 from app.utils.platform_auth import (
@@ -413,7 +413,7 @@ def email_test():
 def ai_settings():
     if request.method == "POST":
         provider = normalize_provider(request.form.get("ai_provider"))
-        model = (request.form.get("ai_model") or "").strip() or "grok-4.6"
+        model = (request.form.get("ai_model") or "").strip() or DEFAULT_MODEL
         base = (request.form.get("ai_base_url") or "").strip()
         set_setting("ai_provider", provider)
         set_setting("ai_model", model)
@@ -422,7 +422,7 @@ def ai_settings():
         if new_key:
             set_setting("ai_api_key", new_key, secret=True)
         audit("ai.save", owner_id=_owner_id(), ip=_ip(), detail={"provider": provider, "model": model})
-        flash("Fallback AI saved. Households still bring their own keys first.", "success")
+        flash("Owner-console AI saved. Households do not use this key.", "success")
         return redirect(url_for("platform.ai_settings"))
     return render_template(
         "platform/ai.html",

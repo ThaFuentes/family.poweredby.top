@@ -36,7 +36,7 @@ from app.utils.crypto import write_encrypted_file, sendable_image
 
 items_bp = Blueprint("items", __name__, url_prefix="/items")
 
-ALLOWED_PHOTO = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+ALLOWED_PHOTO = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".pdf"}
 
 
 def can_create_type(item_type: str) -> bool:
@@ -72,6 +72,8 @@ def save_item_photo(item, upload, caption=None, user_id=None, part_id=None, kind
         return None
     write_encrypted_file(path, data)
     kind = (kind or "photo").strip().lower()
+    if ext == ".pdf":
+        kind = "receipt"
     if kind not in PHOTO_KINDS:
         kind = "photo"
     until = None
@@ -783,8 +785,51 @@ def serve_photo(photo_id):
         ".png": "image/png",
         ".webp": "image/webp",
         ".gif": "image/gif",
+        ".pdf": "application/pdf",
     }.get(ext, "application/octet-stream")
     return sendable_image(path, mime)
+
+
+def attach_part_uploads(item, part, user_id=None):
+    """Photo of the part and/or a receipt (image or PDF). Returns how many saved."""
+    if part is None:
+        return 0
+    saved = 0
+    photo = request.files.get("photo")
+    if photo and getattr(photo, "filename", None):
+        row = save_item_photo(
+            item,
+            photo,
+            request.form.get("caption") or part.name,
+            user_id,
+            part_id=part.id,
+            kind="photo",
+        )
+        if row:
+            saved += 1
+    receipt = request.files.get("receipt")
+    if receipt and getattr(receipt, "filename", None):
+        row = save_item_photo(
+            item,
+            receipt,
+            request.form.get("receipt_caption") or "Receipt",
+            user_id,
+            part_id=part.id,
+            kind="receipt",
+            warranty_until=request.form.get("warranty_until"),
+        )
+        if row:
+            saved += 1
+    return saved
+
+
+def _part_shop_fields():
+    return {
+        "source": (request.form.get("source") or "").strip()[:200] or None,
+        "cost": request.form.get("cost"),
+        "warranty_until": request.form.get("warranty_until"),
+        "notes": (request.form.get("notes") or "").strip() or None,
+    }
 
 
 @items_bp.route("/<int:item_id>/qr.png")
@@ -875,8 +920,8 @@ def add_part(item_id):
             status=(request.form.get("status") or "installed").strip().lower(),
             installed_on=request.form.get("installed_on"),
             installed_mileage=request.form.get("installed_mileage"),
-            notes=request.form.get("notes"),
             replace_current=(request.form.get("status") or "installed").strip().lower() == "installed",
+            **_part_shop_fields(),
         )
     else:
         from app.utils.vehicle_systems import install_part, valid_slot, valid_system
@@ -897,22 +942,14 @@ def add_part(item_id):
             installed_on=request.form.get("installed_on"),
             installed_mileage=request.form.get("installed_mileage")
             or (item.vehicle.current_mileage if item.vehicle else None),
-            notes=request.form.get("notes"),
             replace_current=(request.form.get("status") or "installed").strip().lower() == "installed",
+            **_part_shop_fields(),
         )
-    photo = request.files.get("photo")
-    if photo and photo.filename and row:
-        save_item_photo(
-            item,
-            photo,
-            request.form.get("caption") or name,
-            current_user.id,
-            part_id=row.id,
-            kind="connector",
-        )
+    nfiles = attach_part_uploads(item, row, current_user.id)
     db.session.commit()
-    flash(f"{name} saved on {item.name}.", "success")
-    return redirect(url_for("items.detail", item_id=item.id, tab="systems"))
+    extra = f" {nfiles} file(s)." if nfiles else ""
+    flash(f"{name} saved on {item.name}.{extra}", "success")
+    return redirect(url_for("items.detail", item_id=item.id, tab="systems") + f"#sys-{row.system if row else ''}")
 
 
 @items_bp.route("/<int:item_id>/parts/<int:part_id>/retire", methods=["POST"])
@@ -932,7 +969,50 @@ def retire_part(item_id, part_id):
     row.status = "retired"
     db.session.commit()
     flash(f"{row.name} moved to history.", "info")
-    return redirect(url_for("items.detail", item_id=item.id, tab="systems"))
+    return redirect(url_for("items.detail", item_id=item.id, tab="systems") + f"#sys-{row.system}")
+
+
+@items_bp.route("/<int:item_id>/parts/<int:part_id>/edit", methods=["POST"])
+@login_required
+def edit_part(item_id, part_id):
+    if not (can("maintain") or can("edit_meta")):
+        abort(403)
+    item = _item_or_404(item_id)
+    from app.builddb.table_vehicle_parts import VehiclePart
+    from app.utils.vehicle_systems import parse_cost, parse_day
+
+    row = (
+        VehiclePart.query.filter_by(
+            id=part_id, household_id=household_id(), vehicle_item_id=item.id
+        ).first_or_404()
+    )
+    name = (request.form.get("name") or "").strip()
+    if name:
+        row.name = name[:200]
+    if "brand" in request.form:
+        row.brand = (request.form.get("brand") or "").strip()[:120] or None
+    if "spec" in request.form:
+        row.spec = (request.form.get("spec") or "").strip()[:160] or None
+    if "part_number" in request.form:
+        row.part_number = (request.form.get("part_number") or "").strip()[:80] or None
+    row.notes = (request.form.get("notes") or "").strip() or None
+    row.source = (request.form.get("source") or "").strip()[:200] or None
+    if "cost" in request.form:
+        row.cost = parse_cost(request.form.get("cost"))
+    if "warranty_until" in request.form:
+        row.warranty_until = parse_day(request.form.get("warranty_until"))
+    if request.form.get("installed_on"):
+        row.installed_on = parse_day(request.form.get("installed_on"))
+    miles = (request.form.get("installed_mileage") or "").replace(",", "").strip()
+    if miles:
+        try:
+            row.installed_mileage = int(miles)
+        except Exception:
+            pass
+    nfiles = attach_part_uploads(item, row, current_user.id)
+    db.session.commit()
+    flash(f"{row.name} updated." + (f" {nfiles} file(s)." if nfiles else ""), "success")
+    return redirect(url_for("items.detail", item_id=item.id, tab="systems") + f"#sys-{row.system}")
 
 
 @items_bp.route("/<int:item_id>/delete", methods=["POST"])

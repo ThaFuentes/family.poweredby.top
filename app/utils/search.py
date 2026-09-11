@@ -5,6 +5,7 @@ from sqlalchemy import or_
 
 from app.builddb.table_grocery_items import GroceryItem
 from app.builddb.table_items import Item
+from app.builddb.table_legal_records import LegalRecord
 from app.builddb.table_notes import Note
 from app.builddb.table_vehicle_parts import VehiclePart
 
@@ -19,7 +20,13 @@ def _like(q: str) -> str:
 def search_household(household_id: int, q: str, *, user_id: int, limit: int = 40) -> dict:
     like = _like(q)
     if not like:
-        return {"q": (q or "").strip(), "item_rows": [], "note_rows": [], "part_rows": []}
+        return {
+            "q": (q or "").strip(),
+            "item_rows": [],
+            "note_rows": [],
+            "part_rows": [],
+            "legal_rows": [],
+        }
 
     esc = {"escape": "\\"}
     items = (
@@ -67,9 +74,23 @@ def search_household(household_id: int, q: str, *, user_id: int, limit: int = 40
         .limit(20)
         .all()
     )
+    legal_all = (
+        LegalRecord.query.filter_by(household_id=household_id)
+        .order_by(LegalRecord.issued_on.desc(), LegalRecord.id.desc())
+        .limit(200)
+        .all()
+    )
+    legal = []
+    for r in legal_all:
+        blob = f"{r.title or ''} {r.agency or ''} {r.case_number or ''} {r.location or ''} {r.body or ''} {r.outcome or ''}".lower()
+        if needle and needle in blob:
+            legal.append(r)
+        if len(legal) >= 20:
+            break
     return {
         "q": (q or "").strip(),
         "item_rows": items,
         "note_rows": notes,
         "part_rows": parts,
+        "legal_rows": legal,
     }

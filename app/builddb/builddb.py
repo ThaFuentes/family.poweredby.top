@@ -59,6 +59,8 @@ def init_tenant_system(app):
             "table_reminders",
             "table_photo_notes",
             "table_notes",
+            "table_legal_records",
+            "table_legal_files",
             "table_scan_events",
             "table_grocery_list",
             "table_invites",

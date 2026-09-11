@@ -27,6 +27,17 @@ def valid_username(raw: str) -> bool:
     return bool(USER_RE.fullmatch(norm_username(raw)))
 
 
+def default_household_name(person_name: str) -> str:
+    """Optional house label. People still type their own names."""
+    parts = (person_name or "").strip().split()
+    if not parts:
+        return "House"
+    first = parts[0]
+    if first.lower().endswith("s"):
+        return f"{first}' house"
+    return f"{first}'s house"
+
+
 def suggest_handle(name: str) -> str:
     s = norm_handle(name)
     if s.startswith(("the",)) and len(s) > 5:

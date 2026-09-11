@@ -333,6 +333,8 @@ class FamilySecurityTests(unittest.TestCase):
         self.assertEqual(systems.status_code, 200)
         self.assertIn(b"Electrical", systems.data)
         self.assertIn(b"Engine", systems.data)
+        self.assertIn(b"Electronics", systems.data)
+        self.assertIn(b"Body", systems.data)
         self.assertIn(b"DieHard", systems.data)
         token = self._csrf(systems.data)
         added = self.client.post(
@@ -344,13 +346,37 @@ class FamilySecurityTests(unittest.TestCase):
                 "spec": "130A 3-pin",
                 "brand": "Motorcraft",
                 "status": "installed",
+                "source": "AutoZone",
+                "cost": "189.00",
+                "notes": "Just replaced the alternator. Old one was dying.",
                 "csrf_token": token,
+                "receipt": (io.BytesIO(_png()), "az-receipt.png"),
             },
+            content_type="multipart/form-data",
             headers={"X-CSRF-Token": token},
             follow_redirects=True,
         )
         self.assertEqual(added.status_code, 200)
         self.assertIn(b"Motorcraft 130A", added.data)
+        self.assertIn(b"AutoZone", added.data)
+        self.assertIn(b"Just replaced the alternator", added.data)
+        rad = self.client.post(
+            f"/items/{truck_id}/parts",
+            data={
+                "system": "cooling",
+                "slot": "radiator",
+                "name": "Spectra radiator",
+                "source": "RockAuto",
+                "notes": "Replaced the radiator.",
+                "status": "installed",
+                "csrf_token": token,
+            },
+            headers={"X-CSRF-Token": token},
+            follow_redirects=True,
+        )
+        self.assertEqual(rad.status_code, 200)
+        self.assertIn(b"Spectra radiator", rad.data)
+        self.assertIn(b"RockAuto", rad.data)
         # photo route
         with self.app.app_context():
             from app.builddb.table_photo_notes import PhotoNote
@@ -399,6 +425,8 @@ class FamilySecurityTests(unittest.TestCase):
             "/items/new",
             "/find/",
             "/items/labels",
+            "/legal/",
+            "/sort/",
         ):
             r = self.client.get(path)
             self.assertEqual(r.status_code, 200, f"{path} -> {r.status_code}")
@@ -432,6 +460,100 @@ class FamilySecurityTests(unittest.TestCase):
         js = self.client.get("/groceries/list.json")
         self.assertEqual(js.status_code, 200)
         self.assertIn("rows", js.get_json())
+
+    def test_register_without_household_name(self):
+        user = f"noname_{self.suffix}"
+        r = self._register(user, household="", name="Maya")
+        self.assertEqual(r.status_code, 200)
+        body = r.data.decode("utf-8", "replace").replace("&#39;", "'")
+        self.assertIn("You're in, Maya", body)
+        self.assertIn("side-nav", body)
+        self.assertIn("Records", body)
+        with self.app.app_context():
+            u = User.query.filter_by(username=user).first()
+            self.assertIsNotNone(u)
+            self.assertEqual(u.household.name, "Maya's house")
+
+    def test_family_key_note_and_legal_record(self):
+        admin = f"rec_a_{self.suffix}"
+        self._register(admin, household=f"Records {self.suffix}", name="Admin")
+        page = self.client.get("/members/")
+        token = self._csrf(page.data)
+        inv = self.client.post(
+            "/members/invite",
+            data={"role": "member", "label": "Cousin Mike", "csrf_token": token},
+            headers={"X-CSRF-Token": token},
+            follow_redirects=True,
+        )
+        self.assertEqual(inv.status_code, 200)
+        self.assertIn(b"Cousin Mike", inv.data)
+        m = re.search(r"Family key ([A-Z0-9-]+)", inv.data.decode("utf-8", "replace"))
+        self.assertIsNotNone(m, inv.data[-800:])
+
+        legal = self.client.get("/legal/")
+        self.assertEqual(legal.status_code, 200)
+        self.assertIn(b"Citations, notices", legal.data)
+        token = self._csrf(legal.data)
+        added = self.client.post(
+            "/legal/add",
+            data={
+                "title": "Parking ticket downtown",
+                "kind": "citation",
+                "agency": "Springfield",
+                "case_number": "T-99",
+                "location": "Main St",
+                "issued_on": "2026-09-01",
+                "amount": "75.00",
+                "status": "open",
+                "body": "Left on the wiper.",
+                "csrf_token": token,
+                "file": (io.BytesIO(_png()), "ticket.png"),
+            },
+            content_type="multipart/form-data",
+            headers={"X-CSRF-Token": token},
+            follow_redirects=True,
+        )
+        self.assertEqual(added.status_code, 200, added.data[-400:])
+        self.assertIn(b"Parking ticket downtown", added.data)
+        self.assertIn(b"Springfield", added.data)
+        self.assertIn(b"T-99", added.data)
+        find = self.client.get("/find/?q=Springfield")
+        self.assertEqual(find.status_code, 200)
+        self.assertIn(b"Parking ticket downtown", find.data)
+        with self.app.app_context():
+            from app.builddb.table_legal_records import LegalRecord
+            from app.builddb.table_legal_files import LegalFile
+
+            rec = None
+            for row in LegalRecord.query.order_by(LegalRecord.id.desc()).limit(40).all():
+                if row.title == "Parking ticket downtown":
+                    rec = row
+                    break
+            self.assertIsNotNone(rec)
+            rec_id = rec.id
+            frow = LegalFile.query.filter_by(record_id=rec_id).first()
+            self.assertIsNotNone(frow)
+            fid = frow.id
+        img = self.client.get(f"/legal/file/{fid}")
+        self.assertEqual(img.status_code, 200)
+        self.assertTrue(img.data.startswith(b"\x89PNG") or len(img.data) > 8)
+
+        html = self.client.get("/members/").data
+        token = self._csrf(html)
+        child_inv = self.client.post(
+            "/members/invite",
+            data={"role": "child", "csrf_token": token},
+            headers={"X-CSRF-Token": token},
+            follow_redirects=True,
+        )
+        cm = re.search(r"Family key ([A-Z0-9-]+)", child_inv.data.decode("utf-8", "replace"))
+        self.assertIsNotNone(cm)
+        child = f"rec_kid_{self.suffix}"
+        self._register(child, invite=cm.group(1), name="Kid")
+        blocked = self.client.get("/legal/")
+        self.assertEqual(blocked.status_code, 403)
+        sneak = self.client.get(f"/legal/{rec_id}")
+        self.assertEqual(sneak.status_code, 403)
 
 
 if __name__ == "__main__":

@@ -1,42 +1,85 @@
-<p class="muted" style="margin:0 0 .85rem">{% if systems_host == 'house' %}Filter size, water heater, smoke, the panel. Photo the data plate.{% else %}Not a notepad. Each system holds the actual part — spec, brand, number, photo of the connector.{% endif %}</p>
+<p class="muted" style="margin:0 0 .85rem">{% if systems_host == 'house' %}Filter size, water heater, smoke, the panel. Photo the data plate. Keep the receipt.{% else %}Body, electrical, electronics, engine, cooling — each slot is the actual part. Note that you just replaced the battery. Where you got it. Receipt on the file.{% endif %}</p>
+
+<nav class="sys-jump" aria-label="Systems">
+  {% for s in systems %}
+    <a href="#sys-{{ s.id }}" class="{% if s.count %}has{% endif %}">{{ s.label }}{% if s.count %} · {{ s.count }}{% endif %}</a>
+  {% endfor %}
+</nav>
 
 {% if can_maintain or can_edit %}
 <form class="card" id="part-form" method="post" action="{{ url_for('items.add_part', item_id=item.id) }}" enctype="multipart/form-data">
   <h2>Add or replace a part</h2>
-  <p class="muted">Installing a battery on Electrical replaces the one that’s there and keeps the old one in history.</p>
-  <label>System</label>
-  <select name="system" id="part-system">
-    {% for s in systems_catalog %}
-      <option value="{{ s.id }}">{{ s.label }}</option>
-    {% endfor %}
-  </select>
-  <label>What</label>
-  <select name="slot" id="part-slot"></select>
-  <label>Name</label>
-  <input name="name" required placeholder="DieHard Gold, Motorcraft alternator">
-  <label>Spec</label>
-  <input name="spec" id="part-spec" placeholder="Group 65, 130A, 5W-30">
-  <label>Brand</label>
-  <input name="brand" placeholder="DieHard, Bosch, Motorcraft">
-  <label>Part number</label>
-  <input name="part_number" placeholder="FL-820S, H6 / Group 48">
-  <label>Status</label>
-  <select name="status">
-    <option value="installed">Installed on the vehicle</option>
-    <option value="spare">Spare in the garage</option>
-  </select>
-  <label>{% if systems_host == 'house' %}Hours / reading (optional){% else %}Installed mileage{% endif %}</label>
-  <input name="installed_mileage" inputmode="numeric" value="{{ (item.vehicle.current_mileage if item.vehicle else '') }}">
-  <label>Date</label>
-  <input type="date" name="installed_on">
-  <label>Photo — connectors, stamp, the actual part</label>
+  <p class="muted">Installing a battery on Electrical replaces the one that’s there and keeps the old one in history, with its receipt.</p>
+  <div class="desk-form">
+    <div>
+      <label>System</label>
+      <select name="system" id="part-system">
+        {% for s in systems_catalog %}
+          <option value="{{ s.id }}">{{ s.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>What</label>
+      <select name="slot" id="part-slot"></select>
+    </div>
+    <div>
+      <label>Name</label>
+      <input name="name" required placeholder="DieHard Gold, Motorcraft alternator">
+    </div>
+    <div>
+      <label>Brand</label>
+      <input name="brand" placeholder="DieHard, Bosch, Motorcraft">
+    </div>
+    <div>
+      <label>Spec</label>
+      <input name="spec" id="part-spec" placeholder="Group 65, 130A, 5W-30">
+    </div>
+    <div>
+      <label>Part number</label>
+      <input name="part_number" placeholder="FL-820S, H6 / Group 48">
+    </div>
+    <div>
+      <label>Where you got it</label>
+      <input name="source" placeholder="AutoZone, Amazon, junkyard, dealer">
+    </div>
+    <div>
+      <label>What you paid</label>
+      <input name="cost" inputmode="decimal" placeholder="89.00">
+    </div>
+    <div>
+      <label>Status</label>
+      <select name="status">
+        <option value="installed">Installed — this is what’s on it now</option>
+        <option value="spare">Spare in the garage</option>
+      </select>
+    </div>
+    <div>
+      <label>{% if systems_host == 'house' %}Hours / reading (optional){% else %}Installed mileage{% endif %}</label>
+      <input name="installed_mileage" inputmode="numeric" value="{{ (item.vehicle.current_mileage if item.vehicle else '') }}">
+    </div>
+    <div>
+      <label>Date you put it on</label>
+      <input type="date" name="installed_on">
+    </div>
+    <div>
+      <label>Warranty until</label>
+      <input type="date" name="warranty_until">
+    </div>
+  </div>
+  <label>Note</label>
+  <textarea name="notes" placeholder="Just replaced the battery. Old one was dying. Got this one at AutoZone on Saturday."></textarea>
+  <label>Photo of the part (connectors, stamp, the actual piece)</label>
   <input type="file" name="photo" accept="image/*" capture="environment">
   <label>Caption</label>
   <input name="caption" placeholder="Alternator 3-pin, battery terminals">
+  <label>Receipt (photo or PDF)</label>
+  <input type="file" name="receipt" accept="image/*,.pdf">
   <div class="btn-row"><button class="btn" type="submit">Save part</button></div>
 </form>
 {% endif %}
 
+<div class="sys-list">
 {% for sys in systems %}
 <section class="sys-card" id="sys-{{ sys.id }}">
   <header>
@@ -62,21 +105,50 @@
           {% else %}Installed{% endif %}
           {% if p.installed_mileage %} · {{ p.installed_mileage }} mi{% endif %}
           {% if p.installed_on %} · {{ p.installed_on }}{% endif %}
+          {% if p.source %} · from {{ p.source }}{% endif %}
+          {% if p.cost %} · ${{ '%.2f'|format(p.cost|float) }}{% endif %}
+          {% if p.warranty_until %} · warranty {{ p.warranty_until }}{% endif %}
         </div>
         {% if p.notes %}<p style="margin:.35rem 0 0;white-space:pre-wrap">{{ p.notes }}</p>{% endif %}
         {% if p.catalog_item_id %}
           <a href="{{ url_for('items.detail', item_id=p.catalog_item_id) }}">Open in pantry</a>
         {% endif %}
-      </div>
-      <div class="part-side">
         {% set shots = part_photos.get(p.id) or [] %}
         {% if shots %}
           <div class="photo-strip">
-            {% for ph in shots[:3] %}
-              <img src="{{ url_for('items.serve_photo', photo_id=ph.id) }}" alt="{{ ph.caption or p.name }}">
+            {% for ph in shots %}
+              {% if ph.kind == 'receipt' or '.pdf' in (ph.image_path or '')|lower %}
+                <a class="receipt-chip" href="{{ url_for('items.serve_photo', photo_id=ph.id) }}" target="_blank" rel="noopener">Receipt</a>
+              {% else %}
+                <img src="{{ url_for('items.serve_photo', photo_id=ph.id) }}" alt="{{ ph.caption or p.name }}">
+              {% endif %}
             {% endfor %}
           </div>
         {% endif %}
+        {% if can_maintain or can_edit %}
+        <details class="more part-edit">
+          <summary>Update this part</summary>
+          <form method="post" action="{{ url_for('items.edit_part', item_id=item.id, part_id=p.id) }}" enctype="multipart/form-data">
+            <label>Name</label>
+            <input name="name" value="{{ p.name }}">
+            <label>Note</label>
+            <textarea name="notes">{{ p.notes or '' }}</textarea>
+            <label>Where you got it</label>
+            <input name="source" value="{{ p.source or '' }}" placeholder="AutoZone, Amazon…">
+            <label>What you paid</label>
+            <input name="cost" inputmode="decimal" value="{% if p.cost %}{{ '%.2f'|format(p.cost|float) }}{% endif %}">
+            <label>Warranty until</label>
+            <input type="date" name="warranty_until" value="{{ p.warranty_until or '' }}">
+            <label>Add a photo</label>
+            <input type="file" name="photo" accept="image/*" capture="environment">
+            <label>Add a receipt (photo or PDF)</label>
+            <input type="file" name="receipt" accept="image/*,.pdf">
+            <div class="btn-row"><button class="btn sm" type="submit">Save</button></div>
+          </form>
+        </details>
+        {% endif %}
+      </div>
+      <div class="part-side">
         {% if can_maintain or can_edit %}
         <form method="post" action="{{ url_for('items.retire_part', item_id=item.id, part_id=p.id) }}">
           <button class="btn sm secondary" type="submit">Retire</button>
@@ -98,18 +170,29 @@
     <details class="more">
       <summary>History ({{ sys.history|length }})</summary>
       {% for p in sys.history %}
-        <div class="muted" style="padding:.35rem 0">
+        <div class="muted" style="padding:.45rem 0;border-top:1px solid var(--edge)">
           <strong>{{ p.name }}</strong>
           · {{ p.slot.replace('_',' ') }}
           {% if p.spec %} · {{ p.spec }}{% endif %}
+          {% if p.source %} · from {{ p.source }}{% endif %}
+          {% if p.cost %} · ${{ '%.2f'|format(p.cost|float) }}{% endif %}
           {% if p.installed_mileage %} · {{ p.installed_mileage }} mi{% endif %}
+          {% if p.installed_on %} · {{ p.installed_on }}{% endif %}
           · {{ p.status }}
+          {% if p.notes %}<div style="white-space:pre-wrap;margin-top:.2rem">{{ p.notes }}</div>{% endif %}
+          {% set oldshots = part_photos.get(p.id) or [] %}
+          {% for ph in oldshots %}
+            {% if ph.kind == 'receipt' or '.pdf' in (ph.image_path or '')|lower %}
+              <a href="{{ url_for('items.serve_photo', photo_id=ph.id) }}" target="_blank" rel="noopener">Receipt</a>
+            {% endif %}
+          {% endfor %}
         </div>
       {% endfor %}
     </details>
   {% endif %}
 </section>
 {% endfor %}
+</div>
 
 <script>
 (function () {

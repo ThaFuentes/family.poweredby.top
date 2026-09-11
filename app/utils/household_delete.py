@@ -12,6 +12,8 @@ from app.builddb.table_grocery_list import GroceryListEntry
 from app.builddb.table_households import Household
 from app.builddb.table_invites import Invite
 from app.builddb.table_items import Item
+from app.builddb.table_legal_files import LegalFile
+from app.builddb.table_legal_records import LegalRecord
 from app.builddb.table_maintenance_records import MaintenanceRecord
 from app.builddb.table_notes import Note
 from app.builddb.table_password_resets import PasswordReset
@@ -55,6 +57,8 @@ def delete_household(household: Household) -> str:
     TrustedEmail.query.filter_by(household_id=hid).delete(synchronize_session=False)
     ScanEvent.query.filter_by(household_id=hid).delete(synchronize_session=False)
     PhotoNote.query.filter_by(household_id=hid).delete(synchronize_session=False)
+    LegalFile.query.filter_by(household_id=hid).delete(synchronize_session=False)
+    LegalRecord.query.filter_by(household_id=hid).delete(synchronize_session=False)
     Note.query.filter_by(household_id=hid).delete(synchronize_session=False)
     GroceryListEntry.query.filter_by(household_id=hid).delete(synchronize_session=False)
     Reminder.query.filter_by(household_id=hid).delete(synchronize_session=False)

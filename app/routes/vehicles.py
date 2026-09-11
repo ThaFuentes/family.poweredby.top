@@ -10,7 +10,7 @@ from app.utils.permissions import can
 from app.utils.vehicle_lookup import lookup_vehicle, apply_vehicle_lookup
 from app.utils.qr_labels import item_payload
 from app.utils.vehicle_systems import install_part, valid_slot, valid_system
-from app.routes.items import save_item_photo, _item_or_404
+from app.routes.items import attach_part_uploads, save_item_photo, _item_or_404
 
 vehicles_bp = Blueprint("vehicles", __name__, url_prefix="/vehicles")
 
@@ -121,20 +121,16 @@ def add_part(item_id):
         installed_on=request.form.get("installed_on"),
         installed_mileage=request.form.get("installed_mileage") or (item.vehicle.current_mileage if item.vehicle else None),
         notes=request.form.get("notes"),
+        source=request.form.get("source"),
+        cost=request.form.get("cost"),
+        warranty_until=request.form.get("warranty_until"),
         replace_current=status == "installed",
     )
-    photo = request.files.get("photo")
-    if photo and photo.filename and row:
-        save_item_photo(
-            item,
-            photo,
-            request.form.get("caption") or name,
-            current_user.id,
-            part_id=row.id,
-        )
+    nfiles = attach_part_uploads(item, row, current_user.id)
     db.session.commit()
-    flash(f"{name} saved on {item.name}.", "success")
-    return redirect(url_for("items.detail", item_id=item.id, tab="systems"))
+    extra = f" {nfiles} file(s)." if nfiles else ""
+    flash(f"{name} saved on {item.name}.{extra}", "success")
+    return redirect(url_for("items.detail", item_id=item.id, tab="systems") + (f"#sys-{row.system}" if row else ""))
 
 
 @vehicles_bp.route("/<int:item_id>/parts/<int:part_id>/retire", methods=["POST"])

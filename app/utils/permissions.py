@@ -6,7 +6,7 @@ from flask_login import current_user
 # Admin: full control including metadata and members.
 ROLE_PERMS = {
     "child": frozenset({"scan", "view"}),
-    "member": frozenset({"scan", "view", "edit_grocery", "maintain", "photo"}),
+    "member": frozenset({"scan", "view", "edit_grocery", "maintain", "photo", "legal"}),
     "admin": frozenset(
         {
             "scan",
@@ -14,6 +14,7 @@ ROLE_PERMS = {
             "edit_grocery",
             "maintain",
             "photo",
+            "legal",
             "edit_meta",
             "members",
             "settings",

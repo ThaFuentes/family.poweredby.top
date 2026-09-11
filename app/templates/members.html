@@ -20,9 +20,10 @@
 
 {% if can('settings') %}
 <form class="card" method="post" action="{{ url_for('members.rename_household') }}">
-  <label>Household name</label>
+  <label>Household label (optional)</label>
   <input name="name" value="{{ household.name }}">
-  <div class="btn-row"><button class="btn" type="submit">Rename</button></div>
+  <p class="muted">A note for this house — not a required family name. People here use the names they picked.</p>
+  <div class="btn-row"><button class="btn" type="submit">Save label</button></div>
 </form>
 <form class="card" method="post" action="{{ url_for('members.save_handle') }}">
   <label>Household handle</label>
@@ -85,8 +86,8 @@
 </div>
 {% if current_user.is_admin or is_leader %}
 <form class="card" method="post" action="{{ url_for('members.save_ai') }}" id="ai-form">
-  <h2>Your AI key</h2>
-  <p class="muted">Optional. Paste a free Gemini key, Grok, OpenAI, Claude, Groq, OpenRouter, or any OpenAI-compatible endpoint. Family OS is not an AI app — the key only helps name what you scanned (car battery vs AA, which vehicle, wrong UPC). The key stays on this household, encrypted.</p>
+  <h2>Your AI key — bring your own</h2>
+  <p class="muted">Optional. <strong>You</strong> paste a key. Family OS never uses the platform owner’s key, there are no ads, and logins stay free. Gemini has a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. Grok, OpenAI, Claude, Groq, OpenRouter, or a local endpoint work too. The key only helps name what you scanned (car battery vs AA). It stays on this household, encrypted.</p>
   <label>Provider</label>
   <select name="ai_provider" id="ai-provider">
     {% for p in ai.providers %}
@@ -103,7 +104,7 @@
   <input type="password" name="ai_api_key" autocomplete="off" placeholder="{% if ai.has_key %}unchanged · {{ ai.key_hint }}{% else %}paste a key{% endif %}">
   <label id="ai-base-label" {% if ai.provider != 'custom' %}hidden{% endif %}>Base URL</label>
   <input name="ai_base_url" id="ai-base-url" value="{{ ai.base_url if ai.provider=='custom' else '' }}" placeholder="http://127.0.0.1:11434/v1" {% if ai.provider != 'custom' %}hidden{% endif %}>
-  <p class="muted">{% if ai.ready %}Active: {{ ai.label }} · {{ ai.model }} · {{ ai.key_hint }}{% else %}No key on this household yet. Scanning still works without one.{% endif %}</p>
+  <p class="muted">{% if ai.ready and not ai.from_env %}Active on this household: {{ ai.label }} · {{ ai.model }} · {{ ai.key_hint }}{% else %}No key on this household yet. Scanning still works without one.{% endif %}</p>
   <div class="btn-row">
     <button class="btn" type="submit">Save key</button>
     {% if ai.has_key %}
@@ -167,16 +168,21 @@
 <div class="card key-card">
   <span class="key-tag fam">1 · Family key · FAM-</span>
   <h2>Enter this household</h2>
-  <p class="muted">Gives someone a seat in <strong>{{ household.name }}</strong>. They become a person here. This is not a Service key — it will not let them start their own household on Family OS.</p>
+  <p class="muted">Gives someone a seat here. They type <strong>their own name</strong> when they join. The key does not need a family name. A note below is only so <em>you</em> remember who you made it for.</p>
   <p class="muted">Child = scan only. Member = groceries + maintenance. Admin = full.</p>
   {% if can('members') %}
-  <form method="post" action="{{ url_for('members.invite') }}" class="btn-row">
-    <select name="role">
-      <option value="member">member</option>
-      <option value="child">child</option>
-      <option value="admin">admin</option>
-    </select>
-    <button class="btn" type="submit">Make a Family key</button>
+  <form method="post" action="{{ url_for('members.invite') }}">
+    <label>Note (optional — for you)</label>
+    <input name="label" placeholder="Maya, cousin Mike">
+    <label>Role</label>
+    <div class="btn-row">
+      <select name="role">
+        <option value="member">member</option>
+        <option value="child">child</option>
+        <option value="admin">admin</option>
+      </select>
+      <button class="btn" type="submit">Make a Family key</button>
+    </div>
   </form>
   {% endif %}
   {% for inv in invites %}
@@ -184,7 +190,10 @@
       <div>
         <strong class="key-code">{{ inv.code }}</strong>
         <button type="button" class="btn sm secondary" data-copy="{{ inv.code }}">Copy</button>
-        <span class="muted">· {{ inv.role }} · expires {{ inv.expires_at }}</span>
+        <div class="muted">
+          {{ inv.role }} · expires {{ inv.expires_at }}
+          {% if inv.label %} · note: {{ inv.label }}{% endif %}
+        </div>
       </div>
     </div>
   {% else %}

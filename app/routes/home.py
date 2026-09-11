@@ -4,6 +4,7 @@ from sqlalchemy import or_
 
 from app.builddb.table_grocery_list import GroceryListEntry
 from app.builddb.table_items import Item
+from app.builddb.table_legal_records import LegalRecord
 from app.builddb.table_notes import Note
 from app.builddb.table_reminders import Reminder
 from app.utils.household import household_id, scoped
@@ -31,6 +32,12 @@ def home():
     notes_open = scoped(Note).filter(
         or_(Note.visibility == "household", Note.user_id == current_user.id)
     ).count()
+    legal_open = 0
+    if not is_child:
+        try:
+            legal_open = scoped(LegalRecord).filter_by(status="open").count()
+        except Exception:
+            legal_open = 0
     house = (
         Item.query.filter_by(household_id=hid, item_type="house")
         .order_by(Item.id.asc())
@@ -46,6 +53,7 @@ def home():
         "low": needs["low"],
         "want": needs["want"],
         "notes": notes_open,
+        "legal": legal_open,
     }
     from app.utils.calendar import ensure_calendar_token, member_subscribe
     from app.builddb.table_households import Household as HouseholdRow

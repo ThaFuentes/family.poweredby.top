@@ -8,12 +8,19 @@
   {% include "partials/theme_head.html" %}
 </head>
 <body class="auth">
+  <header class="auth-desk-bar">
+    <a class="brand" href="{{ url_for('home.home') }}">
+      <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
+      <span class="brand-meta"><strong>Family OS</strong><small>Join</small></span>
+    </a>
+    <a href="{{ url_for('auth.login') }}">Sign in</a>
+  </header>
   <div class="auth-page">
     <div class="wrap">
       <div class="auth-hero">
         <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
         <h1>Join Family OS</h1>
-        <p class="muted">Friends and family only. Two different keys — read the labels.</p>
+        <p class="muted">You pick your name. Keys do not need a family name.</p>
       </div>
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
@@ -30,7 +37,7 @@
       <div class="key-legend">
         <div>
           <span class="key-tag fam">Family key · FAM-</span>
-          <p>Puts you in a specific household. Made on that household’s People page.</p>
+          <p>Puts you in a household. You type your own name. A note on the key is only for whoever made it.</p>
         </div>
         <div>
           <span class="key-tag srv">Service key · SRV- · vital</span>
@@ -41,7 +48,8 @@
       <div class="card">
         <form method="post">
           <label>Your name</label>
-          <input name="name" required value="{{ name or '' }}" autocomplete="name">
+          <input name="name" required value="{{ name or '' }}" autocomplete="name" placeholder="Maya">
+          <p class="muted" style="margin:.25rem 0 .7rem">This is what people here call you. You choose it.</p>
           <label>Username for this household</label>
           <input name="username" autocomplete="username" required value="{{ username or '' }}" placeholder="maya">
           <p class="muted" style="margin:.25rem 0 .7rem">Unique in your house — dad, maya, kid. Another family can use the same word.</p>
@@ -62,12 +70,14 @@
           <div class="key-block">
             <label for="family_key">Family key <span class="key-tag fam">FAM- · enter a household</span></label>
             <input id="family_key" name="family_key" value="{{ invite or '' }}" placeholder="FAM-…" autocapitalize="characters" autocomplete="off">
-            <p class="muted">Paste this to join an existing household. Leave blank to start your own.</p>
+            <p class="muted">Paste this to join an existing household. Leave blank to start your own. No family name required on the key.</p>
           </div>
 
-          <label>New household name</label>
-          <input name="household_name" placeholder="The Fuentes house" value="{{ household_name or '' }}">
-          <p class="muted">Only if you are starting a household — not joining one.</p>
+          <div id="new-house-block">
+            <label>Household label (optional)</label>
+            <input name="household_name" placeholder="Leave blank — we’ll use your name" value="{{ household_name or '' }}">
+            <p class="muted">Only if you are starting a household. A note for the house, not a required family name. You still sign in with your username.</p>
+          </div>
           <div class="btn-row">
             <button class="btn block" type="submit">Continue</button>
           </div>
@@ -76,5 +86,19 @@
       <p class="muted" style="text-align:center"><a href="{{ url_for('home.home') }}">Back</a></p>
     </div>
   </div>
+  <script>
+  (function () {
+    var fam = document.getElementById("family_key");
+    var block = document.getElementById("new-house-block");
+    function sync() {
+      if (!fam || !block) return;
+      block.hidden = !!(fam.value || "").trim();
+    }
+    if (fam) {
+      fam.addEventListener("input", sync);
+      sync();
+    }
+  })();
+  </script>
 </body>
 </html>

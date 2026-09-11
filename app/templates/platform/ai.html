@@ -3,13 +3,13 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>Fallback AI</h1>
-    <p>Households bring their own keys (Gemini, Grok, OpenAI, Claude, Groq, OpenRouter, or custom). This page is only the platform fallback if a household has none.</p>
+    <h1>Owner-console AI</h1>
+    <p>Families bring their own keys. This key is <strong>not</strong> used by households — not as a fallback, not ever. Gemini is free for them at aistudio.google.com. Family OS stays free, no ads.</p>
   </div>
 </div>
 <div class="card">
   <p class="muted">{{ ai.hint }}</p>
-  <p>{% if ai.ready %}Active: {{ ai.label }} · {{ ai.model }} · key {{ ai.key_hint }}{% if ai.from_env %} (from .env){% endif %}{% else %}No fallback key yet.{% endif %}</p>
+  <p>{% if ai.ready %}Owner console only: {{ ai.label }} · {{ ai.model }} · key {{ ai.key_hint }}{% if ai.from_env %} (from .env){% endif %}{% else %}No owner-console key. That is fine — families paste their own.{% endif %}</p>
 </div>
 <form class="card" method="post" id="ai-form">
   <label>Provider</label>
@@ -28,8 +28,8 @@
   <input type="password" name="ai_api_key" autocomplete="off" placeholder="{% if ai.has_key %}unchanged · {{ ai.key_hint }}{% else %}{{ ai.placeholder }}{% endif %}">
   <label id="ai-base-label" {% if ai.provider != 'custom' %}hidden{% endif %}>Base URL</label>
   <input name="ai_base_url" id="ai-base-url" value="{{ ai.base_url if ai.provider=='custom' else '' }}" placeholder="https://api.example.com/v1" {% if ai.provider != 'custom' %}hidden{% endif %}>
-  <p class="muted">Leave the key blank to keep the current one. Household keys always win.</p>
-  <div class="btn-row"><button class="btn" type="submit">Save fallback</button></div>
+  <p class="muted">Leave the key blank to keep the current one. Saving here does not give families a key.</p>
+  <div class="btn-row"><button class="btn" type="submit">Save owner-console key</button></div>
 </form>
 <form class="card" method="post" action="{{ url_for('platform.ai_test') }}">
   <h2>Ping</h2>

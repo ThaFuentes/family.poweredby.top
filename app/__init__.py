@@ -134,6 +134,8 @@ def create_app():
     from app.routes.platform import platform_bp
     from app.routes.find import find_bp
     from app.routes.house import house_bp
+    from app.routes.legal import legal_bp
+    from app.routes.sort import sort_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(home_bp)
@@ -150,6 +152,8 @@ def create_app():
     app.register_blueprint(platform_bp)
     app.register_blueprint(find_bp)
     app.register_blueprint(house_bp)
+    app.register_blueprint(legal_bp)
+    app.register_blueprint(sort_bp)
 
     @app.before_request
     def _block_paused_household():

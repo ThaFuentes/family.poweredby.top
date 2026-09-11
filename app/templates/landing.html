@@ -10,16 +10,22 @@
 <body class="auth landing-body">
   <div class="landing">
     <header class="landing-top">
-      <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
-      <div>
-        <strong>Family OS</strong>
-        <small>Your household, in your pocket</small>
-      </div>
+      <a class="landing-brand" href="{{ url_for('home.home') }}">
+        <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
+        <div>
+          <strong>Family OS</strong>
+          <small>Your household, private</small>
+        </div>
+      </a>
+      <nav class="landing-top-links" aria-label="Account">
+        <a href="{{ url_for('auth.login') }}">Sign in</a>
+        <a class="btn sm" href="{{ url_for('auth.register') }}">Join</a>
+      </nav>
     </header>
 
     <section class="landing-hero">
       <h1>Scan it. Know it. Keep the house running.</h1>
-      <p>Groceries, tools, cars, photos of the weird connector. One private household — not the internet.</p>
+      <p>Groceries, tools, cars, citations, photos of the weird connector. One private household — not the internet. Phone is an app. Computer is a website.</p>
     </section>
 
     <div class="landing-cta">
@@ -32,7 +38,7 @@
       <article class="key-card">
         <span class="key-tag fam">1 · Family key</span>
         <h3>Enter a household</h3>
-        <p>Someone already in <em>your</em> family makes this. It puts you in that household. Starts with <strong>FAM-</strong>.</p>
+        <p>Someone already in <em>your</em> family makes this. You type <strong>your</strong> name. The key does not need a family name — a note on their side is only so they remember who it is for. Starts with <strong>FAM-</strong>.</p>
         <form method="get" action="{{ url_for('auth.register') }}">
           <label for="family-key">Family key</label>
           <div class="btn-row">
@@ -55,11 +61,26 @@
       </article>
     </section>
 
+    <section class="landing-points" aria-label="What it holds">
+      <article>
+        <strong>Pantry and tools</strong>
+        <p>Scan a UPC or a QR. Know what ran out, where the 10mm is, when the Civic needs oil.</p>
+      </article>
+      <article>
+        <strong>Your name, your seat</strong>
+        <p>You pick what you are called. A household label is optional — a note for whoever is handing out keys.</p>
+      </article>
+      <article>
+        <strong>Paper trail</strong>
+        <p>Citations, notices, tickets. Keep the copy, the city, the date. Go back to it if you need the file.</p>
+      </article>
+    </section>
+
     <p class="landing-foot muted">Already trusted by email? Use Join and type that email — no Service key needed. Still need a Family key to enter a household.</p>
 
     <div class="card install-card landing-install" data-family-pwa-settings>
       <strong data-family-pwa-title>Add to your phone</strong>
-      <span class="hint" data-family-pwa-hint>Opens like an app. Built for a phone in your hand — desktop works too.</span>
+      <span class="hint" data-family-pwa-hint>On a phone this opens like an app. On a computer it stays a website.</span>
       <div data-family-pwa-extra></div>
       <div class="btn-row">
         <button type="button" class="btn" data-family-pwa-go hidden>Install</button>

@@ -4,7 +4,7 @@
 <div class="page-head">
   <div>
     <h1>Vehicles</h1>
-    <p>Type plate, VIN, or the name. Camera stays off unless you open it.</p>
+    <p>Each vehicle is broken into body, electrical, electronics, engine, cooling… Log a battery, alternator, radiator — where you got it, the receipt.</p>
   </div>
   <a class="btn sm secondary" href="{{ url_for('tools.index') }}">Tools</a>
 </div>
@@ -41,16 +41,17 @@
 {% include "partials/scan_strip.html" %}
 <div class="card list">
   {% for item in items %}
-    <a class="row" href="{{ url_for('items.detail', item_id=item.id) }}">
+    <a class="row" href="{{ url_for('items.detail', item_id=item.id, tab='systems') }}">
       <div>
         <strong>{{ item.name }}</strong>
         <div class="muted">
           {% if item.vehicle and item.vehicle.plate %}{{ item.vehicle.plate }} · {% endif %}
           {% if item.vehicle %}{{ item.vehicle.year or '' }} {{ item.vehicle.make or '' }} {{ item.vehicle.model or '' }}{% endif %}
           {% if item.vehicle and item.vehicle.fuel_type %} · {{ item.vehicle.fuel_type }}{% endif %}
+          · battery, body, electronics…
         </div>
       </div>
-      <span class="badge">QR</span>
+      <span class="badge">Systems</span>
     </a>
   {% else %}
     <div class="empty"><strong>No vehicles yet</strong>Type plate, VIN, or a name. Scan only if you want.</div>

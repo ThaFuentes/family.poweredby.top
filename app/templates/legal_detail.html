@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}{{ row.title }} · Records{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted" style="margin:0 0 .25rem"><a href="{{ url_for('legal.index') }}">Records</a></p>
+    <h1>{{ row.title }}</h1>
+    <p>{{ kind_labels.get(row.kind, row.kind) }}{% if row.agency %} · {{ row.agency }}{% endif %}{% if author %} · added by {{ author.name or author.username }}{% endif %}</p>
+  </div>
+  <span class="badge {% if row.status=='open' %}low{% endif %}">{{ status_labels.get(row.status, row.status) }}</span>
+</div>
+
+<div class="card">
+  <dl class="facts">
+    <div><dt>Kind</dt><dd>{{ kind_labels.get(row.kind, row.kind) }}{% if row.extra_data and row.extra_data.get('kind_detail') %} · {{ row.extra_data.get('kind_detail') }}{% endif %}</dd></div>
+    <div><dt>Who sent it</dt><dd>{{ row.agency or '—' }}</dd></div>
+    <div><dt>Number</dt><dd>{{ row.case_number or '—' }}</dd></div>
+    <div><dt>Where</dt><dd>{{ row.location or '—' }}</dd></div>
+    <div><dt>Date on paper</dt><dd>{{ row.issued_on or '—' }}</dd></div>
+    <div><dt>Due / court</dt><dd>{{ row.due_on or '—' }}</dd></div>
+    <div><dt>Amount</dt><dd>{% if row.amount %}${{ '%.2f'|format(row.amount|float) }}{% else %}—{% endif %}</dd></div>
+    <div><dt>Status</dt><dd>{{ status_labels.get(row.status, row.status) }}</dd></div>
+  </dl>
+  {% if row.body %}
+  <h2>What happened</h2>
+  <p style="white-space:pre-wrap">{{ row.body }}</p>
+  {% endif %}
+  {% if row.outcome %}
+  <h2>Outcome</h2>
+  <p style="white-space:pre-wrap">{{ row.outcome }}</p>
+  {% endif %}
+</div>
+
+{% if row.files %}
+<div class="card">
+  <h2>Paper on file</h2>
+  <div class="photo-grid rec-files">
+    {% for f in row.files %}
+      {% set ext = (f.original_name or f.stored_path or '')|lower %}
+      {% if '.pdf' in ext or f.mime == 'application/pdf' %}
+      <a class="rec-pdf" href="{{ url_for('legal.serve_file', file_id=f.id) }}" target="_blank" rel="noopener">
+        <strong>{{ f.original_name or 'PDF' }}</strong>
+        <span class="muted">Open PDF</span>
+      </a>
+      {% else %}
+      <a href="{{ url_for('legal.serve_file', file_id=f.id) }}" target="_blank" rel="noopener">
+        <img src="{{ url_for('legal.serve_file', file_id=f.id) }}" alt="{{ f.caption or f.original_name or 'Scan' }}">
+      </a>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% if can_edit %}
+  {% for f in row.files %}
+  <form class="btn-row no-print" method="post" action="{{ url_for('legal.delete_file', file_id=f.id) }}" onsubmit="return confirm('Remove this file?')">
+    <span class="muted">{{ f.original_name or 'file' }}</span>
+    <button class="btn sm secondary" type="submit">Remove file</button>
+  </form>
+  {% endfor %}
+  {% endif %}
+</div>
+{% endif %}
+
+{% if can_edit %}
+<form class="card no-print" method="post" action="{{ url_for('legal.add_file', record_id=row.id) }}" enctype="multipart/form-data">
+  <h2>Add pictures</h2>
+  <label>Take a photo</label>
+  <input type="file" name="file" accept="image/*" capture="environment">
+  <label>More photos or a PDF</label>
+  <input type="file" name="file" accept="image/*,.pdf" multiple>
+  <label>Caption (optional)</label>
+  <input name="caption" placeholder="Front of ticket, envelope, etc.">
+  <div class="btn-row"><button class="btn" type="submit">Attach</button></div>
+</form>
+
+<form class="card no-print" method="post" action="{{ url_for('legal.edit', record_id=row.id) }}">
+  <h2>Update</h2>
+  <div class="desk-form">
+    <div>
+      <label>Type of paper</label>
+      <select name="kind">
+        {% for k in kinds %}
+          <option value="{{ k }}" {% if row.kind==k %}selected{% endif %}>{{ kind_labels[k] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>What is it</label>
+      <input name="title" required value="{{ row.title }}">
+    </div>
+    <div>
+      <label>If it’s something else</label>
+      <input name="kind_detail" value="{{ (row.extra_data or {}).get('kind_detail', '') }}">
+    </div>
+    <div>
+      <label>Who sent it</label>
+      <input name="agency" value="{{ row.agency or '' }}">
+    </div>
+    <div>
+      <label>Citation / case number</label>
+      <input name="case_number" value="{{ row.case_number or '' }}">
+    </div>
+    <div>
+      <label>Where</label>
+      <input name="location" value="{{ row.location or '' }}">
+    </div>
+    <div>
+      <label>Date on the paper</label>
+      <input type="date" name="issued_on" value="{{ row.issued_on or '' }}">
+    </div>
+    <div>
+      <label>Due / court date</label>
+      <input type="date" name="due_on" value="{{ row.due_on or '' }}">
+    </div>
+    <div>
+      <label>Amount</label>
+      <input name="amount" inputmode="decimal" value="{% if row.amount %}{{ '%.2f'|format(row.amount|float) }}{% endif %}">
+    </div>
+    <div>
+      <label>Status</label>
+      <select name="status">
+        {% for s in statuses %}
+          <option value="{{ s }}" {% if row.status==s %}selected{% endif %}>{{ status_labels[s] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+  <label>What happened</label>
+  <textarea name="body">{{ row.body or '' }}</textarea>
+  <label>Outcome</label>
+  <textarea name="outcome" placeholder="Paid, dismissed, still fighting, no reply…">{{ row.outcome or '' }}</textarea>
+  <div class="btn-row"><button class="btn" type="submit">Save</button></div>
+</form>
+
+<form class="card danger-card no-print" method="post" action="{{ url_for('legal.delete', record_id=row.id) }}" onsubmit="return confirm('Remove this record and its files?')">
+  <h2>Remove this record</h2>
+  <p class="muted">Gone from this household. There is no undo.</p>
+  <div class="btn-row"><button class="btn danger" type="submit">Delete record</button></div>
+</form>
+{% endif %}
+{% endblock %}
