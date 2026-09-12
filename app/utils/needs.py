@@ -30,7 +30,7 @@ ACTION_SAID = {
     "hours": "logged hours",
 }
 
-HOME_TTL = 30
+HOME_TTL = 90
 
 
 def _utcnow():

@@ -1,6 +1,6 @@
 <meta name="theme-color" content="{{ theme_color }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/family.css') }}?v=os20">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}?v=os20">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/family.css') }}?v=os21">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}?v=os21">
 <script>
 (function () {
   try {
@@ -13,4 +13,24 @@
     if (meta) meta.setAttribute("content", colors[t] || colors.default);
   } catch (e) {}
 })();
+(function () {
+  try {
+    if ((location.pathname || "").indexOf("/platform") === 0) return;
+    if (sessionStorage.getItem("family.intro.v1") === "1") return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    var stand = window.matchMedia("(display-mode: standalone)").matches
+      || window.matchMedia("(display-mode: window-controls-overlay)").matches
+      || window.matchMedia("(display-mode: minimal-ui)").matches
+      || window.navigator.standalone === true;
+    if (!stand) return;
+    document.documentElement.classList.add("family-intro-on");
+    var s = document.createElement("script");
+    s.src = "/static/js/intro.js?v=os2";
+    s.defer = true;
+    document.head.appendChild(s);
+  } catch (e) {}
+})();
 </script>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/images/pwa-192.png">
+<script src="/static/js/pwa-install.js?v=family-os2" defer></script>

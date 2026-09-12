@@ -406,9 +406,6 @@ def register_pwa(app) -> None:
             if not data or "<head" not in data.lower():
                 return response
             if "pwa-install.js" in data:
-                data = _inject_intro(data)
-                response.set_data(data)
-                response.headers["Content-Length"] = str(len(data.encode("utf-8")))
                 return response
 
             brand = _brand()
@@ -439,11 +436,7 @@ def register_pwa(app) -> None:
                         flags=re.I,
                     )
                     if not n:
-                        data = _inject_intro(data)
-                        response.set_data(data)
-                        response.headers["Content-Length"] = str(len(data.encode("utf-8")))
                         return response
-                data = _inject_intro(data)
                 response.set_data(data)
                 response.headers["Content-Length"] = str(len(data.encode("utf-8")))
                 return response
@@ -456,7 +449,6 @@ def register_pwa(app) -> None:
                 flags=re.I,
             )
             if n:
-                new_data = _inject_intro(new_data)
                 response.set_data(new_data)
                 response.headers["Content-Length"] = str(len(new_data.encode("utf-8")))
         except Exception:

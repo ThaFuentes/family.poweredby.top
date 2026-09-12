@@ -15,7 +15,7 @@ from app.utils.calendar import (
     user_for_calendar_token,
 )
 from app.utils.household import household_id, scoped
-from app.utils.notify import announce_reminder, flush_due_emails
+from app.utils.notify import announce_reminder, maybe_flush_due_emails
 from app.utils.permissions import require_perm
 from app.utils.reminders_copy import (
     REMINDER_TYPES,
@@ -32,7 +32,7 @@ reminders_bp = Blueprint("reminders", __name__, url_prefix="/reminders")
 @login_required
 def index():
     hid = household_id()
-    flush_due_emails(hid)
+    maybe_flush_due_emails(hid)
     rows = scoped(Reminder).order_by(Reminder.due_at.asc()).all()
     items = scoped(Item).order_by(Item.name.asc()).all()
     household = Household.query.get(hid)

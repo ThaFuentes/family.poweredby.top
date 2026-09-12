@@ -139,10 +139,20 @@ def email_reminder(row: Reminder) -> None:
 
 
 def flush_due_emails(household_id: int) -> int:
+    from sqlalchemy import and_, or_
+
     now = _utcnow()
     rows = (
         Reminder.query.filter_by(household_id=household_id, status="open")
         .filter(Reminder.due_at.isnot(None))
+        .filter(
+            or_(
+                Reminder.calendar_pushed_at.is_(None),
+                and_(Reminder.due_at <= now, Reminder.email_sent_at.is_(None)),
+            )
+        )
+        .order_by(Reminder.due_at.asc())
+        .limit(40)
         .all()
     )
     n = 0

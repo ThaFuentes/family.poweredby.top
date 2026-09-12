@@ -142,13 +142,13 @@ def init_tenant_system(app):
             importlib.import_module(f"{package_name}.{module_name}")
 
         skip_evolve = _schema_is_current(app)
-        db.create_all()
         if skip_evolve and not _users_schema_ready():
             _say("[BUILD-DB] stamp said current but users columns missing - evolve")
             skip_evolve = False
         if skip_evolve:
             _say("[BUILD-DB] schema current - skip evolve")
         else:
+            db.create_all()
             with db.engine.connect() as conn:
                 conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
 
