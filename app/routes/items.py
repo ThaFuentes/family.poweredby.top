@@ -947,9 +947,6 @@ def add_part(item_id):
     if item.item_type not in ("vehicle", "house"):
         abort(404)
     name = (request.form.get("name") or "").strip()
-    if not name:
-        flash("Name the part.", "danger")
-        return redirect(url_for("items.detail", item_id=item.id, tab="systems"))
     hid = household_id()
     if item.item_type == "house":
         from app.utils.house_systems import HOUSE_SLOTS, install_house_part
@@ -999,7 +996,8 @@ def add_part(item_id):
     _remember_part_source(item, request.form.get("source"))
     db.session.commit()
     extra = f" {nfiles} file(s)." if nfiles else ""
-    flash(f"{name} saved on {item.name}.{extra} Add the next part on a blank form — only the store carries over.", "success")
+    shown = (row.name if row else name) or "Part"
+    flash(f"{shown} saved on {item.name}.{extra} Add the next part on a blank form — only the store carries over.", "success")
     return redirect(url_for("items.detail", item_id=item.id, tab="systems") + "#add-part")
 
 

@@ -209,8 +209,9 @@ def system_label(system_id: str) -> str:
     return (system_id or "Other").replace("_", " ").title()
 
 
-def slot_label(system_id: str, slot_id: str) -> str:
-    for sid, label, _hint in SLOTS.get(system_id) or ():
+def slot_label(system_id: str, slot_id: str, slots=None) -> str:
+    slot_map = slots or SLOTS
+    for sid, label, _hint in slot_map.get(system_id) or ():
         if sid == slot_id:
             return label
     return (slot_id or "Part").replace("_", " ").title()
@@ -306,12 +307,10 @@ def install_part(
     from app.builddb.builddb import db
     from app.builddb.table_vehicle_parts import VehiclePart
 
-    name = (name or "").strip()
-    if not name:
-        return None
     slot_map = catalog_slots or SLOTS
     system = valid_system(system, slot_map)
     slot = valid_slot(system, slot, slot_map)
+    name = (name or "").strip() or slot_label(system, slot, slot_map)
     status = (status or "installed").strip().lower()
     if status not in ("installed", "spare", "retired"):
         status = "installed"

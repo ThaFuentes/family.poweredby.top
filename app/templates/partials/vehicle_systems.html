@@ -141,12 +141,12 @@
         <select name="slot" id="part-slot"></select>
       </div>
       <div>
-        <label>Name</label>
-        <input name="name" required placeholder="DieHard Gold, Motorcraft alternator">
+        <label>Call it (optional)</label>
+        <input name="name" placeholder="Blank = Alternator, Radiator, Battery…">
       </div>
       <div>
-        <label>Brand</label>
-        <input name="brand" placeholder="DieHard, Bosch, Motorcraft">
+        <label>Brand (optional)</label>
+        <input name="brand" placeholder="If you know it">
       </div>
       <div>
         <label>Spec</label>
@@ -222,6 +222,8 @@
     });
     const picked = rows.find(function (r) { return r.id === slot.value; });
     if (spec && picked && picked.hint && !spec.value) spec.placeholder = picked.hint;
+    const nameEl = document.querySelector("#part-form [name='name']");
+    if (nameEl && picked && !nameEl.value) nameEl.placeholder = picked.label + " is enough";
   }
   function openPartForm() {
     if (fold) fold.open = true;
@@ -252,6 +254,9 @@
       clearPartExceptStore();
       sys.value = btn.getAttribute("data-system");
       fillSlots(btn.getAttribute("data-slot"));
+      const nameEl = document.querySelector("#part-form [name='name']");
+      const picked = slotsFor(sys.value).find(function (r) { return r.id === slot.value; });
+      if (nameEl && picked) nameEl.placeholder = picked.label + " is enough";
       openPartForm();
     });
   });

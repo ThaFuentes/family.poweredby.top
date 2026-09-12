@@ -114,9 +114,6 @@ def add_part(item_id):
         abort(403)
     item = _vehicle_item(item_id)
     name = (request.form.get("name") or "").strip()
-    if not name:
-        flash("Name the part — DieHard Group 65, 130A alternator, 5W-30.", "danger")
-        return redirect(url_for("items.detail", item_id=item.id, tab="systems"))
     hid = household_id()
     system = valid_system(request.form.get("system"))
     slot = valid_slot(system, request.form.get("slot"))
@@ -143,7 +140,8 @@ def add_part(item_id):
     nfiles = attach_part_uploads(item, row, current_user.id)
     db.session.commit()
     extra = f" {nfiles} file(s)." if nfiles else ""
-    flash(f"{name} saved on {item.name}.{extra}", "success")
+    shown = (row.name if row else name) or "Part"
+    flash(f"{shown} saved on {item.name}.{extra}", "success")
     return redirect(url_for("items.detail", item_id=item.id, tab="systems") + (f"#sys-{row.system}" if row else ""))
 
 
