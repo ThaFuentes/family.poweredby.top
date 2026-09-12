@@ -7,15 +7,26 @@ from app.builddb.table_platform_settings import PlatformSetting
 from app.utils.crypto import decrypt_text, encrypt_text, looks_encrypted
 
 SECRET_KEYS = frozenset({"smtp_password", "ai_api_key"})
+_SETTING_TTL = 300
 
 
 def get_setting(key: str, default: str = "") -> str:
+    from app.utils.hot_cache import get as cache_get, put as cache_put
+
+    ck = f"setting:{key}"
+    wrapped = cache_get(ck)
+    if isinstance(wrapped, dict) and "ok" in wrapped:
+        if not wrapped.get("ok"):
+            return default
+        return wrapped.get("v") if wrapped.get("v") is not None else default
     row = PlatformSetting.query.filter_by(key=key).first()
     if row is None or row.value is None:
+        cache_put(ck, {"ok": False}, _SETTING_TTL)
         return default
     val = str(row.value)
     if row.is_secret or looks_encrypted(val):
-        return decrypt_text(val) or default
+        val = decrypt_text(val) or default
+    cache_put(ck, {"ok": True, "v": val}, _SETTING_TTL)
     return val
 
 
@@ -31,6 +42,12 @@ def set_setting(key: str, value: str | None, secret: bool | None = None) -> None
         row.value = stored
         row.is_secret = is_secret
     db.session.commit()
+    try:
+        from app.utils.hot_cache import delete as cache_delete
+
+        cache_delete(f"setting:{key}")
+    except Exception:
+        pass
 
 
 def mask_secret(value: str) -> str:

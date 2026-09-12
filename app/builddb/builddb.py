@@ -2,14 +2,20 @@
 # File: app/builddb/builddb.py
 # Household OS schema init. CREATE IF NOT EXISTS on boot only —
 # never DDL on every request beyond the one-time evolve pass.
+# After a matching schema fingerprint, skip inspector evolve on
+# later Passenger worker spawns (cold start used to re-ALTER
+# every table on every idle recycle).
 # ===========================================================
 import os
+import hashlib
 import importlib
 import pkgutil
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text, inspect
 
 db = SQLAlchemy()
+
+SCHEMA_STAMP_NAME = "schema.fingerprint"
 
 
 def evolve_table(table_name, columns, indexes=None):
@@ -34,6 +40,50 @@ def evolve_table(table_name, columns, indexes=None):
                         print(f"[BUILD-DB] index {idx_name}: {idx_e}")
 
 
+def schema_fingerprint(package_path=None) -> str:
+    """Hash of table_*.py + this file. Any schema edit invalidates the stamp."""
+    root = package_path or os.path.dirname(__file__)
+    h = hashlib.sha256()
+    names = ["builddb.py"] + sorted(
+        n for n in os.listdir(root) if n.startswith("table_") and n.endswith(".py")
+    )
+    for name in names:
+        path = os.path.join(root, name)
+        try:
+            with open(path, "rb") as fh:
+                h.update(name.encode("utf-8"))
+                h.update(b"\0")
+                h.update(fh.read())
+                h.update(b"\0")
+        except OSError:
+            h.update(name.encode("utf-8"))
+            h.update(b"missing\0")
+    return h.hexdigest()[:24]
+
+
+def _stamp_path(app) -> str:
+    return os.path.join(app.instance_path, SCHEMA_STAMP_NAME)
+
+
+def _schema_is_current(app) -> bool:
+    path = _stamp_path(app)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return fh.read().strip() == schema_fingerprint()
+    except Exception:
+        return False
+
+
+def _write_schema_stamp(app) -> None:
+    path = _stamp_path(app)
+    try:
+        os.makedirs(app.instance_path, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(schema_fingerprint())
+    except Exception as exc:
+        print(f"[BUILD-DB] could not write schema stamp: {exc}")
+
+
 def init_tenant_system(app):
     db.init_app(app)
     with app.app_context():
@@ -44,48 +94,60 @@ def init_tenant_system(app):
                 continue
             importlib.import_module(f"{package_name}.{module_name}")
 
-        with db.engine.connect() as conn:
-            conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
-
-        ordered_modules = [
-            "table_households",
-            "table_users",
-            "table_items",
-            "table_grocery_items",
-            "table_tools",
-            "table_vehicles",
-            "table_vehicle_parts",
-            "table_maintenance_records",
-            "table_reminders",
-            "table_photo_notes",
-            "table_notes",
-            "table_legal_records",
-            "table_legal_files",
-            "table_scan_events",
-            "table_grocery_list",
-            "table_invites",
-            "table_service_passes",
-            "table_trusted_emails",
-            "table_password_resets",
-            "table_platform_owners",
-            "table_platform_invites",
-            "table_platform_settings",
-            "table_platform_audit",
-        ]
+        skip_evolve = _schema_is_current(app)
         db.create_all()
-        for module_name in ordered_modules:
-            try:
-                module = importlib.import_module(f"{package_name}.{module_name}")
-                if hasattr(module, "create_table"):
-                    module.create_table()
-            except Exception as _build_exc:
-                try:
-                    print(f"[BUILD-DB] {module_name} create failed: {_build_exc}")
-                except Exception:
-                    pass
+        if skip_evolve:
+            print("[BUILD-DB] schema current — skip evolve")
+        else:
+            with db.engine.connect() as conn:
+                conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
 
-        with db.engine.connect() as conn:
-            conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
+            ordered_modules = [
+                "table_households",
+                "table_users",
+                "table_items",
+                "table_grocery_items",
+                "table_tools",
+                "table_vehicles",
+                "table_vehicle_parts",
+                "table_maintenance_records",
+                "table_reminders",
+                "table_photo_notes",
+                "table_notes",
+                "table_legal_records",
+                "table_legal_files",
+                "table_scan_events",
+                "table_grocery_list",
+                "table_invites",
+                "table_service_passes",
+                "table_trusted_emails",
+                "table_password_resets",
+                "table_platform_owners",
+                "table_platform_invites",
+                "table_platform_settings",
+                "table_platform_audit",
+            ]
+            for module_name in ordered_modules:
+                try:
+                    module = importlib.import_module(f"{package_name}.{module_name}")
+                    if hasattr(module, "create_table"):
+                        module.create_table()
+                except Exception as _build_exc:
+                    try:
+                        print(f"[BUILD-DB] {module_name} create failed: {_build_exc}")
+                    except Exception:
+                        pass
+
+            with db.engine.connect() as conn:
+                conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
+            _write_schema_stamp(app)
+
+        try:
+            from app.utils.hot_cache import register_session_hooks
+
+            register_session_hooks(db)
+        except Exception as hook_exc:
+            print(f"[BUILD-DB] cache hooks: {hook_exc}")
 
         try:
             with db.engine.connect() as conn:

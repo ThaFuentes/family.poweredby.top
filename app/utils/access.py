@@ -80,6 +80,8 @@ def find_service_pass(code: str) -> ServicePass | None:
 def family_invite_ok(invite: Invite | None) -> tuple[bool, str]:
     if invite is None:
         return False, "That Family key is not valid."
+    if getattr(invite, "revoked_at", None):
+        return False, "That Family key was revoked."
     if invite.used_at:
         return False, "That Family key was already used."
     if invite.expires_at and invite.expires_at < _utcnow():
@@ -198,3 +200,30 @@ def add_trusted_email(*, email: str, added_by=None, household_id=None, note: str
 def revoke_service_pass(row: ServicePass) -> None:
     row.revoked_at = _utcnow()
     db.session.commit()
+
+
+def revoke_family_invite(row: Invite) -> None:
+    row.revoked_at = _utcnow()
+    db.session.commit()
+
+
+def revoke_key_by_code(raw: str) -> tuple[bool, str, str]:
+    """Kill a SRV- or FAM- key from its code. For abuse. Returns (ok, message, kind)."""
+    code = normalize_code(raw)
+    if not code:
+        return False, "Paste a key.", ""
+    fam = find_family_invite(code)
+    if fam is not None:
+        if getattr(fam, "revoked_at", None):
+            return True, f"{fam.code} was already revoked.", "family"
+        if fam.used_at:
+            return False, f"{fam.code} was already used. Revoke does not undo a signup.", "family"
+        revoke_family_invite(fam)
+        return True, f"{fam.code} revoked.", "family"
+    srv = find_service_pass(code)
+    if srv is not None:
+        if srv.revoked_at:
+            return True, f"{srv.code} was already revoked.", "service"
+        revoke_service_pass(srv)
+        return True, f"{srv.code} revoked.", "service"
+    return False, "No key matches that code.", ""

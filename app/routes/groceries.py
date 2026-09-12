@@ -1,6 +1,7 @@
 from datetime import datetime
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
+from sqlalchemy.orm import joinedload
 
 from app.builddb.builddb import db
 from app.builddb.table_items import Item
@@ -39,7 +40,8 @@ def index():
     hid = household_id()
     place = (request.args.get("place") or "").strip()
     q = (
-        Item.query.filter_by(household_id=hid, item_type="grocery")
+        Item.query.options(joinedload(Item.grocery))
+        .filter_by(household_id=hid, item_type="grocery")
         .order_by(Item.name.asc())
         .all()
     )
@@ -58,11 +60,21 @@ def index():
 
 
 def _basket_payload(rows):
+    items = {}
+    ids = [r.item_id for r in rows if r.item_id]
+    if ids:
+        hid = rows[0].household_id
+        found = (
+            Item.query.options(joinedload(Item.grocery))
+            .filter(Item.household_id == hid, Item.id.in_(ids))
+            .all()
+        )
+        items = {i.id: i for i in found}
     out = []
     for r in rows:
         place = ""
         if r.item_id:
-            item = Item.query.filter_by(id=r.item_id, household_id=r.household_id).first()
+            item = items.get(r.item_id)
             if item and item.grocery:
                 place = (item.grocery.default_location or "").strip()
         out.append(

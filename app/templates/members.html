@@ -195,6 +195,11 @@
           {% if inv.label %} · your note: {{ inv.label }}{% endif %}
         </div>
       </div>
+      {% if can('members') and not inv.used_at and not inv.revoked_at %}
+      <form method="post" action="{{ url_for('members.revoke_invite', iid=inv.id) }}">
+        <button class="btn sm secondary" type="submit">Revoke</button>
+      </form>
+      {% endif %}
     </div>
   {% else %}
     <p class="muted">No open Family keys.</p>

@@ -56,6 +56,14 @@ def decode_vin(vin: str) -> dict:
     if not looks_like_vin(code):
         out["error"] = "VIN should be 17 characters (no I, O, or Q)."
         return out
+    try:
+        from app.utils.hot_cache import get as cache_get
+
+        cached = cache_get(f"vin:{code}")
+        if isinstance(cached, dict):
+            return cached
+    except Exception:
+        pass
     url = f"https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/{code}?format=json"
     try:
         r = requests.get(url, timeout=10, headers=_UA)
@@ -123,6 +131,12 @@ def decode_vin(vin: str) -> dict:
     out["name"] = " ".join(
         x for x in (out["facts"].get("year"), out["facts"].get("make"), out["facts"].get("model"), out["facts"].get("trim")) if x
     )
+    try:
+        from app.utils.hot_cache import put as cache_put
+
+        cache_put(f"vin:{code}", dict(out), 7 * 24 * 3600)
+    except Exception:
+        pass
     return out
 
 

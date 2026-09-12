@@ -98,3 +98,15 @@ def flush_due_emails(household_id: int) -> int:
         email_reminder(row)
         n += 1
     return n
+
+
+def maybe_flush_due_emails(household_id: int, *, ttl: int = 60) -> int:
+    """Home used to SMTP-scan on every load. Once a minute per house is enough."""
+    from app.utils.hot_cache import get as cache_get, put as cache_put
+
+    key = f"flush:{int(household_id)}"
+    if cache_get(key) is not None:
+        return 0
+    n = flush_due_emails(household_id)
+    cache_put(key, 1, ttl)
+    return n

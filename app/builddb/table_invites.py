@@ -16,6 +16,7 @@ class Invite(db.Model):
     expires_at = db.Column(db.DateTime, nullable=True)
     used_by = db.Column(db.Integer, nullable=True)
     used_at = db.Column(db.DateTime, nullable=True)
+    revoked_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.current_timestamp())
 
     @staticmethod
@@ -36,6 +37,7 @@ def create_table():
             ("expires_at", "TIMESTAMP NULL"),
             ("used_by", "INT NULL"),
             ("used_at", "TIMESTAMP NULL"),
+            ("revoked_at", "TIMESTAMP NULL"),
         ],
         indexes=[
             ("idx_invites_household_id", "household_id"),

@@ -119,6 +119,9 @@ class FamilySecurityTests(unittest.TestCase):
         sw = self.client.get("/sw.js")
         self.assertEqual(sw.status_code, 200)
         self.assertIn(b"family-static", sw.data)
+        css = self.client.get("/static/css/family.css")
+        self.assertEqual(css.status_code, 200)
+        self.assertIn("max-age", (css.headers.get("Cache-Control") or "").lower())
 
     def test_service_gate_blocks_strangers(self):
         self._logout()

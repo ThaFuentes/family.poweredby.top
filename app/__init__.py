@@ -16,9 +16,15 @@ login_manager.login_message_category = "info"
 @login_manager.user_loader
 def load_user(user_id):
     try:
+        from sqlalchemy.orm import joinedload
+
         from app.builddb.table_users import User
 
-        return User.query.filter_by(id=int(user_id), is_active=True).first()
+        return (
+            User.query.options(joinedload(User.household))
+            .filter_by(id=int(user_id), is_active=True)
+            .first()
+        )
     except Exception:
         return None
 
@@ -46,6 +52,8 @@ def create_app():
 
     app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URI
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    # Versioned /static/* URLs (?v=os18). Browsers keep CSS/JS/images a week.
+    app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 604800
     app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
         "pool_recycle": 280,
         "pool_pre_ping": True,
@@ -188,6 +196,18 @@ def create_app():
         register_pwa(app)
     except Exception as e:
         app.logger.error("pwa register failed: %s", e)
+
+    @app.after_request
+    def _cache_static(response):
+        try:
+            from flask import request
+
+            path = request.path or ""
+            if path.startswith("/static/"):
+                response.headers["Cache-Control"] = "public, max-age=604800, immutable"
+        except Exception:
+            pass
+        return response
 
     @app.route("/healthz")
     def healthz():

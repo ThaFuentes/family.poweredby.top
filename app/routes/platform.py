@@ -210,7 +210,13 @@ def households():
 def access():
     from app.builddb.table_service_passes import ServicePass
     from app.builddb.table_trusted_emails import TrustedEmail
-    from app.utils.access import add_trusted_email, mint_service_pass, revoke_service_pass
+    from app.utils.access import (
+        add_trusted_email,
+        mint_service_pass,
+        revoke_family_invite,
+        revoke_key_by_code,
+        revoke_service_pass,
+    )
 
     if request.method == "POST":
         kind = (request.form.get("kind") or "").strip()
@@ -248,6 +254,40 @@ def access():
                     revoke_service_pass(row)
                     audit("access.service_revoke", owner_id=_owner_id(), ip=_ip(), detail={"code": row.code})
                     flash(f"{row.code} revoked.", "info")
+        elif kind == "revoke_family":
+            kid = request.form.get("id") or ""
+            if str(kid).isdigit():
+                from app.builddb.table_invites import Invite
+
+                row = Invite.query.get(int(kid))
+                if row:
+                    if row.used_at:
+                        flash(f"{row.code} was already used. Revoke does not undo a signup.", "warning")
+                    else:
+                        revoke_family_invite(row)
+                        audit("access.family_revoke", owner_id=_owner_id(), ip=_ip(), detail={"code": row.code})
+                        flash(f"{row.code} revoked.", "info")
+        elif kind == "revoke_code":
+            code = (request.form.get("code") or "").strip()
+            ok, msg, knd = revoke_key_by_code(code)
+            if not ok and not knd:
+                from app.utils.platform_auth import find_owner_invite
+
+                inv = find_owner_invite(code)
+                if inv is not None:
+                    if inv.revoked_at:
+                        ok, msg, knd = True, f"{inv.code} was already revoked.", "owner"
+                    else:
+                        revoke_owner_invite(inv)
+                        ok, msg, knd = True, f"{inv.code} revoked.", "owner"
+            if ok:
+                audit(
+                    "access.revoke_code",
+                    owner_id=_owner_id(),
+                    ip=_ip(),
+                    detail={"kind": knd, "code": (code or "")[:40]},
+                )
+            flash(msg, "info" if ok else "danger")
         elif kind == "untrust":
             tid = request.form.get("id") or ""
             if str(tid).isdigit():
@@ -285,14 +325,29 @@ def access():
                     audit("access.owner_revoke", owner_id=_owner_id(), ip=_ip(), detail={"code": row.code})
                     flash(f"{row.code} revoked.", "info")
         return redirect(url_for("platform.access"))
+    from app.builddb.table_invites import Invite
     from app.builddb.table_platform_invites import PlatformInvite
     from app.utils.keys_ui import pop_issued_key
 
+    family_keys = (
+        Invite.query.filter(Invite.used_at.is_(None))
+        .filter(Invite.revoked_at.is_(None))
+        .order_by(Invite.created_at.desc())
+        .limit(80)
+        .all()
+    )
+    house_ids = {i.household_id for i in family_keys if i.household_id}
+    houses = {
+        h.id: h
+        for h in Household.query.filter(Household.id.in_(house_ids)).all()
+    } if house_ids else {}
     return render_template(
         "platform/access.html",
         owner=current_owner(),
         issued_key=pop_issued_key(),
         service_keys=ServicePass.query.order_by(ServicePass.created_at.desc()).limit(80).all(),
+        family_keys=family_keys,
+        houses=houses,
         trusted=TrustedEmail.query.order_by(TrustedEmail.created_at.desc()).all(),
         owner_keys=PlatformInvite.query.order_by(PlatformInvite.created_at.desc()).limit(40).all(),
     )

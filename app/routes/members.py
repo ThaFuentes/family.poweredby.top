@@ -22,6 +22,7 @@ def index():
     invites = (
         Invite.query.filter_by(household_id=hid)
         .filter(Invite.used_at.is_(None))
+        .filter(Invite.revoked_at.is_(None))
         .order_by(Invite.created_at.desc())
         .all()
     )
@@ -117,6 +118,21 @@ def mint_service_key():
         hint = f"Your note: {note}. {hint}"
     stash_issued_key(row.code, "Service key", hint)
     flash("Service key ready — copy it from the window.", "success")
+    return redirect(url_for("members.index"))
+
+
+@members_bp.route("/invite/<int:iid>/revoke", methods=["POST"])
+@login_required
+@require_perm("members")
+def revoke_invite(iid):
+    from app.utils.access import revoke_family_invite
+
+    row = Invite.query.filter_by(id=iid, household_id=household_id()).first_or_404()
+    if row.used_at:
+        flash("That Family key was already used.", "warning")
+        return redirect(url_for("members.index"))
+    revoke_family_invite(row)
+    flash(f"{row.code} revoked.", "info")
     return redirect(url_for("members.index"))
 
 

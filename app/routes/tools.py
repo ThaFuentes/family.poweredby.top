@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort
 from flask_login import login_required, current_user
+from sqlalchemy.orm import joinedload
 
 from app.builddb.builddb import db
 from app.builddb.table_items import Item
@@ -17,7 +18,8 @@ tools_bp = Blueprint("tools", __name__, url_prefix="/tools")
 def index():
     hid = household_id()
     items = (
-        Item.query.filter_by(household_id=hid, item_type="tool")
+        Item.query.options(joinedload(Item.tool))
+        .filter_by(household_id=hid, item_type="tool")
         .order_by(Item.name.asc())
         .all()
     )

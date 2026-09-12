@@ -5,8 +5,21 @@
 <div class="page-head">
   <div>
     <h1>Friends and family only</h1>
-    <p>Owner key = another person on this desk. Service key = get onto Family OS. Family key = enter a household (households mint those themselves).</p>
+    <p>Owner key = another person on this desk. Service key = get onto Family OS. Family key = enter a household (households mint those themselves). Revoke any of them here if a key leaks or is abused.</p>
   </div>
+</div>
+
+<div class="card danger-card">
+  <h2>Revoke a key</h2>
+  <p class="muted">Paste FAM-, SRV-, or OWN- if someone is abusing it or it got out. Does not undo a signup that already happened.</p>
+  <form method="post">
+    <input type="hidden" name="kind" value="revoke_code">
+    <label>Key</label>
+    <div class="btn-row">
+      <input name="code" required placeholder="SRV-… or FAM-… or OWN-…" autocapitalize="characters" autocomplete="off">
+      <button class="btn danger" type="submit">Revoke</button>
+    </div>
+  </form>
 </div>
 
 <div class="card key-card vital">
@@ -61,6 +74,33 @@
     <input name="days" value="30">
     <div class="btn-row"><button class="btn" type="submit">Make Service key</button></div>
   </form>
+</div>
+
+<div class="card">
+  <h2>Open Family keys</h2>
+  <p class="muted">Households mint these. You can still kill one from here.</p>
+  {% for k in family_keys %}
+    {% set house = houses.get(k.household_id) %}
+    <div class="row">
+      <div>
+        <strong class="key-code">{{ k.code }}</strong>
+        <button type="button" class="btn sm secondary" data-copy="{{ k.code }}">Copy</button>
+        <div class="muted">
+          {{ k.role }}
+          {% if house %} · {{ house.handle or house.name }}{% endif %}
+          {% if k.expires_at %} · expires {{ k.expires_at }}{% endif %}
+          {% if k.label %} · their note: {{ k.label }}{% endif %}
+        </div>
+      </div>
+      <form method="post">
+        <input type="hidden" name="kind" value="revoke_family">
+        <input type="hidden" name="id" value="{{ k.id }}">
+        <button class="btn sm secondary" type="submit">Revoke</button>
+      </form>
+    </div>
+  {% else %}
+    <p class="muted">None open.</p>
+  {% endfor %}
 </div>
 
 <div class="card">

@@ -5,9 +5,13 @@ catalogs and pick the hit that matches the thing in your hand.
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+
 import requests
 
 from app.utils.classify import classify_product, classify_text
+from app.utils.hot_cache import get as cache_get, put as cache_put
 
 _UA = {"User-Agent": "family.poweredby.top/1.0 (household OS)"}
 _SKIP = {"", "unknown", "n/a", "null", "none"}
@@ -116,16 +120,43 @@ def lookup_upc(barcode: str) -> dict:
     }
 
 
+_UPC_TTL_HIT = 7 * 24 * 3600
+_UPC_TTL_MISS = 30 * 60
+_pool = None
+_pool_lock = threading.Lock()
+
+
+def _executor() -> ThreadPoolExecutor:
+    global _pool
+    with _pool_lock:
+        if _pool is None:
+            _pool = ThreadPoolExecutor(max_workers=5, thread_name_prefix="upc")
+        return _pool
+
+
 def lookup_product(barcode: str) -> dict:
     code = (barcode or "").strip()
     out = dict(_EMPTY)
     out["barcode"] = code
     if not code or len(code) < 8 or not code.replace("-", "").isalnum():
         return out
+    cached = cache_get(f"upc:{code}")
+    if isinstance(cached, dict):
+        return cached
     hits = []
-    for fn in (_open_food_facts, _open_products_facts, _open_beauty_facts, _open_pet_facts, _upcitemdb):
+    futs = [
+        _executor().submit(fn, code)
+        for fn in (
+            _open_food_facts,
+            _open_products_facts,
+            _open_beauty_facts,
+            _open_pet_facts,
+            _upcitemdb,
+        )
+    ]
+    for fut in as_completed(futs):
         try:
-            hit = fn(code)
+            hit = fut.result()
         except Exception:
             hit = {}
         if hit.get("ok") and (hit.get("name") or hit.get("brand")):
@@ -147,6 +178,7 @@ def lookup_product(barcode: str) -> dict:
     out["suggested_type"] = guess.get("item_type") or "grocery"
     out["attach_to"] = guess.get("attach_to")
     out["location_hint"] = guess.get("location_hint")
+    cache_put(f"upc:{code}", dict(out), _UPC_TTL_HIT if out.get("ok") else _UPC_TTL_MISS)
     return out
 
 

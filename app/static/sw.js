@@ -4,11 +4,14 @@
  * Caches only /static/* (CSS, JS, images).
  * Never caches HTML, JSON, or mutating requests.
  */
-const CACHE_NAME = 'family-static-v3';
+const CACHE_NAME = 'family-static-v4';
 const PRECACHE = [
   '/static/images/pwa-192.png',
   '/static/images/pwa-512.png',
-  '/static/css/family.css?v=os12',
+  '/static/images/fav.jpg',
+  '/static/css/family.css?v=os18',
+  '/static/css/themes.css?v=os18',
+  '/static/js/app.js?v=os9',
   '/static/js/pwa-install.js?v=family-os2',
 ];
 
