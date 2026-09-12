@@ -677,19 +677,80 @@ body.platform { padding-bottom: 1.5rem; }
   font-size: .78rem; white-space: nowrap;
 }
 .place-chips a.on { background: var(--green); color: #fff; border-color: var(--green); }
-.cal-apps { display: flex; flex-wrap: wrap; gap: .55rem; margin: .75rem 0 .35rem; }
-.cal-apps .btn { flex: 1 1 8.5rem; }
-.cal-target { margin: 0 0 .85rem; font-weight: 600; line-height: 1.4; }
-.cal-mode { border: 0; padding: 0; margin: .85rem 0 .5rem; }
-.cal-mode legend { font-weight: 800; margin-bottom: .35rem; }
-.cal-choice {
-  display: flex; gap: .55rem; align-items: flex-start;
-  margin: .45rem 0; font-weight: 600; line-height: 1.35;
+.cal-connect { min-width: 0; overflow: hidden; }
+.cal-connect fieldset { min-width: 0; }
+.cal-target {
+  margin: 0 0 .55rem;
+  font-weight: 600;
+  font-size: .88rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
-.cal-choice input { margin-top: .2rem; flex-shrink: 0; }
-.cal-choice span { font-weight: 600; }
-.cal-manual { margin-top: 1rem; }
-.cal-manual summary { cursor: pointer; font-weight: 800; }
+.cal-email { font-weight: 800; }
+.cal-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 7.6rem;
+  gap: .4rem;
+  margin: 0 0 .55rem;
+}
+.cal-row input, .cal-row select {
+  width: 100%;
+  min-width: 0;
+  padding: .65rem .7rem;
+}
+.cal-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .4rem;
+  margin: 0 0 .5rem;
+}
+.cal-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: .62rem .45rem;
+  border: 1px solid var(--edge);
+  border-radius: .9rem;
+  background: #fafaf7;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: .88rem;
+  color: var(--ink);
+  cursor: pointer;
+}
+.cal-chip input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.cal-chip:has(input:checked) {
+  background: var(--green-soft);
+  border-color: var(--green);
+  color: var(--green);
+}
+.cal-check {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  margin: 0 0 .55rem;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: .88rem;
+  color: var(--ink);
+  font-weight: 600;
+  cursor: pointer;
+}
+.cal-check input { width: auto; margin: 0; accent-color: var(--green); flex-shrink: 0; }
+.cal-apps { display: flex; flex-wrap: wrap; gap: .45rem; margin: .55rem 0 .35rem; }
+.cal-apps .btn { flex: 1 1 5.5rem; }
+.cal-manual { margin-top: .65rem; }
+.cal-manual summary { cursor: pointer; font-weight: 700; font-size: .82rem; color: var(--muted); }
+@media (max-width: 420px) {
+  .cal-row { grid-template-columns: 1fr; }
+}
 .label-sheet {
   display: grid; grid-template-columns: repeat(2, 1fr); gap: .85rem;
 }

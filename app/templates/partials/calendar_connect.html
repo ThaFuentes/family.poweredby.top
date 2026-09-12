@@ -1,64 +1,54 @@
 <section class="card cal-connect" id="calendar">
   <h2>Your calendar</h2>
   {% if cal_links.cal_ready %}
-  <p class="cal-target">Updating <strong>{{ cal_links.cal_provider_label }}</strong> for <strong>{{ cal_links.cal_email }}</strong> — {{ cal_links.who }}, not the platform owner.</p>
+  <p class="cal-target">{{ cal_links.cal_provider_label }} · <span class="cal-email">{{ cal_links.cal_email }}</span></p>
   {% else %}
-  <p class="muted">Family OS usernames are not email. Pick the Gmail, iCloud, or Outlook inbox whose calendar should get oil changes and due dates.</p>
+  <p class="muted">Which inbox should get due dates?</p>
   {% endif %}
 
   <form method="post" action="{{ url_for('appearance.set_calendar') }}">
     {% if cal_next %}<input type="hidden" name="next" value="{{ cal_next }}">{% endif %}
-    <label for="calendar-email">Which email calendar</label>
-    <input id="calendar-email" name="calendar_email" type="email" value="{{ cal_links.cal_email }}" placeholder="you@gmail.com" autocomplete="email">
-    <label for="calendar-provider">That inbox's calendar</label>
-    <select id="calendar-provider" name="calendar_provider">
-      <option value="google" {% if cal_links.cal_provider=='google' %}selected{% endif %}>Google Calendar</option>
-      <option value="apple" {% if cal_links.cal_provider=='apple' %}selected{% endif %}>Apple Calendar (iCloud)</option>
-      <option value="outlook" {% if cal_links.cal_provider=='outlook' %}selected{% endif %}>Outlook</option>
-      <option value="other" {% if cal_links.cal_provider=='other' %}selected{% endif %}>Other (that email's calendar)</option>
-    </select>
+    <div class="cal-row">
+      <label class="sr-only" for="calendar-email">Which email calendar</label>
+      <input id="calendar-email" name="calendar_email" type="email" value="{{ cal_links.cal_email }}" placeholder="you@gmail.com" autocomplete="email">
+      <label class="sr-only" for="calendar-provider">That inbox's calendar</label>
+      <select id="calendar-provider" name="calendar_provider">
+        <option value="google" {% if cal_links.cal_provider=='google' %}selected{% endif %}>Google</option>
+        <option value="apple" {% if cal_links.cal_provider=='apple' %}selected{% endif %}>Apple</option>
+        <option value="outlook" {% if cal_links.cal_provider=='outlook' %}selected{% endif %}>Outlook</option>
+        <option value="other" {% if cal_links.cal_provider=='other' %}selected{% endif %}>Other</option>
+      </select>
+    </div>
 
-    <fieldset class="cal-mode">
-      <legend>How dates get there</legend>
-      <label class="cal-choice">
+    <div class="cal-toggle" role="radiogroup" aria-label="How dates get there">
+      <label class="cal-chip">
         <input type="radio" name="calendar_mode" value="auto" {% if cal_links.cal_auto %}checked{% endif %}>
-        <span><strong>Auto-add</strong> — log maintenance or a due date here and we put it on that calendar. You don't add it by hand.</span>
+        <span>Auto-add</span>
       </label>
-      <label class="cal-choice">
+      <label class="cal-chip">
         <input type="radio" name="calendar_mode" value="manual" {% if not cal_links.cal_auto %}checked{% endif %}>
-        <span><strong>I'll add them</strong> — Family OS keeps them on Due. Download or subscribe if you want them on a phone.</span>
+        <span>I'll add them</span>
       </label>
-    </fieldset>
+    </div>
 
-    <label class="cal-choice">
+    <label class="cal-check">
       <input type="checkbox" name="email_due" value="1" {% if current_user.notify_via in ('email', 'both') %}checked{% endif %}>
-      <span>Also email me when it's due</span>
+      <span>Email me when due</span>
     </label>
-
-    <div class="btn-row"><button class="btn" type="submit">Save calendar</button></div>
+    <div class="btn-row"><button class="btn" type="submit">Save</button></div>
   </form>
 
-  {% if cal_links.cal_auto and cal_links.cal_ready %}
-  <p class="muted">Oil, filters, blades, and anything you mark due land on {{ cal_links.cal_label }}. We email an invite to {{ cal_links.cal_email }} — {{ cal_links.cal_provider_label }} attaches it for that address.</p>
-  {% elif not cal_links.cal_auto %}
+  {% if not cal_links.cal_auto %}
   <details class="cal-manual">
-    <summary>Add this household to a phone yourself</summary>
+    <summary>Subscribe on a phone</summary>
     <div class="cal-apps">
-      <a class="btn" href="{{ cal_links.apple }}">Add to Apple</a>
-      <a class="btn secondary" href="{{ cal_links.google }}" target="_blank" rel="noopener">Add to Google</a>
-      <a class="btn secondary" href="{{ cal_links.outlook }}" target="_blank" rel="noopener">Add to Outlook</a>
+      <a class="btn sm" href="{{ cal_links.apple }}">Apple</a>
+      <a class="btn sm secondary" href="{{ cal_links.google }}" target="_blank" rel="noopener">Google</a>
+      <a class="btn sm secondary" href="{{ cal_links.outlook }}" target="_blank" rel="noopener">Outlook</a>
     </div>
-    <label>Your private feed</label>
     <div class="key-copy-row">
       <input readonly value="{{ cal_url }}" onclick="this.select()" aria-label="Calendar feed">
-      <button type="button" class="btn" data-copy="{{ cal_url }}">Copy</button>
-    </div>
-    <div class="btn-row">
-      <a class="btn secondary" href="{{ cal_url }}">Download .ics</a>
-      <form method="post" action="{{ url_for('reminders.rotate_calendar') }}">
-        {% if cal_next %}<input type="hidden" name="next" value="{{ cal_next }}">{% endif %}
-        <button class="btn sm secondary" type="submit">New calendar link</button>
-      </form>
+      <button type="button" class="btn sm" data-copy="{{ cal_url }}">Copy</button>
     </div>
   </details>
   {% endif %}

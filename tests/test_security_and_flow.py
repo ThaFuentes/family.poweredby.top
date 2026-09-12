@@ -191,7 +191,7 @@ class FamilySecurityTests(unittest.TestCase):
         due = self.client.get("/reminders/")
         self.assertEqual(due.status_code, 200)
         body = due.data.decode("utf-8", "replace")
-        self.assertIn("Which email calendar", body)
+        self.assertIn("calendar-email", body)
         self.assertIn("Auto-add", body)
         self.assertIn(email, body)
         token = self._csrf(due.data)
