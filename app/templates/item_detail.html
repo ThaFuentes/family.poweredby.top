@@ -73,6 +73,7 @@
       {% if item.vehicle.oil_type or item.vehicle.filter_type %}
       <p>{% if item.vehicle.oil_type %}Oil: <strong>{{ item.vehicle.oil_type }}</strong>{% endif %}{% if item.vehicle.filter_type %} · Filter: <strong>{{ item.vehicle.filter_type }}</strong>{% endif %}</p>
       {% endif %}
+      {% if item.notes %}<p style="white-space:pre-wrap">{{ item.notes }}</p>{% endif %}
       {% if item.vehicle.transmission %}<p>Transmission: {{ item.vehicle.transmission }}</p>{% endif %}
       <p>Mileage: {{ item.vehicle.current_mileage or '—' }} · Last oil: {{ item.vehicle.last_oil_change_date or '—' }}
         @ {{ item.vehicle.last_oil_change_mileage or '—' }}</p>
