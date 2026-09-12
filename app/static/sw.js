@@ -5,7 +5,7 @@
  * /offline shell. Never caches household HTML, JSON, or mutating
  * requests. Uploads and tenant photos stay off this cache.
  */
-const CACHE_NAME = 'family-static-v8';
+const CACHE_NAME = 'family-static-v9';
 const PRECACHE = [
   '/static/images/pwa-192.png',
   '/static/images/pwa-512.png',
@@ -14,8 +14,8 @@ const PRECACHE = [
   '/static/images/intro-poster-phone.jpg',
   '/static/video/intro.webm',
   '/static/video/intro.mp4',
-  '/static/css/family.css?v=os21',
-  '/static/css/themes.css?v=os21',
+  '/static/css/family.css?v=os22',
+  '/static/css/themes.css?v=os22',
   '/static/js/app.js?v=os9',
   '/static/js/pwa-install.js?v=family-os2',
   '/static/js/intro.js?v=os2',

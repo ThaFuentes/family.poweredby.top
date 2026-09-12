@@ -785,7 +785,18 @@ html.family-intro-out #family-intro{opacity:0;transition:opacity .4s ease}
   .wrap { width: auto; margin: 0; }
 }
 
+.add-fold { padding: .9rem 1rem; }
+.add-fold > summary {
+  cursor: pointer;
+  font-weight: 800;
+  font-size: 1.02rem;
+  letter-spacing: -0.02em;
+  list-style: none;
+}
+.add-fold > summary::-webkit-details-marker { display: none; }
+.add-fold[open] > summary { margin-bottom: .55rem; }
 .desk-form { display: grid; gap: 0 1rem; }
+.desk-form .span-2 { grid-column: 1 / -1; }
 .rec-stats { margin: 0 0 .85rem; }
 .rec-table { display: grid; gap: .55rem; margin: .7rem 0 1.2rem; }
 .rec-row {

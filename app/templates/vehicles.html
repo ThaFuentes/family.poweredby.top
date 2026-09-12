@@ -4,66 +4,91 @@
 <div class="page-head">
   <div>
     <h1>Vehicles</h1>
-    <p>Each vehicle is broken into body, electrical, electronics, engine, cooling… Log a battery, alternator, radiator — where you got it, the receipt.</p>
+    <p>{% if items %}Tap one to log parts.{% else %}Add the truck, then log parts.{% endif %}</p>
   </div>
-  <a class="btn sm secondary" href="{{ url_for('tools.index') }}">Tools</a>
-</div>
-{% if can_add %}
-<form class="card" method="post" action="{{ url_for('vehicles.add_from_lookup') }}" enctype="multipart/form-data">
-  <h2>Add by hand</h2>
-  <p class="muted">Trim and engine are what you buy parts against. VIN fills factory specs if you have it. Plate is stored either way.</p>
-  <label>Name</label>
-  <input name="name" placeholder="The gray truck, Mom's Tacoma">
-  <label>License plate</label>
-  <input name="plate" placeholder="ABC1234" autocapitalize="characters">
-  <label>VIN</label>
-  <input name="vin" placeholder="1FTFW1E84NFA00000" autocapitalize="characters">
-  <label>Year / make / model</label>
   <div class="btn-row">
-    <input name="year" placeholder="Year" style="max-width:5rem" inputmode="numeric">
-    <input name="make" placeholder="Toyota">
-    <input name="model" placeholder="Tacoma">
+    {% if can_add %}
+    <a class="btn sm" href="#add-vehicle" onclick="var d=document.getElementById('add-vehicle'); if(d) d.open=true;">Add</a>
+    {% endif %}
+    <a class="btn sm secondary" href="{{ url_for('tools.index') }}">Tools</a>
   </div>
-  <label>Trim</label>
-  <input name="trim" placeholder="SR5, Limited, XLT">
-  <label>Engine</label>
-  <input name="engine" placeholder="4.7L V8">
-  <label>Oil</label>
-  <input name="oil_type" placeholder="0W-20 synthetic">
-  <label>Oil filter</label>
-  <input name="filter_type" placeholder="Toyota 90915-YZZD2, Fram PH3614">
-  <label>Photo (optional)</label>
-  <input type="file" name="photo" accept="image/*" capture="environment">
-  <label>Photo caption</label>
-  <input name="caption" placeholder="The actual truck, VIN plate, odd connector">
-  <div class="btn-row"><button class="btn" type="submit">Save vehicle</button></div>
-</form>
-{% endif %}
-<div class="and-or">optional</div>
-{% set compact = true %}
-{% set scan_kind = "vehicle" %}
-{% set scan_title = "Scan a vehicle QR" %}
-{% set scan_hint = "Only if it already has a code. Camera stays off until you tap Open camera." %}
-{% set scan_autostart = false %}
-{% set can_create = can_add %}
-{% include "partials/scan_strip.html" %}
-<div class="card list">
+</div>
+
+<div class="card list" id="garage">
   {% for item in items %}
     <a class="row" href="{{ url_for('items.detail', item_id=item.id, tab='systems') }}">
       <div>
         <strong>{{ item.name }}</strong>
         <div class="muted">
-          {% if item.vehicle and item.vehicle.plate %}{{ item.vehicle.plate }} · {% endif %}
-          {% if item.vehicle %}{{ item.vehicle.year or '' }} {{ item.vehicle.make or '' }} {{ item.vehicle.model or '' }}{% if item.vehicle.trim %} {{ item.vehicle.trim }}{% endif %}{% endif %}
+          {% if item.vehicle and item.vehicle.plate %}{{ item.vehicle.plate }}{% endif %}
+          {% if item.vehicle %}
+            {% if item.vehicle.plate %} · {% endif %}
+            {{ item.vehicle.year or '' }} {{ item.vehicle.make or '' }} {{ item.vehicle.model or '' }}{% if item.vehicle.trim %} {{ item.vehicle.trim }}{% endif %}
+          {% endif %}
           {% if item.vehicle and item.vehicle.engine %} · {{ item.vehicle.engine }}{% endif %}
           {% if item.vehicle and item.vehicle.oil_type %} · {{ item.vehicle.oil_type }}{% endif %}
-          · battery, body, electronics…
         </div>
       </div>
-      <span class="badge">Systems</span>
+      <span class="badge">Open</span>
     </a>
   {% else %}
-    <div class="empty"><strong>No vehicles yet</strong>Type plate, VIN, or a name. Scan only if you want.</div>
+    <div class="empty"><strong>No vehicles yet</strong>Add one below. VIN fills factory specs if you have it.</div>
   {% endfor %}
 </div>
+
+{% if can_add %}
+<details class="card add-fold" id="add-vehicle" {% if not items %}open{% endif %}>
+  <summary>Add a vehicle</summary>
+  <form method="post" action="{{ url_for('vehicles.add_from_lookup') }}" enctype="multipart/form-data" autocomplete="off">
+    <p class="muted">Trim and engine are what you buy parts against. VIN fills the rest if you have it.</p>
+    <div class="desk-form">
+      <div>
+        <label>Name</label>
+        <input name="name" placeholder="The gray truck, Mom's Tacoma">
+      </div>
+      <div>
+        <label>License plate</label>
+        <input name="plate" placeholder="ABC1234" autocapitalize="characters">
+      </div>
+      <div class="span-2">
+        <label>VIN</label>
+        <input name="vin" placeholder="1FTFW1E84NFA00000" autocapitalize="characters">
+      </div>
+      <div class="span-2">
+        <label>Year / make / model</label>
+        <div class="btn-row">
+          <input name="year" placeholder="Year" style="max-width:5rem" inputmode="numeric">
+          <input name="make" placeholder="Toyota">
+          <input name="model" placeholder="Tacoma">
+        </div>
+      </div>
+      <div>
+        <label>Trim</label>
+        <input name="trim" placeholder="SR5, Limited, XLT">
+      </div>
+      <div>
+        <label>Engine</label>
+        <input name="engine" placeholder="4.7L V8">
+      </div>
+      <div>
+        <label>Oil</label>
+        <input name="oil_type" placeholder="0W-20 synthetic">
+      </div>
+      <div>
+        <label>Oil filter</label>
+        <input name="filter_type" placeholder="Toyota 90915-YZZD2">
+      </div>
+      <div>
+        <label>Photo (optional)</label>
+        <input type="file" name="photo" accept="image/*" capture="environment">
+      </div>
+      <div>
+        <label>Photo caption</label>
+        <input name="caption" placeholder="The actual truck, VIN plate">
+      </div>
+    </div>
+    <div class="btn-row"><button class="btn" type="submit">Save vehicle</button></div>
+  </form>
+</details>
+{% endif %}
 {% endblock %}
