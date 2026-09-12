@@ -37,25 +37,45 @@ def _say(msg):
 
 
 def evolve_table(table_name, columns, indexes=None):
-    """Add missing columns / indexes. Never drops data."""
+    """Add missing columns / indexes. Never drops data.
+
+    One statement per connection: MariaDB DDL auto-commits, and a
+    HostM timeout on CREATE INDEX used to kill the pipe so later
+    ADD COLUMN never ran (then we stamped 'current' anyway).
+    """
     inspector = inspect(db.engine)
     if table_name not in inspector.get_table_names():
         return
     existing = {c["name"] for c in inspector.get_columns(table_name)}
-    with db.engine.begin() as conn:
-        for col_name, col_type in columns:
-            if col_name not in existing:
-                conn.execute(text(f"ALTER TABLE `{table_name}` ADD COLUMN `{col_name}` {col_type}"))
-                _say(f"[BUILD-DB] added {table_name}.{col_name}")
-        if indexes:
-            have = {i["name"] for i in inspector.get_indexes(table_name)}
-            for idx_name, idx_cols in indexes:
-                if idx_name not in have:
-                    try:
-                        conn.execute(text(f"CREATE INDEX `{idx_name}` ON `{table_name}` ({idx_cols})"))
-                        _say(f"[BUILD-DB] added index {idx_name}")
-                    except Exception as idx_e:
-                        _say(f"[BUILD-DB] index {idx_name}: {idx_e}")
+    for col_name, col_type in columns:
+        if col_name in existing:
+            continue
+        try:
+            with db.engine.begin() as conn:
+                conn.execute(
+                    text(f"ALTER TABLE `{table_name}` ADD COLUMN `{col_name}` {col_type}")
+                )
+            existing.add(col_name)
+            _say(f"[BUILD-DB] added {table_name}.{col_name}")
+        except Exception as col_e:
+            _say(f"[BUILD-DB] add {table_name}.{col_name}: {col_e}")
+    if not indexes:
+        return
+    try:
+        have = {i["name"] for i in inspect(db.engine).get_indexes(table_name)}
+    except Exception:
+        have = set()
+    for idx_name, idx_cols in indexes:
+        if idx_name in have:
+            continue
+        try:
+            with db.engine.begin() as conn:
+                conn.execute(
+                    text(f"CREATE INDEX `{idx_name}` ON `{table_name}` ({idx_cols})")
+                )
+            _say(f"[BUILD-DB] added index {idx_name}")
+        except Exception as idx_e:
+            _say(f"[BUILD-DB] index {idx_name}: {idx_e}")
 
 
 def schema_fingerprint(package_path=None) -> str:
@@ -92,6 +112,15 @@ def _schema_is_current(app) -> bool:
         return False
 
 
+def _users_schema_ready() -> bool:
+    """Stamp can lie if evolve died mid-ALTER. Login selects these columns."""
+    try:
+        cols = {c["name"] for c in inspect(db.engine).get_columns("users")}
+    except Exception:
+        return False
+    return {"calendar_email", "calendar_provider", "calendar_mode"} <= cols
+
+
 def _write_schema_stamp(app) -> None:
     path = _stamp_path(app)
     try:
@@ -114,6 +143,9 @@ def init_tenant_system(app):
 
         skip_evolve = _schema_is_current(app)
         db.create_all()
+        if skip_evolve and not _users_schema_ready():
+            _say("[BUILD-DB] stamp said current but users columns missing - evolve")
+            skip_evolve = False
         if skip_evolve:
             _say("[BUILD-DB] schema current - skip evolve")
         else:
@@ -145,12 +177,14 @@ def init_tenant_system(app):
                 "table_platform_settings",
                 "table_platform_audit",
             ]
+            evolve_ok = True
             for module_name in ordered_modules:
                 try:
                     module = importlib.import_module(f"{package_name}.{module_name}")
                     if hasattr(module, "create_table"):
                         module.create_table()
                 except Exception as _build_exc:
+                    evolve_ok = False
                     try:
                         _say(f"[BUILD-DB] {module_name} create failed: {_build_exc}")
                     except Exception:
@@ -158,7 +192,10 @@ def init_tenant_system(app):
 
             with db.engine.connect() as conn:
                 conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
-            _write_schema_stamp(app)
+            if evolve_ok and _users_schema_ready():
+                _write_schema_stamp(app)
+            else:
+                _say("[BUILD-DB] evolve incomplete - will retry next boot")
 
         try:
             from app.utils.hot_cache import register_session_hooks

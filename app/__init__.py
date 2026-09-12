@@ -62,8 +62,8 @@ def create_app():
         "pool_timeout": 30,
         "connect_args": {
             "connect_timeout": 15,
-            "read_timeout": 30,
-            "write_timeout": 30,
+            "read_timeout": 90,
+            "write_timeout": 90,
         },
         "pool_reset_on_return": "commit",
     }
