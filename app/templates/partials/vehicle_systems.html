@@ -7,9 +7,9 @@
 </nav>
 
 {% if can_maintain or can_edit %}
-<form class="card" id="part-form" method="post" action="{{ url_for('items.add_part', item_id=item.id) }}" enctype="multipart/form-data">
+<form class="card" id="part-form" method="post" action="{{ url_for('items.add_part', item_id=item.id) }}" enctype="multipart/form-data" autocomplete="off">
   <h2>Add or replace a part</h2>
-  <p class="muted">Installing a battery on Electrical replaces the one that’s there and keeps the old one in history, with its receipt.</p>
+  <p class="muted">One part at a time. Notes stay on <em>this</em> part. Store name carries over. The truck’s story lives on Overview / Notes.</p>
   <div class="desk-form">
     <div>
       <label>System</label>
@@ -41,7 +41,7 @@
     </div>
     <div>
       <label>Where you got it</label>
-      <input name="source" placeholder="AutoZone, Amazon, junkyard, dealer">
+      <input name="source" value="{{ last_part_source or '' }}" placeholder="AutoZone, Amazon, junkyard, dealer" autocomplete="off">
     </div>
     <div>
       <label>What you paid</label>
@@ -67,8 +67,8 @@
       <input type="date" name="warranty_until">
     </div>
   </div>
-  <label>Note</label>
-  <textarea name="notes" placeholder="Just replaced the battery. Old one was dying. Got this one at AutoZone on Saturday."></textarea>
+  <label>This part only</label>
+  <textarea name="part_notes" autocomplete="off" placeholder="How this one comes off, the 3-pin, the belt routing. Not the radiator. Not the whole truck."></textarea>
   <label>Photo of the part (connectors, stamp, the actual piece)</label>
   <input type="file" name="photo" accept="image/*" capture="environment">
   <label>Caption</label>
@@ -131,8 +131,8 @@
           <form method="post" action="{{ url_for('items.edit_part', item_id=item.id, part_id=p.id) }}" enctype="multipart/form-data">
             <label>Name</label>
             <input name="name" value="{{ p.name }}">
-            <label>Note</label>
-            <textarea name="notes">{{ p.notes or '' }}</textarea>
+            <label>This part only</label>
+            <textarea name="part_notes">{{ p.notes or '' }}</textarea>
             <label>Where you got it</label>
             <input name="source" value="{{ p.source or '' }}" placeholder="AutoZone, Amazon…">
             <label>What you paid</label>
@@ -221,8 +221,24 @@
   }
   sys.addEventListener("change", function () { fillSlots(""); });
   fillSlots(slot.getAttribute("data-initial") || "");
+  function clearPartExceptStore() {
+    const form = document.getElementById("part-form");
+    if (!form) return;
+    const store = form.querySelector('[name="source"]');
+    const keep = store ? store.value : "";
+    ["name", "brand", "spec", "part_number", "cost", "installed_on", "warranty_until", "part_notes", "caption"].forEach(function (n) {
+      const el = form.querySelector('[name="' + n + '"]');
+      if (el) el.value = "";
+    });
+    const photo = form.querySelector('[name="photo"]');
+    const receipt = form.querySelector('[name="receipt"]');
+    if (photo) photo.value = "";
+    if (receipt) receipt.value = "";
+    if (store) store.value = keep;
+  }
   document.querySelectorAll("[data-fill-part]").forEach(function (btn) {
     btn.addEventListener("click", function () {
+      clearPartExceptStore();
       sys.value = btn.getAttribute("data-system");
       fillSlots(btn.getAttribute("data-slot"));
       const form = document.getElementById("part-form");

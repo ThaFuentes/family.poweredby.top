@@ -177,8 +177,16 @@
         {% endif %}
       {% endfor %}
     </select>
+    {% if item.vehicle %}
+    <label>About this vehicle</label>
+    <textarea name="notes" placeholder="The truck as a whole — not a radiator, not an alternator.">{{ item.notes or '' }}</textarea>
+    {% elif item.item_type == 'house' %}
+    <label>About the house</label>
+    <textarea name="notes" placeholder="The building as a whole — not a filter, not the water heater.">{{ item.notes or '' }}</textarea>
+    {% else %}
     <label>Notes</label>
     <textarea name="notes">{{ item.notes or '' }}</textarea>
+    {% endif %}
     {% if item.grocery %}
       <label>Quantity</label><input name="quantity" value="{{ item.grocery.quantity }}">
       <label>Restock threshold</label><input name="restock_threshold" value="{{ item.grocery.restock_threshold }}">

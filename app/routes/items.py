@@ -575,6 +575,7 @@ def detail(item_id):
         systems_host=systems_host,
         photo_kinds=PHOTO_KINDS,
         expires_on=((item.grocery.extra_data or {}).get("expires_on") if item.grocery and isinstance(item.grocery.extra_data, dict) else None),
+        last_part_source=((item.extra_data or {}).get("last_part_source") if isinstance(item.extra_data, dict) else None),
     )
 
 
@@ -857,12 +858,28 @@ def attach_part_uploads(item, part, user_id=None):
 
 
 def _part_shop_fields():
+    notes = (request.form.get("part_notes") or request.form.get("notes") or "").strip() or None
     return {
         "source": (request.form.get("source") or "").strip()[:200] or None,
         "cost": request.form.get("cost"),
         "warranty_until": request.form.get("warranty_until"),
-        "notes": (request.form.get("notes") or "").strip() or None,
+        "notes": notes,
     }
+
+
+def _remember_part_source(item, source: str | None) -> None:
+    src = (source or "").strip()[:200]
+    if not src:
+        return
+    extra = dict(item.extra_data) if isinstance(item.extra_data, dict) else {}
+    extra["last_part_source"] = src
+    item.extra_data = extra
+    try:
+        from sqlalchemy.orm.attributes import flag_modified
+
+        flag_modified(item, "extra_data")
+    except Exception:
+        pass
 
 
 @items_bp.route("/<int:item_id>/qr.png")
@@ -979,10 +996,11 @@ def add_part(item_id):
             **_part_shop_fields(),
         )
     nfiles = attach_part_uploads(item, row, current_user.id)
+    _remember_part_source(item, request.form.get("source"))
     db.session.commit()
     extra = f" {nfiles} file(s)." if nfiles else ""
-    flash(f"{name} saved on {item.name}.{extra}", "success")
-    return redirect(url_for("items.detail", item_id=item.id, tab="systems") + f"#sys-{row.system if row else ''}")
+    flash(f"{name} saved on {item.name}.{extra} Add the next part on a blank form — only the store carries over.", "success")
+    return redirect(url_for("items.detail", item_id=item.id, tab="systems") + "#part-form")
 
 
 @items_bp.route("/<int:item_id>/parts/<int:part_id>/retire", methods=["POST"])
@@ -1028,7 +1046,7 @@ def edit_part(item_id, part_id):
         row.spec = (request.form.get("spec") or "").strip()[:160] or None
     if "part_number" in request.form:
         row.part_number = (request.form.get("part_number") or "").strip()[:80] or None
-    row.notes = (request.form.get("notes") or "").strip() or None
+    row.notes = (request.form.get("part_notes") or request.form.get("notes") or "").strip() or None
     row.source = (request.form.get("source") or "").strip()[:200] or None
     if "cost" in request.form:
         row.cost = parse_cost(request.form.get("cost"))
