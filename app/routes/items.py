@@ -1000,7 +1000,7 @@ def add_part(item_id):
     db.session.commit()
     extra = f" {nfiles} file(s)." if nfiles else ""
     flash(f"{name} saved on {item.name}.{extra} Add the next part on a blank form — only the store carries over.", "success")
-    return redirect(url_for("items.detail", item_id=item.id, tab="systems") + "#part-form")
+    return redirect(url_for("items.detail", item_id=item.id, tab="systems") + "#add-part")
 
 
 @items_bp.route("/<int:item_id>/parts/<int:part_id>/retire", methods=["POST"])

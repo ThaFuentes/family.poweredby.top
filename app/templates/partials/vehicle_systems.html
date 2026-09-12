@@ -1,83 +1,11 @@
-<p class="muted" style="margin:0 0 .85rem">{% if systems_host == 'house' %}Filter size, water heater, smoke, the panel. Photo the data plate. Keep the receipt.{% else %}Body, electrical, electronics, engine, cooling — each slot is the actual part. Note that you just replaced the battery. Where you got it. Receipt on the file.{% endif %}</p>
+{% set part_count = systems|sum(attribute='count') %}
+<p class="muted" style="margin:0 0 .85rem">{% if systems_host == 'house' %}Filter, water heater, smoke, the panel. Tap a slot or Add part.{% else %}Electrical, engine, cooling. Tap a slot or Add part. Notes stay on that part.{% endif %}</p>
 
 <nav class="sys-jump" aria-label="Systems">
   {% for s in systems %}
     <a href="#sys-{{ s.id }}" class="{% if s.count %}has{% endif %}">{{ s.label }}{% if s.count %} · {{ s.count }}{% endif %}</a>
   {% endfor %}
 </nav>
-
-{% if can_maintain or can_edit %}
-<form class="card" id="part-form" method="post" action="{{ url_for('items.add_part', item_id=item.id) }}" enctype="multipart/form-data" autocomplete="off">
-  <h2>Add or replace a part</h2>
-  <p class="muted">One part at a time. Notes stay on <em>this</em> part. Store name carries over. The truck’s story lives on Overview / Notes.</p>
-  <div class="desk-form">
-    <div>
-      <label>System</label>
-      <select name="system" id="part-system">
-        {% for s in systems_catalog %}
-          <option value="{{ s.id }}">{{ s.label }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div>
-      <label>What</label>
-      <select name="slot" id="part-slot"></select>
-    </div>
-    <div>
-      <label>Name</label>
-      <input name="name" required placeholder="DieHard Gold, Motorcraft alternator">
-    </div>
-    <div>
-      <label>Brand</label>
-      <input name="brand" placeholder="DieHard, Bosch, Motorcraft">
-    </div>
-    <div>
-      <label>Spec</label>
-      <input name="spec" id="part-spec" placeholder="Group 65, 130A, 5W-30">
-    </div>
-    <div>
-      <label>Part number</label>
-      <input name="part_number" placeholder="FL-820S, H6 / Group 48">
-    </div>
-    <div>
-      <label>Where you got it</label>
-      <input name="source" value="{{ last_part_source or '' }}" placeholder="AutoZone, Amazon, junkyard, dealer" autocomplete="off">
-    </div>
-    <div>
-      <label>What you paid</label>
-      <input name="cost" inputmode="decimal" placeholder="89.00">
-    </div>
-    <div>
-      <label>Status</label>
-      <select name="status">
-        <option value="installed">Installed — this is what’s on it now</option>
-        <option value="spare">Spare in the garage</option>
-      </select>
-    </div>
-    <div>
-      <label>{% if systems_host == 'house' %}Hours / reading (optional){% else %}Installed mileage{% endif %}</label>
-      <input name="installed_mileage" inputmode="numeric" value="{{ (item.vehicle.current_mileage if item.vehicle else '') }}">
-    </div>
-    <div>
-      <label>Date you put it on</label>
-      <input type="date" name="installed_on">
-    </div>
-    <div>
-      <label>Warranty until</label>
-      <input type="date" name="warranty_until">
-    </div>
-  </div>
-  <label>This part only</label>
-  <textarea name="part_notes" autocomplete="off" placeholder="How this one comes off, the 3-pin, the belt routing. Not the radiator. Not the whole truck."></textarea>
-  <label>Photo of the part (connectors, stamp, the actual piece)</label>
-  <input type="file" name="photo" accept="image/*" capture="environment">
-  <label>Caption</label>
-  <input name="caption" placeholder="Alternator 3-pin, battery terminals">
-  <label>Receipt (photo or PDF)</label>
-  <input type="file" name="receipt" accept="image/*,.pdf">
-  <div class="btn-row"><button class="btn" type="submit">Save part</button></div>
-</form>
-{% endif %}
 
 <div class="sys-list">
 {% for sys in systems %}
@@ -194,12 +122,88 @@
 {% endfor %}
 </div>
 
+{% if can_maintain or can_edit %}
+<details class="card add-fold" id="add-part" {% if not part_count %}open{% endif %}>
+  <summary>Add or replace a part</summary>
+  <form id="part-form" method="post" action="{{ url_for('items.add_part', item_id=item.id) }}" enctype="multipart/form-data" autocomplete="off">
+    <p class="muted">One part at a time. Notes stay on this part. Store name carries over.</p>
+    <div class="desk-form">
+      <div>
+        <label>System</label>
+        <select name="system" id="part-system">
+          {% for s in systems_catalog %}
+            <option value="{{ s.id }}">{{ s.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>What</label>
+        <select name="slot" id="part-slot"></select>
+      </div>
+      <div>
+        <label>Name</label>
+        <input name="name" required placeholder="DieHard Gold, Motorcraft alternator">
+      </div>
+      <div>
+        <label>Brand</label>
+        <input name="brand" placeholder="DieHard, Bosch, Motorcraft">
+      </div>
+      <div>
+        <label>Spec</label>
+        <input name="spec" id="part-spec" placeholder="Group 65, 130A, 5W-30">
+      </div>
+      <div>
+        <label>Part number</label>
+        <input name="part_number" placeholder="FL-820S, H6 / Group 48">
+      </div>
+      <div>
+        <label>Where you got it</label>
+        <input name="source" value="{{ last_part_source or '' }}" placeholder="AutoZone, Amazon, junkyard, dealer" autocomplete="off">
+      </div>
+      <div>
+        <label>What you paid</label>
+        <input name="cost" inputmode="decimal" placeholder="89.00">
+      </div>
+      <div>
+        <label>Status</label>
+        <select name="status">
+          <option value="installed">Installed — this is what’s on it now</option>
+          <option value="spare">Spare in the garage</option>
+        </select>
+      </div>
+      <div>
+        <label>{% if systems_host == 'house' %}Hours / reading (optional){% else %}Installed mileage{% endif %}</label>
+        <input name="installed_mileage" inputmode="numeric" value="{{ (item.vehicle.current_mileage if item.vehicle else '') }}">
+      </div>
+      <div>
+        <label>Date you put it on</label>
+        <input type="date" name="installed_on">
+      </div>
+      <div>
+        <label>Warranty until</label>
+        <input type="date" name="warranty_until">
+      </div>
+    </div>
+    <label>This part only</label>
+    <textarea name="part_notes" autocomplete="off" placeholder="How this one comes off, the 3-pin, the belt routing. Not the radiator. Not the whole truck."></textarea>
+    <label>Photo of the part (connectors, stamp, the actual piece)</label>
+    <input type="file" name="photo" accept="image/*" capture="environment">
+    <label>Caption</label>
+    <input name="caption" placeholder="Alternator 3-pin, battery terminals">
+    <label>Receipt (photo or PDF)</label>
+    <input type="file" name="receipt" accept="image/*,.pdf">
+    <div class="btn-row"><button class="btn" type="submit">Save part</button></div>
+  </form>
+</details>
+{% endif %}
+
 <script>
 (function () {
   const catalog = {{ systems_catalog|tojson }};
   const sys = document.getElementById("part-system");
   const slot = document.getElementById("part-slot");
   const spec = document.getElementById("part-spec");
+  const fold = document.getElementById("add-part");
   if (!sys || !slot) return;
   function slotsFor(id) {
     const row = catalog.find(function (s) { return s.id === id; });
@@ -219,8 +223,13 @@
     const picked = rows.find(function (r) { return r.id === slot.value; });
     if (spec && picked && picked.hint && !spec.value) spec.placeholder = picked.hint;
   }
-  sys.addEventListener("change", function () { fillSlots(""); });
-  fillSlots(slot.getAttribute("data-initial") || "");
+  function openPartForm() {
+    if (fold) fold.open = true;
+    const form = document.getElementById("part-form");
+    if (fold) fold.scrollIntoView({ behavior: "smooth", block: "start" });
+    const name = form && form.querySelector('[name="name"]');
+    if (name) name.focus();
+  }
   function clearPartExceptStore() {
     const form = document.getElementById("part-form");
     if (!form) return;
@@ -236,16 +245,22 @@
     if (receipt) receipt.value = "";
     if (store) store.value = keep;
   }
+  sys.addEventListener("change", function () { fillSlots(""); });
+  fillSlots(slot.getAttribute("data-initial") || "");
   document.querySelectorAll("[data-fill-part]").forEach(function (btn) {
     btn.addEventListener("click", function () {
       clearPartExceptStore();
       sys.value = btn.getAttribute("data-system");
       fillSlots(btn.getAttribute("data-slot"));
-      const form = document.getElementById("part-form");
-      if (form) form.scrollIntoView({ behavior: "smooth", block: "start" });
-      const name = form && form.querySelector('[name="name"]');
-      if (name) name.focus();
+      openPartForm();
     });
   });
+  document.querySelectorAll("[data-open-part]").forEach(function (btn) {
+    btn.addEventListener("click", function (e) {
+      e.preventDefault();
+      openPartForm();
+    });
+  });
+  if (location.hash === "#add-part" || location.hash === "#part-form") openPartForm();
 })();
 </script>
