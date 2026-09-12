@@ -10,7 +10,16 @@ from datetime import datetime
 from types import SimpleNamespace
 
 from app.builddb.table_platform_invites import PlatformInvite
-from app.utils.calendar import _rrule, household_ics, member_subscribe, subscribe_links, vevent
+from app.utils.calendar import (
+    _rrule,
+    calendar_target,
+    guess_provider,
+    household_ics,
+    member_subscribe,
+    reminder_invite_ics,
+    subscribe_links,
+    vevent,
+)
 from app.utils.house_systems import HOUSE_SLOTS, HOUSE_SYSTEMS, house_systems_payload
 from app.utils.household_delete import confirm_matches
 from app.utils.identity import (
@@ -173,6 +182,71 @@ class CalendarIcsTests(unittest.TestCase):
         self.assertIn("calendar.google.com/calendar/render?cid=", links["google"])
         self.assertIn("outlook.live.com/calendar/0/addfromweb", links["outlook"])
         self.assertIn("family.poweredby.top", links["google"])
+
+    def test_guess_provider_from_inbox(self):
+        self.assertEqual(guess_provider("maya@gmail.com"), "google")
+        self.assertEqual(guess_provider("dad@icloud.com"), "apple")
+        self.assertEqual(guess_provider("work@outlook.com"), "outlook")
+        self.assertEqual(guess_provider("other@poweredby.top"), "other")
+
+    def test_calendar_target_names_that_email(self):
+        user = SimpleNamespace(
+            name="Maya Fuentes",
+            username="maya",
+            email="maya@gmail.com",
+            calendar_email="maya.work@outlook.com",
+            calendar_provider=None,
+            calendar_mode="auto",
+        )
+        t = calendar_target(user)
+        self.assertEqual(t["cal_email"], "maya.work@outlook.com")
+        self.assertEqual(t["cal_provider"], "outlook")
+        self.assertTrue(t["cal_auto"])
+        self.assertIn("Outlook", t["cal_label"])
+        self.assertIn("maya.work@outlook.com", t["cal_label"])
+
+    def test_invite_request_names_attendee(self):
+        house = SimpleNamespace(name="Fuentes", settings_json={"reminders_via": "both"})
+        body = reminder_invite_ics(
+            self._row(), house, "maya@gmail.com", organizer_email="family@x.test"
+        )
+        self.assertIn("METHOD:REQUEST", body)
+        self.assertIn("mailto:maya@gmail.com", body)
+        self.assertIn("ORGANIZER;CN=Family OS:mailto:family@x.test", body)
+        self.assertIn("PARTSTAT=ACCEPTED", body)
+
+    def test_announce_flash_auto_names_google(self):
+        from app.utils.notify import announce_flash
+
+        user = SimpleNamespace(
+            name="Maya",
+            username="maya",
+            email="maya@gmail.com",
+            calendar_email=None,
+            calendar_provider=None,
+            calendar_mode="auto",
+            notify_via="both",
+        )
+        row = SimpleNamespace(title="Next oil change — Civic", due_at=datetime(2026, 10, 1))
+        msg = announce_flash(user, row)
+        self.assertIn("Google Calendar for maya@gmail.com", msg)
+        self.assertIn("2026-10-01", msg)
+
+    def test_announce_flash_manual(self):
+        from app.utils.notify import announce_flash
+
+        user = SimpleNamespace(
+            name="Maya",
+            username="maya",
+            email="maya@gmail.com",
+            calendar_email="maya@gmail.com",
+            calendar_provider="google",
+            calendar_mode="manual",
+            notify_via="email",
+        )
+        row = SimpleNamespace(title="Next oil", due_at=datetime(2026, 10, 1))
+        msg = announce_flash(user, row)
+        self.assertIn("manual", msg.lower())
 
 
 class ByokTests(unittest.TestCase):

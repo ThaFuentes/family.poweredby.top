@@ -17,6 +17,7 @@ class Reminder(db.Model):
     notes = db.Column(db.Text, nullable=True)
     notify_via = db.Column(db.String(16), nullable=True)
     email_sent_at = db.Column(db.DateTime, nullable=True)
+    calendar_pushed_at = db.Column(db.DateTime, nullable=True)
     created_by = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.current_timestamp())
     updated_at = db.Column(
@@ -40,6 +41,7 @@ def create_table():
             ("notes", "TEXT NULL"),
             ("notify_via", "VARCHAR(16) NULL"),
             ("email_sent_at", "TIMESTAMP NULL"),
+            ("calendar_pushed_at", "TIMESTAMP NULL"),
             ("created_by", "INT NULL"),
         ],
         indexes=[

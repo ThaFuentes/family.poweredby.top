@@ -41,6 +41,10 @@ def add_from_lookup():
     make = (request.form.get("make") or "").strip()
     model = (request.form.get("model") or "").strip()
     year = (request.form.get("year") or "").strip()
+    trim = (request.form.get("trim") or "").strip()
+    engine = (request.form.get("engine") or "").strip()
+    oil_type = (request.form.get("oil_type") or "").strip()
+    filter_type = (request.form.get("filter_type") or "").strip()
     if not (plate or vin or typed_name or make or model):
         flash("Scan a QR, or type a plate, VIN, or name.", "danger")
         return redirect(url_for("vehicles.index"))
@@ -48,7 +52,7 @@ def add_from_lookup():
     name = (
         typed_name
         or decoded.get("name")
-        or " ".join(x for x in (year, make, model) if x)
+        or " ".join(x for x in (year, make, model, trim) if x)
         or (f"Plate {plate}" if plate else None)
         or (f"VIN {vin[:8]}" if vin else "Vehicle")
     )
@@ -75,6 +79,14 @@ def add_from_lookup():
         v.model = model[:80]
     if year.isdigit():
         v.year = int(year)
+    if trim:
+        v.trim = trim[:80]
+    if engine:
+        v.engine = engine[:160]
+    if oil_type:
+        v.oil_type = oil_type[:80]
+    if filter_type:
+        v.filter_type = filter_type[:80]
     photo = request.files.get("photo")
     if photo and photo.filename:
         save_item_photo(item, photo, request.form.get("caption"), current_user.id)

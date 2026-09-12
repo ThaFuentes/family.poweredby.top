@@ -646,13 +646,62 @@ def qty(item_id):
     return redirect(url_for("items.detail", item_id=item.id))
 
 
+def _parse_day(raw: str):
+    s = (raw or "").strip()
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, "%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def _follow_up_from_maintenance(item, mtype, date, miles, form) -> Reminder | None:
+    """Next due from the form, else oil/tool interval. None if they left it blank."""
+    from app.utils.reminders_copy import parse_recurrence
+
+    due = _parse_day(form.get("next_due") if form is not None else "")
+    rec = parse_recurrence((form or {}).get("recurrence")) if form is not None else None
+    title = (form.get("next_title") or "").strip() if form is not None else ""
+    if due is None and item.tool:
+        interval = item.tool.maintenance_interval_hours
+        if interval:
+            due = datetime.utcnow() + timedelta(days=max(int(interval), 1))
+            title = title or f"Next {mtype} — {item.name}"
+    oil = (mtype or "").strip().lower() in ("oil_change", "oil change", "oil")
+    if due is None and item.vehicle and oil:
+        due = datetime.utcnow() + timedelta(days=180)
+        rec = rec or "180d"
+        title = title or f"Next oil change — {item.name}"
+    if due is None:
+        return None
+    if not title:
+        title = f"Next {mtype} — {item.name}"
+    return Reminder(
+        household_id=household_id(),
+        linked_item_id=item.id,
+        type="oil_change" if oil else (mtype or "maintenance"),
+        title=title[:200],
+        due_at=due,
+        recurrence=rec,
+        status="open",
+        created_by=current_user.id,
+    )
+
+
 @items_bp.route("/<int:item_id>/maintenance", methods=["GET", "POST"])
 @login_required
 @require_perm("maintain")
 def maintenance(item_id):
     item = _item_or_404(item_id)
     if request.method == "GET":
-        return render_template("maintenance_form.html", item=item)
+        from app.utils.calendar import calendar_target
+
+        return render_template(
+            "maintenance_form.html",
+            item=item,
+            cal=calendar_target(current_user),
+        )
     mtype = (request.form.get("type") or "maintenance").strip()
     date_s = (request.form.get("date") or "").strip()
     try:
@@ -693,20 +742,6 @@ def maintenance(item_id):
         item.tool.last_maintenance_at = datetime.utcnow()
         if miles:
             item.tool.hours_used = _dec(miles, "0")
-        interval = item.tool.maintenance_interval_hours
-        if interval:
-            rem = Reminder(
-                household_id=household_id(),
-                linked_item_id=item.id,
-                type=mtype,
-                title=f"Next {mtype} — {item.name}",
-                due_at=datetime.utcnow() + timedelta(days=max(int(interval), 1)),
-                recurrence=None,
-                status="open",
-                created_by=current_user.id,
-            )
-            db.session.add(rem)
-            new_reminders.append(rem)
     if item.vehicle:
         if miles:
             item.vehicle.current_mileage = int(_dec(miles, "0"))
@@ -714,24 +749,17 @@ def maintenance(item_id):
             item.vehicle.last_oil_change_date = date
             if miles:
                 item.vehicle.last_oil_change_mileage = int(_dec(miles, "0"))
-            rem = Reminder(
-                household_id=household_id(),
-                linked_item_id=item.id,
-                type="oil_change",
-                title=f"Next oil change — {item.name}",
-                due_at=datetime.utcnow() + timedelta(days=180),
-                recurrence="180d",
-                status="open",
-                created_by=current_user.id,
-            )
-            db.session.add(rem)
-            new_reminders.append(rem)
+    rem = _follow_up_from_maintenance(item, mtype, date, miles, request.form)
+    if rem is not None:
+        db.session.add(rem)
+        new_reminders.append(rem)
     db.session.commit()
-    from app.utils.notify import announce_reminder
+    from app.utils.notify import announce_flash, announce_reminder
 
-    for rem in new_reminders:
-        announce_reminder(rem)
-    flash("Maintenance logged.", "success")
+    for follow in new_reminders:
+        announce_reminder(follow)
+    note = announce_flash(current_user, new_reminders[0] if new_reminders else None)
+    flash(note or "Maintenance logged.", "success")
     return redirect(url_for("items.detail", item_id=item.id, tab="maintenance"))
 
 
@@ -765,7 +793,12 @@ def add_photo(item_id):
             created_by=current_user.id,
         )
         db.session.add(rem)
-    db.session.commit()
+        db.session.commit()
+        from app.utils.notify import announce_reminder
+
+        announce_reminder(rem)
+    else:
+        db.session.commit()
     flash("Photo saved.", "success")
     nxt = (request.form.get("next") or "photos").strip() or "photos"
     if nxt not in ("overview", "photos", "notes", "maintenance", "history", "systems"):

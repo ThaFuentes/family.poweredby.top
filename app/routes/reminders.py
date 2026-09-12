@@ -93,6 +93,11 @@ def add():
     db.session.add(row)
     db.session.commit()
     announce_reminder(row)
+    from app.utils.notify import announce_flash
+
+    note = announce_flash(current_user, row)
+    if note:
+        flash(note, "success")
     return redirect(url_for("reminders.index"))
 
 

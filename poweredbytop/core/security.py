@@ -458,6 +458,7 @@ def _is_public_safe_path(path: str) -> bool:
         "/favicon.png",
         "/sw.js",
         "/manifest.webmanifest",
+        "/offline",
     ):
         return True
     # Guest home must never 403 first (Aegis/AX 302 to poweredby.top; AegisX PWA shell).

@@ -25,6 +25,9 @@ class User(UserMixin, db.Model):
     is_leader = db.Column(db.Boolean, default=False, nullable=False)
     notify_via = db.Column(db.String(16), nullable=False, default="both")
     calendar_token = db.Column(db.String(64), unique=True, nullable=True)
+    calendar_email = db.Column(db.String(120), nullable=True)
+    calendar_provider = db.Column(db.String(16), nullable=True)
+    calendar_mode = db.Column(db.String(16), nullable=False, default="auto")
     extra_data = db.Column(db.JSON, nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.current_timestamp())
     updated_at = db.Column(
@@ -73,6 +76,9 @@ def create_table():
             ("is_leader", "TINYINT(1) NOT NULL DEFAULT 0"),
             ("notify_via", "VARCHAR(16) NOT NULL DEFAULT 'both'"),
             ("calendar_token", "VARCHAR(64) NULL"),
+            ("calendar_email", "VARCHAR(120) NULL"),
+            ("calendar_provider", "VARCHAR(16) NULL"),
+            ("calendar_mode", "VARCHAR(16) NOT NULL DEFAULT 'auto'"),
             ("extra_data", "JSON NULL"),
         ],
         indexes=[

@@ -11,6 +11,18 @@ from app.builddb.table_reminders import Reminder
 from app.builddb.table_users import User
 
 NOTIFY_CHOICES = ("email", "calendar", "both")
+CAL_MODES = ("auto", "manual")
+CAL_PROVIDERS = {
+    "google": "Google Calendar",
+    "apple": "Apple Calendar",
+    "outlook": "Outlook",
+    "other": "that email's calendar",
+}
+_GOOGLE_DOMAINS = frozenset({"gmail.com", "googlemail.com"})
+_APPLE_DOMAINS = frozenset({"icloud.com", "me.com", "mac.com"})
+_OUTLOOK_DOMAINS = frozenset(
+    {"outlook.com", "hotmail.com", "live.com", "msn.com", "office365.com"}
+)
 
 
 def _utcnow():
@@ -49,6 +61,55 @@ def reminder_via(row: Reminder, household: Household | None = None) -> str:
     if row and (row.notify_via or "").strip():
         return normalize_via(row.notify_via)
     return household_reminders_via(household)
+
+
+def normalize_cal_mode(value: str | None, default: str = "auto") -> str:
+    v = (value or "").strip().lower()
+    return v if v in CAL_MODES else default
+
+
+def normalize_provider(value: str | None, email: str = "") -> str:
+    v = (value or "").strip().lower()
+    if v in CAL_PROVIDERS:
+        return v
+    return guess_provider(email)
+
+
+def guess_provider(email: str) -> str:
+    domain = (email or "").rsplit("@", 1)[-1].strip().lower() if email and "@" in email else ""
+    if domain in _GOOGLE_DOMAINS:
+        return "google"
+    if domain in _APPLE_DOMAINS:
+        return "apple"
+    if domain in _OUTLOOK_DOMAINS:
+        return "outlook"
+    return "other"
+
+
+def calendar_email_of(user) -> str:
+    return (
+        (getattr(user, "calendar_email", None) or "").strip()
+        or (getattr(user, "email", None) or "").strip()
+    )
+
+
+def calendar_target(user) -> dict:
+    """Which email calendar this person updates. Never the platform owner's."""
+    email = calendar_email_of(user)
+    provider = normalize_provider(getattr(user, "calendar_provider", None), email)
+    mode = normalize_cal_mode(getattr(user, "calendar_mode", None))
+    label = CAL_PROVIDERS[provider]
+    who = (getattr(user, "name", None) or getattr(user, "username", None) or "You").split()[0]
+    return {
+        "cal_email": email,
+        "cal_provider": provider,
+        "cal_provider_label": label,
+        "cal_mode": mode,
+        "cal_auto": mode == "auto",
+        "cal_ready": bool(email and "@" in email),
+        "cal_label": f"{label} for {email}" if email else f"{label} — set the email",
+        "who": who,
+    }
 
 
 def ensure_calendar_token(user: User) -> str:
@@ -184,7 +245,13 @@ def subscribe_links(https_url: str, name: str = "Family OS") -> dict:
     }
 
 
-def vevent(row: Reminder, household_name: str = "") -> str | None:
+def vevent(
+    row: Reminder,
+    household_name: str = "",
+    *,
+    attendee_email: str | None = None,
+    organizer_email: str | None = None,
+) -> str | None:
     if not row or not row.due_at:
         return None
     start = row.due_at
@@ -223,6 +290,14 @@ def vevent(row: Reminder, household_name: str = "") -> str | None:
         lines.append(rrule)
     if household_name:
         lines.append(f"LOCATION:{_ics_escape(household_name)}")
+    attendee = (attendee_email or "").strip()
+    if attendee and "@" in attendee:
+        org = (organizer_email or "").strip() or "family@family.poweredby.top"
+        lines.append(f"ORGANIZER;CN=Family OS:mailto:{org}")
+        lines.append(
+            "ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;"
+            f"PARTSTAT=ACCEPTED;RSVP=FALSE:mailto:{attendee}"
+        )
     lines.extend(
         [
             "BEGIN:VALARM",
@@ -237,11 +312,11 @@ def vevent(row: Reminder, household_name: str = "") -> str | None:
 
 
 def member_subscribe(user: User, household: Household | None, feed_url: str) -> dict:
-    """Per-person Apple / Google / Outlook links. Secret feed is this member's token."""
+    """Per-person Apple / Google / Outlook links plus which email calendar we update."""
     house_name = getattr(household, "name", None) or "Family OS"
-    who = (getattr(user, "name", None) or getattr(user, "username", None) or "You").split()[0]
+    target = calendar_target(user)
     links = subscribe_links(feed_url, f"Family OS · {house_name}")
-    links["who"] = who
+    links.update(target)
     links["house"] = house_name
     return links
 
@@ -252,15 +327,25 @@ def household_ics(
     method: str = "PUBLISH",
     *,
     member_feed: bool = False,
+    attendee_email: str | None = None,
+    organizer_email: str | None = None,
 ) -> str:
     name = getattr(household, "name", None) or "Family OS"
+    method = (method or "PUBLISH").strip().upper()
+    if method not in ("PUBLISH", "REQUEST", "CANCEL"):
+        method = "PUBLISH"
     events = []
     for row in rows:
         if (row.status or "open") != "open":
             continue
         if not member_feed and not wants_calendar(reminder_via(row, household)):
             continue
-        block = vevent(row, name)
+        block = vevent(
+            row,
+            name,
+            attendee_email=attendee_email,
+            organizer_email=organizer_email,
+        )
         if block:
             events.append(block)
     lines = [
@@ -284,3 +369,20 @@ def household_ics(
 
 def reminder_ics(row: Reminder, household: Household, method: str = "PUBLISH") -> str:
     return household_ics(household, [row], method=method)
+
+
+def reminder_invite_ics(
+    row: Reminder,
+    household: Household,
+    attendee_email: str,
+    organizer_email: str | None = None,
+) -> str:
+    """METHOD:REQUEST so Gmail / Outlook / iCloud put the due date on that inbox's calendar."""
+    return household_ics(
+        household,
+        [row],
+        method="REQUEST",
+        member_feed=True,
+        attendee_email=attendee_email,
+        organizer_email=organizer_email,
+    )

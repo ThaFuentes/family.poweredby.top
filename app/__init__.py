@@ -52,7 +52,7 @@ def create_app():
 
     app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URI
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    # Versioned /static/* URLs (?v=os18). Browsers keep CSS/JS/images a week.
+    # Versioned /static/* URLs (?v=os19). Browsers keep CSS/JS/images a week.
     app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 604800
     app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
         "pool_recycle": 280,

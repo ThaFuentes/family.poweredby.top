@@ -116,9 +116,25 @@ class FamilySecurityTests(unittest.TestCase):
         data = man.get_json()
         self.assertEqual(data.get("display"), "standalone")
         self.assertEqual(data.get("start_url"), "/")
+        shots = data.get("screenshots") or []
+        self.assertTrue(any((s.get("src") or "").endswith("intro-poster.jpg") for s in shots))
         sw = self.client.get("/sw.js")
         self.assertEqual(sw.status_code, 200)
         self.assertIn(b"family-static", sw.data)
+        self.assertIn(b"/offline", sw.data)
+        self.assertIn(b"intro.mp4", sw.data)
+        self.assertIn(b"scan.js", sw.data)
+        self.assertNotIn(b"/uploads/", sw.data)
+        off = self.client.get("/offline")
+        self.assertEqual(off.status_code, 200)
+        self.assertIn(b"offline", off.data.lower())
+        self.assertNotIn(b"Traceback", off.data)
+        poster = self.client.get("/static/images/intro-poster.jpg")
+        self.assertEqual(poster.status_code, 200)
+        clip = self.client.get("/static/video/intro.mp4")
+        self.assertEqual(clip.status_code, 200)
+        self.assertIn('id="family-intro"', body)
+        self.assertIn("intro.js", body)
         css = self.client.get("/static/css/family.css")
         self.assertEqual(css.status_code, 200)
         self.assertIn("max-age", (css.headers.get("Cache-Control") or "").lower())
@@ -166,6 +182,40 @@ class FamilySecurityTests(unittest.TestCase):
         self.assertIn(b"Home", r.data)
         with self.app.app_context():
             self.assertIsNotNone(User.query.filter_by(username=user).first())
+
+    def test_calendar_auto_names_inbox(self):
+        user = f"cal_{self.suffix}"
+        email = f"{user}@gmail.com"
+        r = self._register(user, household=f"Cal House {self.suffix}", email=email)
+        self.assertEqual(r.status_code, 200, r.data[-400:] if r.data else r.status)
+        due = self.client.get("/reminders/")
+        self.assertEqual(due.status_code, 200)
+        body = due.data.decode("utf-8", "replace")
+        self.assertIn("Which email calendar", body)
+        self.assertIn("Auto-add", body)
+        self.assertIn(email, body)
+        token = self._csrf(due.data)
+        saved = self.client.post(
+            "/appearance/calendar",
+            data={
+                "calendar_email": email,
+                "calendar_provider": "google",
+                "calendar_mode": "auto",
+                "email_due": "1",
+                "next": "reminders",
+                "csrf_token": token,
+            },
+            headers={"X-CSRF-Token": token},
+            follow_redirects=True,
+        )
+        self.assertEqual(saved.status_code, 200)
+        self.assertIn(b"Google Calendar", saved.data)
+        with self.app.app_context():
+            row = User.query.filter_by(username=user).first()
+            self.assertIsNotNone(row)
+            self.assertEqual(row.calendar_mode, "auto")
+            self.assertEqual((row.calendar_email or "").lower(), email)
+            self.assertEqual(row.notify_via, "both")
 
     def test_login_sqli_does_not_auth(self):
         for payload in SQLI:

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}New item · Family OS{% endblock %}
 {% block content %}
-<div class="page-head"><div><h1>New item</h1><p>Name it, save it. Extra fields stay folded.</p></div></div>
+<div class="page-head"><div><h1>New item</h1><p>Name it, save it. On a vehicle, trim, engine, and oil stay on this page.</p></div></div>
 <form class="card" method="post" action="{{ url_for('items.create_item') }}" enctype="multipart/form-data">
   {% if lookup.kind_label and lookup.kind and lookup.kind != 'unknown' %}
   <p><span class="badge">{{ lookup.kind_label }}</span> {{ lookup.message or '' }}</p>
@@ -83,7 +83,7 @@
 
   <div id="vehicle-fields" hidden>
     <h2>Vehicle</h2>
-    <p class="muted">Paste the VIN for a full NHTSA decode. Plate is optional and stored on the car.</p>
+    <p class="muted">Trim and engine are what you buy parts against. VIN fills factory specs if you have it.</p>
     <label>License plate</label>
     <input name="plate" id="plate" autocapitalize="characters">
     <label>VIN</label>
@@ -91,36 +91,36 @@
     <div class="btn-row">
       <button class="btn secondary" type="button" id="lookup-vehicle">Look up VIN</button>
     </div>
-    <label>Make</label>
-    <input name="make" id="make">
-    <label>Model</label>
-    <input name="model" id="model">
-    <label>Year</label>
-    <input name="year" id="year">
+    <label>Year / make / model</label>
+    <div class="btn-row">
+      <input name="year" id="year" placeholder="Year" style="max-width:5rem" inputmode="numeric">
+      <input name="make" id="make" placeholder="Toyota">
+      <input name="model" id="model" placeholder="Tacoma">
+    </div>
+    <label>Trim</label>
+    <input name="trim" id="trim" placeholder="SR5, Limited, XLT">
+    <label>Engine</label>
+    <input name="engine" id="engine" placeholder="4.7L V8">
+    <label>Oil</label>
+    <input name="oil_type" id="vehicle-oil" placeholder="0W-20 synthetic">
+    <label>Oil filter</label>
+    <input name="filter_type" id="filter_type" placeholder="Toyota 90915-YZZD2, Fram PH3614">
     <label>Color</label>
     <input name="color" id="color">
     <details class="more">
-      <summary>Trim, engine, fluids, tires, battery</summary>
-      <label>Trim</label>
-      <input name="trim" id="trim">
+      <summary>Body, drive, tires, battery</summary>
       <label>Body</label>
       <input name="body_class" id="body_class">
       <label>Drive</label>
       <input name="drive_type" id="drive_type">
       <label>Fuel</label>
       <input name="fuel_type" id="fuel_type">
-      <label>Engine</label>
-      <input name="engine" id="engine">
       <label>Transmission</label>
       <input name="transmission" id="transmission">
       <label>Doors</label>
       <input name="doors" id="doors">
       <label>Manufacturer</label>
       <input name="manufacturer" id="manufacturer">
-      <label>Oil type</label>
-      <input name="oil_type">
-      <label>Filter</label>
-      <input name="filter_type">
       <label>Tire size</label>
       <input name="tire_size">
       <label>Battery</label>

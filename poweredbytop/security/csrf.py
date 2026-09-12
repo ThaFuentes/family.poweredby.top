@@ -40,6 +40,7 @@ _EXEMPT_PREFIXES = (
     "/pwa/",
     "/sw.js",
     "/manifest.webmanifest",
+    "/offline",
     # Auth / device flows — must not lock people out of login
     "/auth/login",
     "/auth/logout",

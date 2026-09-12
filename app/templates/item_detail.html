@@ -65,11 +65,14 @@
       {% endif %}
     {% endif %}
     {% if item.vehicle %}
-      <p>{{ item.vehicle.year or '' }} {{ item.vehicle.make or '' }} {{ item.vehicle.model or '' }} {% if item.vehicle.trim %}{{ item.vehicle.trim }}{% endif %}</p>
+      <p>{{ item.vehicle.year or '' }} {{ item.vehicle.make or '' }} {{ item.vehicle.model or '' }} {% if item.vehicle.trim %}<strong>{{ item.vehicle.trim }}</strong>{% endif %}</p>
       {% if item.vehicle.plate %}<p>Plate: <strong>{{ item.vehicle.plate }}</strong></p>{% endif %}
       {% if item.vehicle.vin %}<p class="muted">VIN {{ item.vehicle.vin }}</p>{% endif %}
       <p>{% if item.vehicle.color %}{{ item.vehicle.color }} · {% endif %}{% if item.vehicle.body_class %}{{ item.vehicle.body_class }}{% endif %}{% if item.vehicle.doors %} · {{ item.vehicle.doors }}-door{% endif %}</p>
-      <p>{% if item.vehicle.engine %}{{ item.vehicle.engine }}{% endif %}{% if item.vehicle.drive_type %} · {{ item.vehicle.drive_type }}{% endif %}{% if item.vehicle.fuel_type %} · {{ item.vehicle.fuel_type }}{% endif %}</p>
+      <p>{% if item.vehicle.engine %}<strong>{{ item.vehicle.engine }}</strong>{% endif %}{% if item.vehicle.drive_type %} · {{ item.vehicle.drive_type }}{% endif %}{% if item.vehicle.fuel_type %} · {{ item.vehicle.fuel_type }}{% endif %}</p>
+      {% if item.vehicle.oil_type or item.vehicle.filter_type %}
+      <p>{% if item.vehicle.oil_type %}Oil: <strong>{{ item.vehicle.oil_type }}</strong>{% endif %}{% if item.vehicle.filter_type %} · Filter: <strong>{{ item.vehicle.filter_type }}</strong>{% endif %}</p>
+      {% endif %}
       {% if item.vehicle.transmission %}<p>Transmission: {{ item.vehicle.transmission }}</p>{% endif %}
       <p>Mileage: {{ item.vehicle.current_mileage or '—' }} · Last oil: {{ item.vehicle.last_oil_change_date or '—' }}
         @ {{ item.vehicle.last_oil_change_mileage or '—' }}</p>
@@ -211,19 +214,19 @@
       <label>Make</label><input name="make" value="{{ item.vehicle.make or '' }}">
       <label>Model</label><input name="model" value="{{ item.vehicle.model or '' }}">
       <label>Year</label><input name="year" value="{{ item.vehicle.year or '' }}">
+      <label>Trim</label><input name="trim" placeholder="SR5" value="{{ item.vehicle.trim or '' }}">
+      <label>Engine</label><input name="engine" placeholder="4.7L V8" value="{{ item.vehicle.engine or '' }}">
+      <label>Oil</label><input name="oil_type" placeholder="0W-20 synthetic" value="{{ item.vehicle.oil_type or '' }}">
+      <label>Oil filter</label><input name="filter_type" value="{{ item.vehicle.filter_type or '' }}">
       <label>VIN</label><input name="vin" value="{{ item.vehicle.vin or '' }}">
       <label>Plate</label><input name="plate" value="{{ item.vehicle.plate or '' }}">
       <label>Color</label><input name="color" value="{{ item.vehicle.color or '' }}">
-      <label>Trim</label><input name="trim" value="{{ item.vehicle.trim or '' }}">
       <label>Body</label><input name="body_class" value="{{ item.vehicle.body_class or '' }}">
       <label>Drive</label><input name="drive_type" value="{{ item.vehicle.drive_type or '' }}">
       <label>Fuel</label><input name="fuel_type" value="{{ item.vehicle.fuel_type or '' }}">
-      <label>Engine</label><input name="engine" value="{{ item.vehicle.engine or '' }}">
       <label>Transmission</label><input name="transmission" value="{{ item.vehicle.transmission or '' }}">
       <label>Doors</label><input name="doors" value="{{ item.vehicle.doors or '' }}">
       <label>Manufacturer</label><input name="manufacturer" value="{{ item.vehicle.manufacturer or '' }}">
-      <label>Oil</label><input name="oil_type" value="{{ item.vehicle.oil_type or '' }}">
-      <label>Filter</label><input name="filter_type" value="{{ item.vehicle.filter_type or '' }}">
       <label>Tires</label><input name="tire_size" value="{{ item.vehicle.tire_size or '' }}">
       <label>Battery</label><input name="battery_type" value="{{ item.vehicle.battery_type or '' }}">
       <label>Mileage</label><input name="current_mileage" value="{{ item.vehicle.current_mileage or '' }}">

@@ -15,6 +15,24 @@
   <input type="file" name="photo" accept="image/*" capture="environment">
   <label>Photo caption</label>
   <input name="caption" placeholder="Alternator connectors, blade, filter housing">
+  <label>Next due</label>
+  <input type="date" name="next_due">
+  <label>How often after that</label>
+  <select name="recurrence">
+    <option value="">— once —</option>
+    <option value="30d">Every month</option>
+    <option value="90d">Every 3 months</option>
+    <option value="180d">Every 6 months</option>
+    <option value="365d">Every year</option>
+    <option value="5000mi">Every 5,000 miles</option>
+  </select>
+  {% if cal and cal.cal_auto and cal.cal_ready %}
+  <p class="muted">Auto-add is on. Next due goes to <strong>{{ cal.cal_label }}</strong>{% if current_user.notify_via in ('email', 'both') %}, and we'll email you when it's due{% endif %}.</p>
+  {% elif cal and cal.cal_auto %}
+  <p class="muted">Auto-add is on, but no calendar email yet. Set it on Look so we know which inbox to update.</p>
+  {% else %}
+  <p class="muted">You're on manual. Next due stays on Due. Switch to auto-add on Look if you don't want to add it yourself.</p>
+  {% endif %}
   <div class="btn-row">
     <button class="btn" type="submit">Save log</button>
     <a class="btn secondary" href="{{ url_for('items.detail', item_id=item.id, tab='maintenance') }}">Cancel</a>

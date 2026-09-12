@@ -11,19 +11,27 @@
 {% if can_add %}
 <form class="card" method="post" action="{{ url_for('vehicles.add_from_lookup') }}" enctype="multipart/form-data">
   <h2>Add by hand</h2>
-  <p class="muted">Any of these is enough. VIN (dash / registration) fills factory specs. Plate and name are stored either way.</p>
+  <p class="muted">Trim and engine are what you buy parts against. VIN fills factory specs if you have it. Plate is stored either way.</p>
   <label>Name</label>
-  <input name="name" placeholder="The gray truck, Mom's Civic">
+  <input name="name" placeholder="The gray truck, Mom's Tacoma">
   <label>License plate</label>
   <input name="plate" placeholder="ABC1234" autocapitalize="characters">
   <label>VIN</label>
   <input name="vin" placeholder="1FTFW1E84NFA00000" autocapitalize="characters">
-  <label>Year / make / model (if no VIN)</label>
+  <label>Year / make / model</label>
   <div class="btn-row">
-    <input name="year" placeholder="Year" style="max-width:5rem">
-    <input name="make" placeholder="Make">
-    <input name="model" placeholder="Model">
+    <input name="year" placeholder="Year" style="max-width:5rem" inputmode="numeric">
+    <input name="make" placeholder="Toyota">
+    <input name="model" placeholder="Tacoma">
   </div>
+  <label>Trim</label>
+  <input name="trim" placeholder="SR5, Limited, XLT">
+  <label>Engine</label>
+  <input name="engine" placeholder="4.7L V8">
+  <label>Oil</label>
+  <input name="oil_type" placeholder="0W-20 synthetic">
+  <label>Oil filter</label>
+  <input name="filter_type" placeholder="Toyota 90915-YZZD2, Fram PH3614">
   <label>Photo (optional)</label>
   <input type="file" name="photo" accept="image/*" capture="environment">
   <label>Photo caption</label>
@@ -46,8 +54,9 @@
         <strong>{{ item.name }}</strong>
         <div class="muted">
           {% if item.vehicle and item.vehicle.plate %}{{ item.vehicle.plate }} · {% endif %}
-          {% if item.vehicle %}{{ item.vehicle.year or '' }} {{ item.vehicle.make or '' }} {{ item.vehicle.model or '' }}{% endif %}
-          {% if item.vehicle and item.vehicle.fuel_type %} · {{ item.vehicle.fuel_type }}{% endif %}
+          {% if item.vehicle %}{{ item.vehicle.year or '' }} {{ item.vehicle.make or '' }} {{ item.vehicle.model or '' }}{% if item.vehicle.trim %} {{ item.vehicle.trim }}{% endif %}{% endif %}
+          {% if item.vehicle and item.vehicle.engine %} · {{ item.vehicle.engine }}{% endif %}
+          {% if item.vehicle and item.vehicle.oil_type %} · {{ item.vehicle.oil_type }}{% endif %}
           · battery, body, electronics…
         </div>
       </div>

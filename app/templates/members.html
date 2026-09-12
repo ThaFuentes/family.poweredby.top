@@ -155,7 +155,7 @@
 {% if is_leader %}
 <form class="card" method="post" action="{{ url_for('members.set_reminders_via') }}">
   <h2>Maintenance reminders</h2>
-  <p class="muted">How this household gets oil changes, blades, filters. Calendar is a subscribe link on Due. Email uses the Family OS From address.</p>
+  <p class="muted">Household default for oil, blades, filters. Each person names <em>which</em> email calendar on Look, and whether we auto-add or they add it themselves. Email From: Family OS.</p>
   <label>Send by</label>
   <select name="reminders_via">
     <option value="email" {% if reminders_via=='email' %}selected{% endif %}>Email</option>

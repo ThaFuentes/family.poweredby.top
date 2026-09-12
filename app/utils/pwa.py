@@ -21,6 +21,7 @@ _HEAD_SNIPPET = """
   <link rel="manifest" href="{manifest}">
   <link rel="apple-touch-icon" href="{icon}">
   <link rel="apple-touch-icon" sizes="180x180" href="{icon}">
+  <link rel="apple-touch-startup-image" href="/static/images/intro-poster-phone.jpg">
   <meta name="format-detection" content="telephone=no">
   <script src="{script}" defer></script>
 """
@@ -28,6 +29,87 @@ _HEAD_SNIPPET = """
 _CHOICES = frozenset({"dismissed", "installed", "no", "yes", "never"})
 _SURFACES = frozenset({"phone", "desktop"})
 _SCRIPT_VER = "family-os2"
+
+_INTRO_HEAD = """
+  <style id="family-intro-css">
+  #family-intro{display:none;position:fixed;inset:0;z-index:2147483000;background:#1c1814;align-items:stretch;justify-content:center;overflow:hidden}
+  html.family-intro-on #family-intro{display:flex}
+  html.family-intro-on,html.family-intro-on body{overflow:hidden}
+  #family-intro video,#family-intro .family-intro-poster{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  #family-intro .family-intro-veil{position:absolute;inset:0;background:linear-gradient(180deg,rgba(28,24,20,.12) 0%,rgba(28,24,20,.55) 100%);pointer-events:none}
+  #family-intro .family-intro-scan{position:absolute;left:10%;right:10%;height:2px;top:44%;background:#2f8c5a;box-shadow:0 0 14px #2f8c5a;opacity:0;pointer-events:none}
+  html.family-intro-on #family-intro .family-intro-scan{animation:familyIntroScan 1.55s ease-in-out .15s 1}
+  @keyframes familyIntroScan{0%{opacity:0;transform:translateY(-80px)}14%{opacity:.95}78%{opacity:.8}100%{opacity:0;transform:translateY(100px)}}
+  #family-intro .family-intro-mark{position:relative;z-index:2;margin-top:auto;margin-bottom:max(3.5rem,12vh);display:flex;flex-direction:column;align-items:center;gap:.35rem;color:#f3f1ec;text-align:center;opacity:0;transform:translateY(8px);transition:opacity .45s ease,transform .45s ease;pointer-events:none}
+  html.family-intro-brand #family-intro .family-intro-mark{opacity:1;transform:none}
+  #family-intro .family-intro-mark img{width:52px;height:52px;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+  #family-intro .family-intro-mark strong{font:700 1.15rem/1.2 system-ui,-apple-system,sans-serif;letter-spacing:-.03em}
+  #family-intro .family-intro-mark span{font:600 .72rem/1.2 system-ui,-apple-system,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#b7ebc6}
+  #family-intro .family-intro-skip{position:absolute;top:calc(.7rem + env(safe-area-inset-top,0px));right:.8rem;z-index:3;border:0;background:rgba(20,24,22,.42);color:#f3f1ec;border-radius:999px;padding:.35rem .75rem;font:600 .8rem system-ui,sans-serif;cursor:pointer}
+  html.family-intro-out #family-intro{opacity:0;transition:opacity .4s ease}
+  @media (prefers-reduced-motion: reduce){html.family-intro-on #family-intro .family-intro-scan{animation:none}}
+  </style>
+  <script>
+  (function(){
+    try {
+      if ((location.pathname || "").indexOf("/platform") === 0) return;
+      if (sessionStorage.getItem("family.intro.v1") === "1") return;
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      var stand = window.matchMedia("(display-mode: standalone)").matches
+        || window.matchMedia("(display-mode: window-controls-overlay)").matches
+        || window.matchMedia("(display-mode: minimal-ui)").matches
+        || window.navigator.standalone === true;
+      if (!stand) return;
+      document.documentElement.classList.add("family-intro-on");
+      setTimeout(function(){
+        try { sessionStorage.setItem("family.intro.v1", "1"); } catch (e) {}
+        document.documentElement.classList.remove("family-intro-on","family-intro-brand","family-intro-out");
+      }, 4200);
+    } catch (e) {}
+  })();
+  </script>
+  <script src="/static/js/intro.js?v=os1" defer></script>
+"""
+
+_INTRO_BODY = """
+  <div id="family-intro" role="dialog" aria-label="Family OS">
+    <img class="family-intro-poster" src="/static/images/intro-poster.jpg" alt="">
+    <video id="family-intro-video" muted playsinline preload="auto" poster="/static/images/intro-poster.jpg">
+      <source src="/static/video/intro.webm" type="video/webm">
+      <source src="/static/video/intro.mp4" type="video/mp4">
+    </video>
+    <div class="family-intro-scan" aria-hidden="true"></div>
+    <div class="family-intro-veil" aria-hidden="true"></div>
+    <div class="family-intro-mark">
+      <img src="/static/images/fav.jpg" alt="">
+      <strong>Family OS</strong>
+      <span>Scan it. Know it.</span>
+    </div>
+    <button type="button" class="family-intro-skip" id="family-intro-skip">Skip</button>
+  </div>
+"""
+
+
+def _inject_intro(data: str) -> str:
+    if 'id="family-intro"' in data or "id='family-intro'" in data:
+        return data
+    if "<head" in data.lower():
+        data, _n = re.subn(
+            r"(<head[^>]*>)",
+            lambda m: m.group(1) + "\n" + _INTRO_HEAD,
+            data,
+            count=1,
+            flags=re.I,
+        )
+    if "<body" in data.lower():
+        data, _n = re.subn(
+            r"(<body[^>]*>)",
+            lambda m: m.group(1) + "\n" + _INTRO_BODY,
+            data,
+            count=1,
+            flags=re.I,
+        )
+    return data
 
 
 def _brand() -> dict:
@@ -262,10 +344,35 @@ def register_pwa(app) -> None:
             "related_applications": [
                 {"platform": "webapp", "url": origin + "manifest.webmanifest"}
             ],
+            "screenshots": [
+                {
+                    "src": "/static/images/intro-poster.jpg",
+                    "sizes": "1280x720",
+                    "type": "image/jpeg",
+                    "form_factor": "wide",
+                    "label": "Scan what's in the house",
+                },
+                {
+                    "src": "/static/images/intro-poster-phone.jpg",
+                    "sizes": "720x1280",
+                    "type": "image/jpeg",
+                    "form_factor": "narrow",
+                    "label": "Scan a box in the pantry",
+                },
+            ],
         }
         resp = make_response(json.dumps(body))
         resp.headers["Content-Type"] = "application/manifest+json; charset=utf-8"
         resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+    @app.route("/offline")
+    def offline_shell():
+        static = app.static_folder or "static"
+        resp = make_response(send_from_directory(static, "offline.html"))
+        resp.headers["Content-Type"] = "text/html; charset=utf-8"
+        resp.headers["Cache-Control"] = "public, max-age=86400"
+        resp.headers["X-Robots-Tag"] = "noindex"
         return resp
 
     @app.route("/pwa/choice", methods=["GET", "POST"])
@@ -290,6 +397,8 @@ def register_pwa(app) -> None:
         try:
             if response.status_code != 200:
                 return response
+            if (request.path or "") == "/offline":
+                return response
             ctype = (response.headers.get("Content-Type") or "").lower()
             if "text/html" not in ctype:
                 return response
@@ -297,6 +406,9 @@ def register_pwa(app) -> None:
             if not data or "<head" not in data.lower():
                 return response
             if "pwa-install.js" in data:
+                data = _inject_intro(data)
+                response.set_data(data)
+                response.headers["Content-Length"] = str(len(data.encode("utf-8")))
                 return response
 
             brand = _brand()
@@ -327,7 +439,11 @@ def register_pwa(app) -> None:
                         flags=re.I,
                     )
                     if not n:
+                        data = _inject_intro(data)
+                        response.set_data(data)
+                        response.headers["Content-Length"] = str(len(data.encode("utf-8")))
                         return response
+                data = _inject_intro(data)
                 response.set_data(data)
                 response.headers["Content-Length"] = str(len(data.encode("utf-8")))
                 return response
@@ -340,6 +456,7 @@ def register_pwa(app) -> None:
                 flags=re.I,
             )
             if n:
+                new_data = _inject_intro(new_data)
                 response.set_data(new_data)
                 response.headers["Content-Length"] = str(len(new_data.encode("utf-8")))
         except Exception:

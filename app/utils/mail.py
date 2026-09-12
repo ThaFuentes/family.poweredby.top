@@ -42,6 +42,7 @@ def send_mail(
     body: str,
     ics: bytes | None = None,
     ics_name: str = "reminder.ics",
+    ics_method: str = "PUBLISH",
 ) -> tuple[bool, str]:
     to_email = (to_email or "").strip()
     if not to_email or "@" not in to_email:
@@ -62,13 +63,16 @@ def send_mail(
     msg.set_content(body or "")
     if ics:
         raw = ics if isinstance(ics, (bytes, bytearray)) else str(ics).encode("utf-8")
+        method = (ics_method or "PUBLISH").strip().upper()
+        if method not in ("PUBLISH", "REQUEST", "CANCEL"):
+            method = "PUBLISH"
         try:
             msg.add_alternative(
                 raw.decode("utf-8"),
                 subtype="calendar",
             )
             alt = msg.get_payload()[-1]
-            alt.set_param("method", "PUBLISH")
+            alt.set_param("method", method)
             alt.set_param("charset", "UTF-8")
         except Exception:
             pass

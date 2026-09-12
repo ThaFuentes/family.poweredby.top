@@ -223,7 +223,7 @@ def api_maintenance():
         from app.utils.notify import announce_reminder
 
         announce_reminder(rem)
-        return jsonify({"ok": True, "id": rec.id})
+        return jsonify({"ok": True, "id": rec.id, "reminder_id": rem.id})
     db.session.commit()
     return jsonify({"ok": True, "id": rec.id})
 

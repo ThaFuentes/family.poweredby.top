@@ -4,7 +4,7 @@
 <div class="page-head">
   <div>
     <h1>Due</h1>
-    <p>Oil, blades, filters. Each person adds this household to their own Apple, Google, or Outlook.</p>
+    <p>Oil, blades, filters. Auto-add puts them on <em>your</em> email calendar — the one named on this page.</p>
   </div>
 </div>
 {% include "partials/calendar_connect.html" %}
@@ -12,7 +12,7 @@
 <form class="card" method="post" action="{{ url_for('members.set_reminders_via') }}">
   <input type="hidden" name="next" value="reminders">
   <h2>This household</h2>
-  <p class="muted">Email (From: Family OS), calendar subscribe, or both.</p>
+  <p class="muted">Household default. Each person still picks which email calendar on Look, and auto vs I'll add them.</p>
   <select name="reminders_via">
     <option value="email" {% if reminders_via=='email' %}selected{% endif %}>Email</option>
     <option value="calendar" {% if reminders_via=='calendar' %}selected{% endif %}>Calendar</option>

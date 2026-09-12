@@ -43,13 +43,63 @@ def set_theme():
     return resp
 
 
+def _calendar_next():
+    nxt = (request.form.get("next") or "").strip()
+    if nxt == "reminders":
+        return redirect(url_for("reminders.index"))
+    if nxt == "home":
+        return redirect(url_for("home.home"))
+    return redirect(url_for("appearance.picker") + "#calendar")
+
+
 @appearance_bp.route("/notify", methods=["POST"])
 @login_required
 def set_notify():
-    via = (request.form.get("notify_via") or "both").strip().lower()
-    if via not in ("email", "calendar", "both", "off"):
+    return set_calendar()
+
+
+@appearance_bp.route("/calendar", methods=["POST"])
+@login_required
+def set_calendar():
+    from app.utils.calendar import (
+        calendar_target,
+        guess_provider,
+        normalize_cal_mode,
+        normalize_provider,
+    )
+
+    email = (request.form.get("calendar_email") or "").strip().lower()
+    if email and "@" not in email:
+        flash("That doesn't look like an email for a calendar.", "danger")
+        return _calendar_next()
+    provider = normalize_provider(request.form.get("calendar_provider"), email)
+    if not (request.form.get("calendar_provider") or "").strip() and email:
+        provider = guess_provider(email)
+    mode = normalize_cal_mode(request.form.get("calendar_mode"), "auto")
+    email_due = (request.form.get("email_due") or "").strip() in ("1", "on", "yes", "both", "email")
+    raw_via = (request.form.get("notify_via") or "").strip().lower()
+    if raw_via in ("email", "calendar", "both", "off"):
+        via = raw_via
+    elif mode == "auto" and email_due:
         via = "both"
+    elif mode == "auto":
+        via = "calendar"
+    elif email_due:
+        via = "email"
+    else:
+        via = "off"
+
+    current_user.calendar_email = email or None
+    current_user.calendar_provider = provider
+    current_user.calendar_mode = mode
     current_user.notify_via = via
     db.session.commit()
-    flash("How you get reminders is saved.", "success")
-    return redirect(url_for("appearance.picker"))
+    target = calendar_target(current_user)
+    if mode == "auto" and not target["cal_ready"]:
+        flash("Auto-add needs the email of the calendar. Set it above.", "warning")
+    elif mode == "auto":
+        extra = " We'll also email you when it's due." if via in ("email", "both") else ""
+        flash(f"Auto-add is on for {target['cal_label']}.{extra}", "success")
+    else:
+        flash("Manual. Due dates stay on Family OS until you add them.", "success")
+    return _calendar_next()

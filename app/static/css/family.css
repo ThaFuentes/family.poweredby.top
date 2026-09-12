@@ -679,6 +679,17 @@ body.platform { padding-bottom: 1.5rem; }
 .place-chips a.on { background: var(--green); color: #fff; border-color: var(--green); }
 .cal-apps { display: flex; flex-wrap: wrap; gap: .55rem; margin: .75rem 0 .35rem; }
 .cal-apps .btn { flex: 1 1 8.5rem; }
+.cal-target { margin: 0 0 .85rem; font-weight: 600; line-height: 1.4; }
+.cal-mode { border: 0; padding: 0; margin: .85rem 0 .5rem; }
+.cal-mode legend { font-weight: 800; margin-bottom: .35rem; }
+.cal-choice {
+  display: flex; gap: .55rem; align-items: flex-start;
+  margin: .45rem 0; font-weight: 600; line-height: 1.35;
+}
+.cal-choice input { margin-top: .2rem; flex-shrink: 0; }
+.cal-choice span { font-weight: 600; }
+.cal-manual { margin-top: 1rem; }
+.cal-manual summary { cursor: pointer; font-weight: 800; }
 .label-sheet {
   display: grid; grid-template-columns: repeat(2, 1fr); gap: .85rem;
 }
