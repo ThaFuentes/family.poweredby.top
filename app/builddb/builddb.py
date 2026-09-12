@@ -7,6 +7,7 @@
 # every table on every idle recycle).
 # ===========================================================
 import os
+import sys
 import hashlib
 import importlib
 import pkgutil
@@ -16,6 +17,23 @@ from sqlalchemy import text, inspect
 db = SQLAlchemy()
 
 SCHEMA_STAMP_NAME = "schema.fingerprint"
+
+
+def _say(msg):
+    """HostM Passenger stdout is often ASCII. Never encode('ascii')."""
+    text = str(msg)
+    try:
+        print(text, flush=True)
+        return
+    except UnicodeEncodeError:
+        pass
+    try:
+        buf = getattr(sys.stdout, "buffer", None)
+        if buf is not None:
+            buf.write((text + "\n").encode("utf-8"))
+            buf.flush()
+    except Exception:
+        pass
 
 
 def evolve_table(table_name, columns, indexes=None):
@@ -28,16 +46,16 @@ def evolve_table(table_name, columns, indexes=None):
         for col_name, col_type in columns:
             if col_name not in existing:
                 conn.execute(text(f"ALTER TABLE `{table_name}` ADD COLUMN `{col_name}` {col_type}"))
-                print(f"[BUILD-DB] added {table_name}.{col_name}")
+                _say(f"[BUILD-DB] added {table_name}.{col_name}")
         if indexes:
             have = {i["name"] for i in inspector.get_indexes(table_name)}
             for idx_name, idx_cols in indexes:
                 if idx_name not in have:
                     try:
                         conn.execute(text(f"CREATE INDEX `{idx_name}` ON `{table_name}` ({idx_cols})"))
-                        print(f"[BUILD-DB] added index {idx_name}")
+                        _say(f"[BUILD-DB] added index {idx_name}")
                     except Exception as idx_e:
-                        print(f"[BUILD-DB] index {idx_name}: {idx_e}")
+                        _say(f"[BUILD-DB] index {idx_name}: {idx_e}")
 
 
 def schema_fingerprint(package_path=None) -> str:
@@ -81,7 +99,7 @@ def _write_schema_stamp(app) -> None:
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(schema_fingerprint())
     except Exception as exc:
-        print(f"[BUILD-DB] could not write schema stamp: {exc}")
+        _say(f"[BUILD-DB] could not write schema stamp: {exc}")
 
 
 def init_tenant_system(app):
@@ -97,7 +115,7 @@ def init_tenant_system(app):
         skip_evolve = _schema_is_current(app)
         db.create_all()
         if skip_evolve:
-            print("[BUILD-DB] schema current — skip evolve")
+            _say("[BUILD-DB] schema current - skip evolve")
         else:
             with db.engine.connect() as conn:
                 conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
@@ -134,7 +152,7 @@ def init_tenant_system(app):
                         module.create_table()
                 except Exception as _build_exc:
                     try:
-                        print(f"[BUILD-DB] {module_name} create failed: {_build_exc}")
+                        _say(f"[BUILD-DB] {module_name} create failed: {_build_exc}")
                     except Exception:
                         pass
 
@@ -147,13 +165,13 @@ def init_tenant_system(app):
 
             register_session_hooks(db)
         except Exception as hook_exc:
-            print(f"[BUILD-DB] cache hooks: {hook_exc}")
+            _say(f"[BUILD-DB] cache hooks: {hook_exc}")
 
         try:
             with db.engine.connect() as conn:
                 row = conn.execute(text("SELECT VERSION() AS version")).fetchone()
-                print(f"[FAMILY DB] MariaDB connected  {row.version}")
+                _say(f"[FAMILY DB] MariaDB connected  {row.version}")
         except Exception as e:
-            print(f"[FAMILY DB ERROR] ping failed: {e}")
+            _say(f"[FAMILY DB ERROR] ping failed: {e}")
 
-        print("YES DB CREATED - Family household tables ready")
+        _say("YES DB CREATED - Family household tables ready")
