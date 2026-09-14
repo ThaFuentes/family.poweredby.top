@@ -32,12 +32,18 @@ def index():
     from app.builddb.table_service_passes import ServicePass
     from app.builddb.table_trusted_emails import TrustedEmail
 
-    service_keys = (
-        ServicePass.query.filter_by(household_id=hid)
-        .order_by(ServicePass.created_at.desc())
-        .limit(40)
-        .all()
-    )
+    show_revoked = (request.args.get("revoked") or "").strip() in ("1", "yes", "all")
+    service_q = ServicePass.query.filter_by(household_id=hid)
+    revoked_count = service_q.filter(ServicePass.revoked_at.isnot(None)).count()
+    if show_revoked:
+        service_keys = service_q.order_by(ServicePass.created_at.desc()).limit(60).all()
+    else:
+        service_keys = (
+            service_q.filter(ServicePass.revoked_at.is_(None))
+            .order_by(ServicePass.created_at.desc())
+            .limit(40)
+            .all()
+        )
     trusted = (
         TrustedEmail.query.filter_by(household_id=hid)
         .order_by(TrustedEmail.created_at.desc())
@@ -46,6 +52,8 @@ def index():
     from app.utils.places import list_places
     from app.utils.keys_ui import pop_issued_key
     from app.utils.household_delete import confirm_phrase
+    from app.utils.household_vault import FORMAT_HINT, vault_enabled, vault_hint, vault_unlocked
+    from app.utils.household_mail import public_mail_config
 
     return render_template(
         "members.html",
@@ -59,9 +67,16 @@ def index():
         is_leader=bool(current_user.is_leader),
         ai=public_ai_config(household, household_only=True),
         service_keys=service_keys,
+        show_revoked=show_revoked,
+        revoked_count=revoked_count,
         trusted=trusted,
         can_mint_service=current_user.role != "child",
         places_text="\n".join(list_places(household)),
+        vault_on=vault_enabled(household),
+        vault_hint=vault_hint(household),
+        vault_unlocked=vault_unlocked(household),
+        vault_format=FORMAT_HINT,
+        mail=public_mail_config(household),
     )
 
 
@@ -69,29 +84,117 @@ def index():
 @login_required
 @require_perm("members")
 def invite():
+    from app.utils.identity import norm_username, username_taken, valid_username
+    from app.utils.household_mail import invite_email_body, random_login_password
+    from app.utils.household_vault import unlock_vault, vault_enabled
+    from app.utils.keys_ui import stash_issued_key
+    from app.utils.mail import send_mail
+
+    hid = household_id()
+    household = Household.query.get(hid)
     role = (request.form.get("role") or "member").strip().lower()
     if role not in ROLES:
         role = "member"
     note = (request.form.get("label") or "").strip()[:120]
+    email = (request.form.get("email") or "").strip().lower()
+    person_name = (request.form.get("person_name") or "").strip()[:150]
+    make_login = (request.form.get("make_login") or "") in ("1", "true", "on", "yes")
+    username = norm_username(request.form.get("username") or "")
+    send_lock = (request.form.get("send_lock") or "").strip()
     code = Invite.new_code()
     db.session.add(
         Invite(
-            household_id=household_id(),
+            household_id=hid,
             code=code,
             role=role,
-            label=note or None,
+            label=note or person_name or None,
             created_by=current_user.id,
             expires_at=datetime.utcnow() + timedelta(days=14),
         )
     )
+    db.session.flush()
+
+    password = ""
+    extra = {}
+    if make_login:
+        if not username or not valid_username(username):
+            db.session.rollback()
+            flash("To make a login, pick a username: start with a letter.", "danger")
+            return redirect(url_for("members.index"))
+        if username_taken(hid, username):
+            db.session.rollback()
+            flash("Someone in this household already uses that username.", "danger")
+            return redirect(url_for("members.index"))
+        if email:
+            taken = User.query.filter(User.email == email).first()
+            if taken:
+                db.session.rollback()
+                flash("That email is already used.", "danger")
+                return redirect(url_for("members.index"))
+        password = (request.form.get("password") or "").strip() or random_login_password()
+        user = User(
+            household_id=hid,
+            username=username,
+            name=person_name or username,
+            email=email or None,
+            role=role,
+            is_leader=False,
+        )
+        user.set_password(password)
+        db.session.add(user)
+        extra = {"username": username, "password": password, "handle": household.handle or ""}
+
+    lock_to_send = ""
+    if send_lock:
+        if vault_enabled(household):
+            ok_lock, lock_msg = unlock_vault(household, send_lock)
+            if not ok_lock:
+                db.session.rollback()
+                flash(lock_msg, "danger")
+                return redirect(url_for("members.index"))
+            lock_to_send = send_lock
+        else:
+            flash("This household has no family lock yet, so none was emailed.", "warning")
+
     db.session.commit()
-    from app.utils.keys_ui import stash_issued_key
+
+    mailed = False
+    if email and "@" in email:
+        register_url = url_for("auth.register", family=code, email=email, _external=True)
+        login_url = url_for("auth.login", _external=True)
+        body = invite_email_body(
+            household=household,
+            code=code,
+            role=role,
+            register_url=register_url,
+            login_url=login_url,
+            username=username if make_login else None,
+            password=password if make_login else None,
+            lock=lock_to_send or None,
+            person_name=person_name,
+        )
+        ok, msg = send_mail(
+            email,
+            f"You're invited to {household.name} on Family OS",
+            body,
+            household=household,
+        )
+        mailed = ok
+        if not ok:
+            flash(msg, "danger")
 
     hint = f"Joins this household as {role}. They type their own name. Not a Service key."
     if note:
         hint = f"Note for you: {note}. {hint}"
-    stash_issued_key(code, f"Family key {code}", hint)
-    flash("Family key ready — copy it from the window.", "success")
+    if mailed:
+        hint += f" Emailed to {email}."
+    elif email:
+        hint += f" Copy this — the email to {email} did not send."
+    stash_issued_key(code, f"Family key {code}", hint, extra=extra or None)
+    if mailed:
+        flash(f"Family key ready and emailed to {email}.", "success")
+    else:
+        flash("Family key ready — copy it from the window.", "success")
     return redirect(url_for("members.index"))
 
 
@@ -118,6 +221,37 @@ def mint_service_key():
         hint = f"Your note: {note}. {hint}"
     stash_issued_key(row.code, "Service key", hint)
     flash("Service key ready — copy it from the window.", "success")
+    return redirect(url_for("members.index"))
+
+
+@members_bp.route("/revoke-code", methods=["POST"])
+@login_required
+@require_perm("members")
+def revoke_code():
+    from app.utils.access import find_family_invite, find_service_pass, revoke_family_invite, revoke_service_pass
+
+    hid = household_id()
+    code = (request.form.get("code") or "").strip()
+    fam = find_family_invite(code)
+    if fam is not None and int(fam.household_id or 0) == hid:
+        if fam.used_at:
+            flash(f"{fam.code} was already used. Revoke does not undo a signup.", "warning")
+            return redirect(url_for("members.index"))
+        if fam.revoked_at:
+            flash(f"{fam.code} was already revoked.", "info")
+            return redirect(url_for("members.index"))
+        revoke_family_invite(fam)
+        flash(f"{fam.code} revoked.", "info")
+        return redirect(url_for("members.index"))
+    srv = find_service_pass(code)
+    if srv is not None and int(srv.household_id or 0) == hid:
+        if srv.revoked_at:
+            flash(f"{srv.code} was already revoked.", "info")
+            return redirect(url_for("members.index"))
+        revoke_service_pass(srv)
+        flash(f"{srv.code} revoked.", "info")
+        return redirect(url_for("members.index"))
+    flash("No open key in this household matches that code.", "danger")
     return redirect(url_for("members.index"))
 
 
@@ -395,4 +529,61 @@ def save_places():
     names = _save(h, request.form.get("places") or "")
     db.session.commit()
     flash(f"Saved {len(names)} places.", "success")
+    return redirect(url_for("members.index"))
+
+
+@members_bp.route("/vault", methods=["POST"])
+@login_required
+@require_perm("settings")
+def save_vault():
+    from app.utils.household_vault import set_vault, unlock_vault
+
+    h = Household.query.get(household_id())
+    lock = (request.form.get("family_lock") or "").strip()
+    ok, msg = set_vault(h, lock)
+    if ok:
+        unlock_vault(h, lock)
+    flash(msg, "success" if ok else "danger")
+    return redirect(url_for("members.index"))
+
+
+@members_bp.route("/mail", methods=["POST"])
+@login_required
+@require_perm("settings")
+def save_mail():
+    from app.utils.household_mail import save_household_mail
+
+    h = Household.query.get(household_id())
+    save_household_mail(
+        h,
+        enabled=(request.form.get("mail_enabled") or "") in ("1", "true", "on", "yes"),
+        from_name=request.form.get("from_name") or "",
+        from_email=request.form.get("from_email") or "",
+        reply_to=request.form.get("reply_to") or "",
+        smtp_host=request.form.get("smtp_host") or "",
+        smtp_port=request.form.get("smtp_port") or 587,
+        smtp_encryption=request.form.get("smtp_encryption") or "tls",
+        smtp_username=request.form.get("smtp_username") or "",
+        smtp_password=request.form.get("smtp_password") or "",
+        clear_password=(request.form.get("mail_clear_password") or "") == "1",
+    )
+    flash("Household email saved. Invites and reminders from this house use it when it is on.", "success")
+    return redirect(url_for("members.index"))
+
+
+@members_bp.route("/mail/test", methods=["POST"])
+@login_required
+@require_perm("settings")
+def test_mail():
+    from app.utils.mail import send_mail
+
+    h = Household.query.get(household_id())
+    to = (request.form.get("to") or current_user.email or "").strip()
+    ok, msg = send_mail(
+        to,
+        "Family OS household mail test",
+        "This household's mailbox sent this. If you got it, your SMTP is working.",
+        household=h,
+    )
+    flash(msg, "success" if ok else "danger")
     return redirect(url_for("members.index"))

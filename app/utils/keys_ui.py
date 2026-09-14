@@ -3,14 +3,17 @@
 ISSUED_SESSION = "family_issued_key"
 
 
-def stash_issued_key(code: str, kind: str, hint: str = "") -> None:
+def stash_issued_key(code: str, kind: str, hint: str = "", extra: dict | None = None) -> None:
     from flask import session
 
-    session[ISSUED_SESSION] = {
+    blob = {
         "code": (code or "").strip(),
         "kind": kind or "Key",
         "hint": hint or "",
     }
+    if isinstance(extra, dict):
+        blob["extra"] = extra
+    session[ISSUED_SESSION] = blob
 
 
 def pop_issued_key() -> dict | None:

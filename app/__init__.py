@@ -171,7 +171,9 @@ def create_app():
         if not getattr(current_user, "is_authenticated", False):
             return None
         path = request.path or ""
-        if path.startswith("/platform") or path.startswith("/static") or path.startswith("/auth/logout"):
+        if path.startswith("/platform") or path.startswith("/static") or path.startswith("/auth/"):
+            return None
+        if path.startswith("/healthz") or path.startswith("/offline") or path.startswith("/sw.js"):
             return None
         try:
             h = getattr(current_user, "household", None)
@@ -179,6 +181,11 @@ def create_app():
                 logout_user()
                 flash("This household is paused. Ask the household leader.", "warning")
                 return redirect(url_for("auth.login"))
+            from app.utils.household_vault import vault_enabled, vault_unlocked
+
+            if h is not None and vault_enabled(h) and not vault_unlocked(h):
+                flash("This household has a family lock. Enter it to open notes and photos.", "info")
+                return redirect(url_for("auth.vault"))
         except Exception:
             return None
         return None

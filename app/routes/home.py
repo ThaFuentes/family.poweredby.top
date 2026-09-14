@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, url_for
+from flask import Blueprint, render_template, redirect, url_for
 from flask_login import current_user
 
 from app.utils.household import household_id
@@ -6,6 +6,15 @@ from app.utils.needs import home_dashboard
 from app.utils.permissions import role_of
 
 home_bp = Blueprint("home", __name__)
+
+
+@home_bp.route("/open")
+def open_start():
+    if not current_user.is_authenticated:
+        return redirect(url_for("auth.login"))
+    from app.utils.dashboard import start_url
+
+    return redirect(start_url(current_user))
 
 
 @home_bp.route("/")
@@ -28,6 +37,9 @@ def home():
     token = ensure_calendar_token(current_user)
     cal_url = url_for("reminders.calendar_feed", token=token, _external=True)
     cal_links = member_subscribe(current_user, household, cal_url)
+    from app.utils.dashboard import dashboard_prefs
+
+    prefs = dashboard_prefs(current_user)
     tmpl = "home_kid.html" if is_child else "home.html"
     return render_template(
         tmpl,
@@ -38,4 +50,5 @@ def home():
         cal_url=cal_links["https"],
         cal_links=cal_links,
         cal_next="home",
+        dash=prefs,
     )

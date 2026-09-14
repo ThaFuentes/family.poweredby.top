@@ -58,7 +58,13 @@ def send_reset_email(user: User, token: str) -> tuple[bool, str]:
         f"{link}\n\n"
         f"It expires in {TTL_HOURS} hours. If you did not ask for this, ignore the email.\n"
     )
-    return send_mail(user.email, "Reset your Family OS password", body)
+    household = getattr(user, "household", None)
+    return send_mail(
+        user.email,
+        "Reset your Family OS password",
+        body,
+        household=household,
+    )
 
 
 def find_user_for_forgot(ident: str, household: str | None = None) -> User | None:

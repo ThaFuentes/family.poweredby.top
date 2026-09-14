@@ -57,6 +57,15 @@ def login():
             user.account_locked_until = None
             user.last_login_at = _utcnow()
             db.session.commit()
+            family_lock = (request.form.get("family_lock") or "").strip()
+            if household is not None:
+                from app.utils.household_vault import unlock_vault, vault_enabled
+
+                if vault_enabled(household) and family_lock:
+                    ok_lock, lock_msg = unlock_vault(household, family_lock)
+                    if not ok_lock:
+                        flash(lock_msg, "danger")
+                        return render_template("auth/login.html")
             try:
                 from poweredbytop.utils.helpers import get_real_ip
                 from poweredbytop.reputation.scorer import update_reputation_on_login_attempt
@@ -65,7 +74,9 @@ def login():
             except Exception:
                 pass
             login_user(user)
-            resp = redirect(url_for("home.home"))
+            from app.utils.dashboard import start_url
+
+            resp = redirect(start_url(user))
             try:
                 from app.utils.themes import normalize, stamp_theme_cookie
 
@@ -152,6 +163,7 @@ def register():
         username=username,
         email=email or "",
         household_name=household_name,
+        family_lock=(request.form.get("family_lock") or "").strip(),
     )
     if not name or not username or not password:
         flash("Name, username, and password are required.", "danger")
@@ -197,6 +209,16 @@ def register():
         db.session.add(household)
         db.session.flush()
         make_leader = True
+        family_lock = (request.form.get("family_lock") or "").strip()
+        if family_lock:
+            from app.utils.household_vault import set_vault, unlock_vault
+
+            ok_lock, lock_msg = set_vault(household, family_lock, commit=False)
+            if not ok_lock:
+                db.session.rollback()
+                flash(lock_msg, "danger")
+                return render_template("auth/register.html", **ctx)
+            unlock_vault(household, family_lock)
 
     user = User(
         household_id=household.id,
@@ -216,6 +238,14 @@ def register():
         consume_service_pass(bits["pass"])
     db.session.commit()
     login_user(user)
+    family_lock = (request.form.get("family_lock") or "").strip()
+    if family_lock:
+        from app.utils.household_vault import unlock_vault, vault_enabled
+
+        if vault_enabled(household):
+            ok_lock, lock_msg = unlock_vault(household, family_lock)
+            if not ok_lock:
+                flash(lock_msg, "warning")
     handle = household.handle or ""
     if invite is not None:
         flash(f"You're in, {user.name}. Sign in as {user.username}.", "success")
@@ -231,9 +261,47 @@ def register():
 @auth_bp.route("/logout")
 @login_required
 def logout():
+    try:
+        from app.utils.household_vault import lock_session
+
+        lock_session()
+    except Exception:
+        pass
     logout_user()
     flash("Signed out.", "info")
     return redirect(url_for("auth.login"))
+
+
+@auth_bp.route("/vault", methods=["GET", "POST"])
+@login_required
+def vault():
+    from app.utils.household_vault import (
+        FORMAT_HINT,
+        unlock_vault,
+        vault_enabled,
+        vault_hint,
+        vault_unlocked,
+    )
+
+    household = getattr(current_user, "household", None)
+    if household is None or not vault_enabled(household):
+        return redirect(url_for("home.home"))
+    if request.method == "POST":
+        ok, msg = unlock_vault(household, request.form.get("family_lock") or "")
+        flash(msg, "success" if ok else "danger")
+        if ok:
+            from app.utils.dashboard import start_url
+
+            nxt = (request.args.get("next") or "").strip() or start_url(current_user)
+            if not nxt.startswith("/"):
+                nxt = start_url(current_user)
+            return redirect(nxt)
+    return render_template(
+        "auth/vault.html",
+        hint=vault_hint(household),
+        format_hint=FORMAT_HINT,
+        unlocked=vault_unlocked(household),
+    )
 
 
 @auth_bp.route("/forgot", methods=["GET", "POST"])

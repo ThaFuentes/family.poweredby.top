@@ -55,7 +55,7 @@ def _fernet_from_secret(secret: str) -> Fernet:
     return Fernet(base64.urlsafe_b64encode(material))
 
 
-def get_fernet() -> Fernet | None:
+def get_platform_fernet() -> Fernet | None:
     global _fernet
     if _fernet is not None:
         return _fernet
@@ -77,6 +77,35 @@ def get_fernet() -> Fernet | None:
             return _fernet
         except Exception:
             return None
+
+
+def get_fernet() -> Fernet | None:
+    """Household lock while unlocked, else the site-wide data key."""
+    try:
+        from app.utils.household_vault import session_fernet
+
+        house = session_fernet()
+        if house is not None:
+            return house
+    except Exception:
+        pass
+    return get_platform_fernet()
+
+
+def _fernets_to_try() -> list[Fernet]:
+    out: list[Fernet] = []
+    try:
+        from app.utils.household_vault import session_fernet
+
+        house = session_fernet()
+        if house is not None:
+            out.append(house)
+    except Exception:
+        pass
+    platform = get_platform_fernet()
+    if platform is not None and platform not in out:
+        out.append(platform)
+    return out
 
 
 def looks_encrypted(value) -> bool:
@@ -114,13 +143,16 @@ def decrypt_text(value: str | None) -> str | None:
     text = str(value)
     if not looks_encrypted(text):
         return text
-    f = get_fernet()
-    if f is None:
+    keys = _fernets_to_try()
+    if not keys:
         return text
-    try:
-        return f.decrypt(text.encode("ascii")).decode("utf-8")
-    except (InvalidToken, Exception):
-        return text
+    raw = text.encode("ascii")
+    for f in keys:
+        try:
+            return f.decrypt(raw).decode("utf-8")
+        except (InvalidToken, Exception):
+            continue
+    return text
 
 
 def encrypt_bytes(data: bytes) -> bytes:
@@ -140,18 +172,20 @@ def encrypt_bytes(data: bytes) -> bytes:
 def decrypt_bytes(data: bytes) -> bytes:
     if not data:
         return data
-    f = get_fernet()
-    if f is None:
+    keys = _fernets_to_try()
+    if not keys:
         return data
     blob = data
     if blob.startswith(_FILE_MAGIC):
         blob = blob[len(_FILE_MAGIC) :]
     elif not looks_encrypted(blob):
         return data
-    try:
-        return f.decrypt(blob)
-    except (InvalidToken, Exception):
-        return data
+    for f in keys:
+        try:
+            return f.decrypt(blob)
+        except (InvalidToken, Exception):
+            continue
+    return data
 
 
 class EncryptedText(TypeDecorator):

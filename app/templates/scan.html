@@ -4,14 +4,17 @@
 <div class="page-head">
   <div>
     <h1>Scan</h1>
-    <p>Camera, typed UPC/QR, or fill the form. Use any mix.</p>
+    <p>1. Point the camera or type the code. 2. Tell us what happened — just used, needs more, or got more.</p>
   </div>
 </div>
+{% set scan_autostart = false %}
+{% set scan_title = "Point the camera" %}
+{% set scan_hint = "Tap Open camera, then hold a UPC or QR in the box. Or type the numbers below." %}
 {% include "partials/scan_strip.html" %}
-<div class="and-or">and / or type it in</div>
 {% if can('edit_grocery') or can('edit_meta') or can('maintain') %}
 <form class="card" method="post" action="{{ url_for('items.create_item') }}" enctype="multipart/form-data">
-  <h2>Add by hand</h2>
+  <h2>No code? Add by name</h2>
+  <p class="muted">Milk, the gray truck, a wrench — whatever you call it at home.</p>
   <label>This is a</label>
   <select name="item_type">
     <option value="grocery">Grocery</option>
@@ -20,8 +23,6 @@
   </select>
   <label>Name</label>
   <input name="name" required placeholder="Milk, Honda mower, the gray truck">
-  <label>UPC / QR (optional)</label>
-  <input name="barcode" placeholder="Paste a code if you have one">
   <label>Photo (optional)</label>
   <input type="file" name="photo" accept="image/*" capture="environment">
   <div class="btn-row"><button class="btn" type="submit">Save</button></div>

@@ -1,0 +1,28 @@
+<form class="card" method="post" action="{{ url_for('appearance.set_dashboard') }}" id="home">
+  <h2>When I open Family OS</h2>
+  <p class="muted">Yours only. Other people in this house keep their own home.</p>
+  <label>Open to</label>
+  <select name="start">
+    {% for key, label in dash.starts %}
+    <option value="{{ key }}" {% if dash.start==key %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <p class="muted">Home is this dashboard. Scan is the camera. Pantry, basket, and the rest jump straight there after sign-in or when you tap the app icon.</p>
+  {% if not is_child %}
+  <label class="btn-row" style="align-items:center;gap:.5rem">
+    <input type="checkbox" name="show_needs" value="1" {% if dash.show_needs %}checked{% endif %}>
+    Show what’s due and what’s out
+  </label>
+  <p class="muted" style="margin-top:.8rem">Tiles on Home</p>
+  <div class="dash-tiles">
+    {% for key, label in dash.tile_choices %}
+    <label>
+      <input type="checkbox" name="tiles" value="{{ key }}" {% if key in dash.tile_set %}checked{% endif %}>
+      {{ label }}
+    </label>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <input type="hidden" name="next" value="{{ dash_next or 'look' }}">
+  <div class="btn-row"><button class="btn" type="submit">Save my home</button></div>
+</form>

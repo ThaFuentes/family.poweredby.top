@@ -152,6 +152,74 @@
 })();
 </script>
 {% endif %}
+{% if can('settings') %}
+<div class="card">
+  <h2>Family lock</h2>
+  {% if vault_on %}
+  <p class="muted">This household encrypts notes and photos with a lock only you know. Hint: <strong>{{ vault_hint }}</strong>. {% if vault_unlocked %}Unlocked on this device.{% else %}This device still needs the lock.{% endif %} We cannot recover it.</p>
+  {% else %}
+  <p class="muted">Optional. A word, a dash, then your secret — example <strong>FAMOS-ourphrase</strong>. New notes and photos for this house encrypt with it. Skip and the site default stays. Write it down. We cannot recover it.</p>
+  <form method="post" action="{{ url_for('members.save_vault') }}">
+    <label>Family lock</label>
+    <input name="family_lock" autocomplete="off" autocapitalize="off" placeholder="FAMOS-ourphrase" required>
+    <p class="muted">{{ vault_format }}</p>
+    <div class="btn-row"><button class="btn" type="submit">Turn lock on</button></div>
+  </form>
+  {% endif %}
+</div>
+<form class="card" method="post" action="{{ url_for('members.save_mail') }}">
+  <h2>This household’s email</h2>
+  <p class="muted">Optional. Your own From address and SMTP so invites and reminders come from you. If this is off, Family OS uses the platform mailbox.</p>
+  <label class="btn-row" style="align-items:center;gap:.5rem">
+    <input type="checkbox" name="mail_enabled" value="1" {% if mail.enabled %}checked{% endif %}>
+    Use this household’s mailbox
+  </label>
+  <label>From name</label>
+  <input name="from_name" value="{{ mail.from_name or '' }}" placeholder="The Fuentes house">
+  <label>From email</label>
+  <input type="email" name="from_email" value="{{ mail.from_email or '' }}" placeholder="house@example.com">
+  <label>Reply-To (optional)</label>
+  <input type="email" name="reply_to" value="{{ mail.reply_to or '' }}">
+  <label>SMTP host</label>
+  <input name="smtp_host" value="{{ mail.smtp_host or '' }}" placeholder="smtp.example.com">
+  <label>Port</label>
+  <input name="smtp_port" inputmode="numeric" value="{{ mail.smtp_port or 587 }}">
+  <label>Encryption</label>
+  <select name="smtp_encryption">
+    <option value="tls" {% if mail.smtp_encryption=='tls' %}selected{% endif %}>STARTTLS</option>
+    <option value="ssl" {% if mail.smtp_encryption=='ssl' %}selected{% endif %}>SSL</option>
+    <option value="none" {% if mail.smtp_encryption=='none' %}selected{% endif %}>None</option>
+  </select>
+  <label>SMTP username</label>
+  <input name="smtp_username" value="{{ mail.smtp_username or '' }}" autocomplete="off">
+  <label>SMTP password</label>
+  <input type="password" name="smtp_password" autocomplete="new-password" placeholder="{% if mail.smtp_password_hint %}unchanged · {{ mail.smtp_password_hint }}{% else %}leave blank to keep{% endif %}">
+  <div class="btn-row">
+    <button class="btn" type="submit">Save mailbox</button>
+    {% if mail.has_password %}
+    <button class="btn secondary" type="submit" name="mail_clear_password" value="1">Clear password</button>
+    {% endif %}
+  </div>
+</form>
+{% if mail.ready or mail.from_email %}
+<form class="card" method="post" action="{{ url_for('members.test_mail') }}">
+  <label>Send a test to</label>
+  <input type="email" name="to" value="{{ current_user.email or '' }}" required>
+  <div class="btn-row"><button class="btn secondary" type="submit">Send test</button></div>
+</form>
+{% endif %}
+{% endif %}
+{% if can('members') %}
+<form class="card" method="post" action="{{ url_for('members.revoke_code') }}">
+  <h2>Revoke a key</h2>
+  <p class="muted">Paste a FAM- or SRV- from this household. Kills it now. Does not undo a signup that already happened.</p>
+  <label>Key</label>
+  <div class="btn-row">
+    <input name="code" required placeholder="FAM-… or SRV-…" autocapitalize="characters" autocomplete="off">
+    <button class="btn danger" type="submit">Revoke</button>
+  </div>
+</form>
+{% endif %}
 {% if is_leader %}
 <form class="card" method="post" action="{{ url_for('members.set_reminders_via') }}">
   <h2>Maintenance reminders</h2>
@@ -174,6 +242,22 @@
   <form method="post" action="{{ url_for('members.invite') }}">
     <label>Note (optional — for you)</label>
     <input name="label" placeholder="Maya, cousin Mike">
+    <label>Email them (optional)</label>
+    <input type="email" name="email" placeholder="maya@example.com">
+    <p class="muted">We’ll send the Family key and a join link. Uses this household’s mailbox if you set one.</p>
+    <label>Their name (optional)</label>
+    <input name="person_name" placeholder="Maya">
+    <label class="btn-row" style="align-items:center;gap:.5rem">
+      <input type="checkbox" name="make_login" value="1">
+      Make their login now
+    </label>
+    <label>Username (if you make the login)</label>
+    <input name="username" placeholder="maya" autocapitalize="none">
+    <label>Password (blank = we make one)</label>
+    <input name="password" autocomplete="new-password" placeholder="leave blank to generate">
+    <label>Also send the family lock (optional)</label>
+    <input name="send_lock" autocomplete="off" autocapitalize="off" placeholder="FAMOS-ourphrase">
+    <p class="muted">Only if this house has a lock. You must type it. We do not keep it to email later.</p>
     <label>Role</label>
     <div class="btn-row">
       <select name="role">
@@ -186,20 +270,22 @@
   </form>
   {% endif %}
   {% for inv in invites %}
-    <div class="row">
+    <div class="row key-line">
       <div>
         <strong class="key-code">{{ inv.code }}</strong>
-        <button type="button" class="btn sm secondary" data-copy="{{ inv.code }}">Copy</button>
         <div class="muted">
           {{ inv.role }} · expires {{ inv.expires_at }}
           {% if inv.label %} · your note: {{ inv.label }}{% endif %}
         </div>
       </div>
-      {% if can('members') and not inv.used_at and not inv.revoked_at %}
-      <form method="post" action="{{ url_for('members.revoke_invite', iid=inv.id) }}">
-        <button class="btn sm secondary" type="submit">Revoke</button>
-      </form>
-      {% endif %}
+      <div class="btn-row" style="margin:0;flex-shrink:0">
+        <button type="button" class="btn sm secondary" data-copy="{{ inv.code }}">Copy</button>
+        {% if can('members') and not inv.used_at and not inv.revoked_at %}
+        <form method="post" action="{{ url_for('members.revoke_invite', iid=inv.id) }}">
+          <button class="btn sm danger" type="submit">Revoke</button>
+        </form>
+        {% endif %}
+      </div>
     </div>
   {% else %}
     <p class="muted">No open Family keys.</p>
@@ -222,10 +308,9 @@
     <div class="btn-row"><button class="btn" type="submit">Make a Service key</button></div>
   </form>
   {% for k in service_keys %}
-    <div class="row">
+    <div class="row key-line">
       <div>
         <strong class="key-code">{{ k.code }}</strong>
-        <button type="button" class="btn sm secondary" data-copy="{{ k.code }}">Copy</button>
         <div class="muted">
           {% if k.revoked_at %}revoked
           {% elif k.expires_at %}expires {{ k.expires_at }}{% endif %}
@@ -233,15 +318,27 @@
           {% if k.label %} · your note: {{ k.label }}{% endif %}
         </div>
       </div>
-      {% if not k.revoked_at %}
-      <form method="post" action="{{ url_for('members.revoke_service_key', kid=k.id) }}">
-        <button class="btn sm secondary" type="submit">Revoke</button>
-      </form>
-      {% endif %}
+      <div class="btn-row" style="margin:0;flex-shrink:0">
+        {% if not k.revoked_at %}
+        <button type="button" class="btn sm secondary" data-copy="{{ k.code }}">Copy</button>
+        <form method="post" action="{{ url_for('members.revoke_service_key', kid=k.id) }}">
+          <button class="btn sm danger" type="submit">Revoke</button>
+        </form>
+        {% endif %}
+      </div>
     </div>
   {% else %}
-    <p class="muted">No Service keys from this household yet.</p>
+    <p class="muted">No open Service keys from this household.</p>
   {% endfor %}
+  {% if revoked_count %}
+  <p class="muted">
+    {% if show_revoked %}
+    <a href="{{ url_for('members.index') }}">Hide revoked</a>
+    {% else %}
+    <a href="{{ url_for('members.index', revoked=1) }}">Show {{ revoked_count }} revoked</a>
+    {% endif %}
+  </p>
+  {% endif %}
 </div>
 {% endif %}
 

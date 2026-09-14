@@ -5,14 +5,14 @@
   <p class="muted">{{ scan_hint or "Point the camera, or type the code." }}</p>
   {% if not autostart %}
   <div class="btn-row">
-    <button type="button" class="btn secondary" id="scan-open-camera">Open camera</button>
+    <button type="button" class="btn" id="scan-open-camera">Open camera</button>
   </div>
   {% endif %}
   <div id="reader" {% if not autostart %}hidden{% endif %}></div>
   <p class="muted" id="scan-status">{% if autostart %}Opening camera…{% endif %}</p>
   <form id="manual-form" class="btn-row">
-    <input name="barcode" id="manual-barcode" placeholder="Type a UPC or QR code" autocomplete="off">
-    <button class="btn secondary" type="submit">Look up code</button>
+    <input name="barcode" id="manual-barcode" placeholder="Type the numbers on the barcode" inputmode="numeric" autocomplete="off">
+    <button class="btn secondary" type="submit">Look up</button>
   </form>
   <div id="scan-result" hidden></div>
 </div>
@@ -20,4 +20,4 @@
 <script>window.FAMILY_SCAN_KIND = {{ (scan_kind or 'any')|tojson }};</script>
 <script>window.FAMILY_SCAN_AUTOSTART = {{ 'true' if autostart else 'false' }};</script>
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-<script src="{{ url_for('static', filename='js/scan.js') }}?v=os12"></script>
+<script src="{{ url_for('static', filename='js/scan.js') }}?v=os13"></script>

@@ -43,11 +43,21 @@ def send_mail(
     ics: bytes | None = None,
     ics_name: str = "reminder.ics",
     ics_method: str = "PUBLISH",
+    household=None,
 ) -> tuple[bool, str]:
     to_email = (to_email or "").strip()
     if not to_email or "@" not in to_email:
         return False, "Need a real To address."
-    cfg = mail_config()
+    cfg = None
+    if household is not None:
+        try:
+            from app.utils.household_mail import household_mail_config
+
+            cfg = household_mail_config(household)
+        except Exception:
+            cfg = None
+    if cfg is None:
+        cfg = mail_config()
     if not cfg["from_email"] and cfg["mode"] == "smtp":
         return False, "Set a From email first."
     msg = EmailMessage()

@@ -78,6 +78,9 @@
             <input id="household_name" name="household_name" placeholder="Whatever you want to call it" value="{{ household_name or '' }}">
             <p class="muted">You name your family. The person who handed you the key only wrote a note for themselves.</p>
           </div>
+          <label>Family lock (optional)</label>
+          <input name="family_lock" autocomplete="off" autocapitalize="off" placeholder="FAMOS-ourphrase" value="{{ family_lock or '' }}">
+          <p class="muted" id="lock-hint">Starting a house: a word, a dash, then your secret — example FAMOS-ourphrase. Skip to use the site default. We cannot recover it. Joining: paste the lock they sent, if they made one.</p>
           <div class="btn-row">
             <button class="btn block" type="submit">Continue</button>
           </div>

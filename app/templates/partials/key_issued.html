@@ -7,6 +7,21 @@
       <input id="issued-code" readonly value="{{ issued_key.code }}" onclick="this.select()" aria-label="Key">
       <button type="button" class="btn" data-copy="{{ issued_key.code }}">Copy</button>
     </div>
+    {% if issued_key.extra %}
+    <div class="muted" style="margin:.75rem 0 .35rem">Login we made for them</div>
+    {% if issued_key.extra.handle %}
+    <p class="muted" style="margin:0">Household handle: <strong>{{ issued_key.extra.handle }}</strong></p>
+    {% endif %}
+    {% if issued_key.extra.username %}
+    <p class="muted" style="margin:0">Username: <strong>{{ issued_key.extra.username }}</strong></p>
+    {% endif %}
+    {% if issued_key.extra.password %}
+    <div class="key-copy-row">
+      <input readonly value="{{ issued_key.extra.password }}" onclick="this.select()" aria-label="Password">
+      <button type="button" class="btn secondary" data-copy="{{ issued_key.extra.password }}">Copy password</button>
+    </div>
+    {% endif %}
+    {% endif %}
     <div class="btn-row">
       <button type="button" class="btn secondary" data-close-issued>Done</button>
     </div>

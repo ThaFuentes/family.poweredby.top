@@ -231,12 +231,25 @@ def access():
             audit("access.service_mint", owner_id=_owner_id(), ip=_ip(), detail={"code": row.code})
             from app.utils.keys_ui import stash_issued_key
 
-            stash_issued_key(
-                row.code,
-                "Service key",
-                "Gets someone onto Family OS. Does not put them in a household.",
-            )
-            flash("Service key ready — copy it from the window.", "success")
+            hint = "Gets someone onto Family OS. Does not put them in a household."
+            to = (request.form.get("email") or "").strip()
+            if to and "@" in to:
+                join = url_for("auth.register", service=row.code, _external=True)
+                ok, msg = send_mail(
+                    to,
+                    "Your Family OS Service key",
+                    (
+                        f"A Service key was issued for Family OS.\n\n"
+                        f"  {row.code}\n\n"
+                        f"Join: {join}\n\n"
+                        "This gets you onto the site. It does not put you in someone else's household.\n"
+                    ),
+                )
+                hint += f" Emailed to {to}." if ok else f" Email failed: {msg}"
+                flash(msg if not ok else f"Service key emailed to {to}.", "success" if ok else "danger")
+            stash_issued_key(row.code, "Service key", hint)
+            if not to:
+                flash("Service key ready — copy it from the window.", "success")
         elif kind == "trusted":
             ok, msg, _row = add_trusted_email(
                 email=request.form.get("email") or "",
@@ -308,12 +321,24 @@ def access():
             audit("access.owner_mint", owner_id=_owner_id(), ip=_ip(), detail={"code": row.code})
             from app.utils.keys_ui import stash_issued_key
 
-            stash_issued_key(
-                row.code,
-                "Owner key",
-                "They open /platform/ and paste it. Not a household key.",
-            )
-            flash("Owner key ready — copy it from the window.", "success")
+            hint = "They open /platform/ and paste it. Not a household key."
+            to = (request.form.get("email") or "").strip()
+            if to and "@" in to:
+                desk = url_for("platform.login", _external=True)
+                ok, msg = send_mail(
+                    to,
+                    "Your Family OS owner key",
+                    (
+                        f"You were invited as a platform owner on Family OS.\n\n"
+                        f"  Owner key: {row.code}\n\n"
+                        f"Open {desk} and paste the key. This is not a household login.\n"
+                    ),
+                )
+                hint += f" Emailed to {to}." if ok else f" Email failed: {msg}"
+                flash(msg if not ok else f"Owner key emailed to {to}.", "success" if ok else "danger")
+            stash_issued_key(row.code, "Owner key", hint)
+            if not to:
+                flash("Owner key ready — copy it from the window.", "success")
         elif kind == "revoke_owner":
             kid = request.form.get("id") or ""
             if str(kid).isdigit():
@@ -341,15 +366,38 @@ def access():
         h.id: h
         for h in Household.query.filter(Household.id.in_(house_ids)).all()
     } if house_ids else {}
+    show_revoked = (request.args.get("revoked") or "").strip() in ("1", "yes", "all")
+    srv_q = ServicePass.query
+    own_q = PlatformInvite.query
+    revoked_service = srv_q.filter(ServicePass.revoked_at.isnot(None)).count()
+    revoked_owner = own_q.filter(PlatformInvite.revoked_at.isnot(None)).count()
+    if show_revoked:
+        service_keys = srv_q.order_by(ServicePass.created_at.desc()).limit(80).all()
+        owner_keys = own_q.order_by(PlatformInvite.created_at.desc()).limit(40).all()
+    else:
+        service_keys = (
+            srv_q.filter(ServicePass.revoked_at.is_(None))
+            .order_by(ServicePass.created_at.desc())
+            .limit(80)
+            .all()
+        )
+        owner_keys = (
+            own_q.filter(PlatformInvite.revoked_at.is_(None))
+            .order_by(PlatformInvite.created_at.desc())
+            .limit(40)
+            .all()
+        )
     return render_template(
         "platform/access.html",
         owner=current_owner(),
         issued_key=pop_issued_key(),
-        service_keys=ServicePass.query.order_by(ServicePass.created_at.desc()).limit(80).all(),
+        service_keys=service_keys,
         family_keys=family_keys,
         houses=houses,
         trusted=TrustedEmail.query.order_by(TrustedEmail.created_at.desc()).all(),
-        owner_keys=PlatformInvite.query.order_by(PlatformInvite.created_at.desc()).limit(40).all(),
+        owner_keys=owner_keys,
+        show_revoked=show_revoked,
+        revoked_count=int(revoked_service) + int(revoked_owner),
     )
 
 

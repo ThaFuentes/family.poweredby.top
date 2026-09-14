@@ -34,26 +34,30 @@
     <input name="max_uses" value="1">
     <label>Days</label>
     <input name="days" value="14">
+    <label>Email the key (optional)</label>
+    <input type="email" name="email" placeholder="them@example.com">
     <div class="btn-row"><button class="btn" type="submit">Make owner key</button></div>
   </form>
   {% for k in owner_keys or [] %}
-    <div class="row">
+    <div class="row key-line">
       <div>
         <strong class="key-code">{{ k.code }}</strong>
-        <button type="button" class="btn sm secondary" data-copy="{{ k.code }}">Copy</button>
         <div class="muted">
           {% if k.revoked_at %}revoked{% elif k.expires_at %}expires {{ k.expires_at }}{% endif %}
           · {{ k.use_count }}/{{ k.max_uses }}
           {% if k.label %} · {{ k.label }}{% endif %}
         </div>
       </div>
-      {% if not k.revoked_at %}
-      <form method="post">
-        <input type="hidden" name="kind" value="revoke_owner">
-        <input type="hidden" name="id" value="{{ k.id }}">
-        <button class="btn sm secondary" type="submit">Revoke</button>
-      </form>
-      {% endif %}
+      <div class="btn-row" style="margin:0;flex-shrink:0">
+        {% if not k.revoked_at %}
+        <button type="button" class="btn sm secondary" data-copy="{{ k.code }}">Copy</button>
+        <form method="post">
+          <input type="hidden" name="kind" value="revoke_owner">
+          <input type="hidden" name="id" value="{{ k.id }}">
+          <button class="btn sm danger" type="submit">Revoke</button>
+        </form>
+        {% endif %}
+      </div>
     </div>
   {% else %}
     <p class="muted">No extra owners invited yet.</p>
@@ -72,6 +76,8 @@
     <input name="max_uses" value="3">
     <label>Days</label>
     <input name="days" value="30">
+    <label>Email the key (optional)</label>
+    <input type="email" name="email" placeholder="them@example.com">
     <div class="btn-row"><button class="btn" type="submit">Make Service key</button></div>
   </form>
 </div>
@@ -81,10 +87,9 @@
   <p class="muted">Households mint these. You can still kill one from here.</p>
   {% for k in family_keys %}
     {% set house = houses.get(k.household_id) %}
-    <div class="row">
+    <div class="row key-line">
       <div>
         <strong class="key-code">{{ k.code }}</strong>
-        <button type="button" class="btn sm secondary" data-copy="{{ k.code }}">Copy</button>
         <div class="muted">
           {{ k.role }}
           {% if house %} · {{ house.handle or house.name }}{% endif %}
@@ -92,11 +97,14 @@
           {% if k.label %} · their note: {{ k.label }}{% endif %}
         </div>
       </div>
-      <form method="post">
-        <input type="hidden" name="kind" value="revoke_family">
-        <input type="hidden" name="id" value="{{ k.id }}">
-        <button class="btn sm secondary" type="submit">Revoke</button>
-      </form>
+      <div class="btn-row" style="margin:0;flex-shrink:0">
+        <button type="button" class="btn sm secondary" data-copy="{{ k.code }}">Copy</button>
+        <form method="post">
+          <input type="hidden" name="kind" value="revoke_family">
+          <input type="hidden" name="id" value="{{ k.id }}">
+          <button class="btn sm danger" type="submit">Revoke</button>
+        </form>
+      </div>
     </div>
   {% else %}
     <p class="muted">None open.</p>
@@ -106,10 +114,9 @@
 <div class="card">
   <h2>Open Service keys</h2>
   {% for k in service_keys %}
-    <div class="row">
+    <div class="row key-line">
       <div>
         <strong class="key-code">{{ k.code }}</strong>
-        <button type="button" class="btn sm secondary" data-copy="{{ k.code }}">Copy</button>
         <div class="muted">
           {% if k.revoked_at %}revoked{% elif k.expires_at %}expires {{ k.expires_at }}{% endif %}
           · {{ k.use_count }}/{{ k.max_uses }}
@@ -117,17 +124,29 @@
           {% if k.household_id %} · household {{ k.household_id }}{% endif %}
         </div>
       </div>
-      {% if not k.revoked_at %}
-      <form method="post">
-        <input type="hidden" name="kind" value="revoke">
-        <input type="hidden" name="id" value="{{ k.id }}">
-        <button class="btn sm secondary" type="submit">Revoke</button>
-      </form>
-      {% endif %}
+      <div class="btn-row" style="margin:0;flex-shrink:0">
+        {% if not k.revoked_at %}
+        <button type="button" class="btn sm secondary" data-copy="{{ k.code }}">Copy</button>
+        <form method="post">
+          <input type="hidden" name="kind" value="revoke">
+          <input type="hidden" name="id" value="{{ k.id }}">
+          <button class="btn sm danger" type="submit">Revoke</button>
+        </form>
+        {% endif %}
+      </div>
     </div>
   {% else %}
-    <p class="muted">None yet.</p>
+    <p class="muted">None open.</p>
   {% endfor %}
+  {% if revoked_count %}
+  <p class="muted">
+    {% if show_revoked %}
+    <a href="{{ url_for('platform.access') }}">Hide revoked</a>
+    {% else %}
+    <a href="{{ url_for('platform.access', revoked=1) }}">Show {{ revoked_count }} revoked</a>
+    {% endif %}
+  </p>
+  {% endif %}
 </div>
 
 <div class="card">

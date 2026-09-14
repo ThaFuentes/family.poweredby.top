@@ -126,6 +126,7 @@
       (meta.length ? '<p class="muted">' + encode(meta.join(" · ")) + "</p>" : "") +
       factsHtml +
       listLine +
+      '<p class="kicker" style="margin:.85rem 0 .2rem">What happened?</p>' +
       '<div class="scan-kid-actions">' +
       buttons +
       "</div>" +
@@ -232,7 +233,7 @@
       encode(name) +
       "</h2>" +
       "<p><strong>" +
-      encode(data.message || "Not in the household yet. Scan captured the code — type the rest, or tap Want.") +
+      encode(data.message || "New here. Is this food, a tool, or a vehicle? Tap one, or type the name.") +
       "</strong></p>" +
       extra +
       img +

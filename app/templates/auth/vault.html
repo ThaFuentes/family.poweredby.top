@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Family lock · Family OS</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
+  {% include "partials/theme_head.html" %}
+</head>
+<body class="auth">
+  <header class="auth-desk-bar">
+    <a class="brand" href="{{ url_for('home.home') }}">
+      <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
+      <span class="brand-meta"><strong>Family OS</strong><small>Lock</small></span>
+    </a>
+    <a href="{{ url_for('auth.logout') }}">Sign out</a>
+  </header>
+  <div class="auth-page">
+    <div class="wrap">
+      <div class="auth-hero">
+        <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
+        <h1>Family lock</h1>
+        <p class="muted">This household encrypts its notes and photos with a lock only you know.{% if hint %} Hint: {{ hint }}{% endif %}</p>
+      </div>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+      <div class="card">
+        <form method="post">
+          <label>Family lock</label>
+          <input name="family_lock" required autocomplete="off" autocapitalize="off" placeholder="FAMOS-ourphrase">
+          <p class="muted">{{ format_hint }}</p>
+          <div class="btn-row">
+            <button class="btn block" type="submit">Unlock</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

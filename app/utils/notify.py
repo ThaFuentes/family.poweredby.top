@@ -58,7 +58,17 @@ def push_calendar_invites(row: Reminder) -> int:
         return 0
     if not wants_calendar(reminder_via(row, household)):
         return 0
-    organizer = (mail_config().get("from_email") or "").strip() or None
+    organizer = None
+    try:
+        from app.utils.household_mail import household_mail_config
+
+        own = household_mail_config(household)
+        if own and own.get("from_email"):
+            organizer = own.get("from_email")
+    except Exception:
+        organizer = None
+    if not organizer:
+        organizer = (mail_config().get("from_email") or "").strip() or None
     sent = 0
     for person in _adults(row.household_id):
         personal = _personal_via(person)
@@ -85,6 +95,7 @@ def push_calendar_invites(row: Reminder) -> int:
             ics=ics,
             ics_name="family-os.ics",
             ics_method="REQUEST",
+            household=household,
         )
         if ok:
             sent += 1
@@ -131,7 +142,7 @@ def email_reminder(row: Reminder) -> None:
             "This is from your household on Family OS."
             f"{extra}\n"
         )
-        ok, _msg = send_mail(person.email, subject, body)
+        ok, _msg = send_mail(person.email, subject, body, household=household)
         any_ok = any_ok or ok
     if any_ok or people:
         row.email_sent_at = _utcnow()

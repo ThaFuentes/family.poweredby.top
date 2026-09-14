@@ -119,7 +119,7 @@ def _brand() -> dict:
         "title": "Family OS",
         "desc": "Household operating system — scan, stock, maintain.",
         "guest_start": "/",
-        "authed_start": "/",
+        "authed_start": "/open",
     }
 
 

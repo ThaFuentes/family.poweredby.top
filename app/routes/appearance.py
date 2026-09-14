@@ -18,6 +18,8 @@ def picker():
     token = ensure_calendar_token(current_user)
     cal_url = url_for("reminders.calendar_feed", token=token, _external=True)
     links = member_subscribe(current_user, household, cal_url)
+    from app.utils.dashboard import dashboard_prefs
+
     return render_template(
         "appearance.html",
         themes=list(THEMES.values()),
@@ -25,7 +27,27 @@ def picker():
         cal_url=links["https"],
         cal_links=links,
         cal_next="look",
+        dash=dashboard_prefs(current_user),
     )
+
+
+@appearance_bp.route("/dashboard", methods=["POST"])
+@login_required
+def set_dashboard():
+    from app.utils.dashboard import save_dashboard
+
+    tiles = request.form.getlist("tiles")
+    save_dashboard(
+        current_user,
+        start=request.form.get("start") or "",
+        tiles=tiles,
+        show_needs=(request.form.get("show_needs") or "") in ("1", "on", "yes", "true"),
+    )
+    flash("Your home is saved. That's what opens for you.", "success")
+    nxt = (request.form.get("next") or "").strip()
+    if nxt == "home":
+        return redirect(url_for("home.home"))
+    return redirect(url_for("appearance.picker") + "#home")
 
 
 @appearance_bp.route("/theme", methods=["POST"])
