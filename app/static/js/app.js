@@ -65,6 +65,7 @@
     if (openBtn && overlay && frame) {
       e.preventDefault();
       frame.hidden = false;
+      frame.title = openBtn.getAttribute("data-sheet-title") || "Sheet";
       frame.src = openBtn.getAttribute("data-sheet") || "";
       overlay.hidden = false;
       document.body.classList.add("sheet-open");

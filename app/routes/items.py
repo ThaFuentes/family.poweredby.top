@@ -119,6 +119,18 @@ def _item_or_404(item_id):
     return scoped(Item).filter_by(id=item_id).first_or_404()
 
 
+def _parts_sheet_url(item, system=""):
+    if system:
+        return url_for("items.parts_sheet", item_id=item.id, system=system)
+    return url_for("items.parts_sheet", item_id=item.id)
+
+
+def _after_part_change(item, system=""):
+    if (request.form.get("next") or "").strip() == "sheet":
+        return redirect(_parts_sheet_url(item, system))
+    return redirect(url_for("items.detail", item_id=item.id, tab="systems") + (f"#sys-{system}" if system else ""))
+
+
 def _uploads_root():
     root = os.path.join(os.path.dirname(current_app.root_path), "uploads")
     os.makedirs(root, exist_ok=True)
@@ -938,6 +950,53 @@ def set_mileage(item_id):
     return redirect(url_for("items.detail", item_id=item.id, tab="overview"))
 
 
+def _load_systems(item):
+    hid = household_id()
+    from app.builddb.table_vehicle_parts import VehiclePart
+    from app.utils.vehicle_systems import group_parts, systems_payload
+
+    vparts = (
+        VehiclePart.query.filter_by(household_id=hid, vehicle_item_id=item.id)
+        .order_by(VehiclePart.system.asc(), VehiclePart.slot.asc(), VehiclePart.created_at.desc())
+        .all()
+    )
+    if item.item_type == "house":
+        from app.utils.house_systems import group_house_parts, house_systems_payload
+
+        return group_house_parts(vparts), house_systems_payload()
+    return group_parts(vparts), systems_payload()
+
+
+@items_bp.route("/<int:item_id>/parts/sheet")
+@login_required
+def parts_sheet(item_id):
+    item = _item_or_404(item_id)
+    if item.item_type not in ("vehicle", "house"):
+        abort(404)
+    systems, systems_catalog = _load_systems(item)
+    want = (request.args.get("system") or "").strip()
+    picked = [s for s in systems if s["id"] == want]
+    shown = picked[0] if picked else None
+    part_photos = {}
+    for ph in PhotoNote.query.filter_by(household_id=household_id(), item_id=item.id).all():
+        if ph.part_id:
+            part_photos.setdefault(ph.part_id, []).append(ph)
+    return render_template(
+        "items/parts_sheet.html",
+        item=item,
+        systems=systems,
+        systems_catalog=systems_catalog,
+        shown=shown,
+        want=want,
+        part_photos=part_photos,
+        systems_host=item.item_type,
+        can_edit=can("edit_meta"),
+        can_maintain=can("maintain"),
+        last_part_source=((item.extra_data or {}).get("last_part_source") if isinstance(item.extra_data, dict) else None),
+        part_next="sheet",
+    )
+
+
 @items_bp.route("/<int:item_id>/parts", methods=["POST"])
 @login_required
 def add_part(item_id):
@@ -997,8 +1056,8 @@ def add_part(item_id):
     db.session.commit()
     extra = f" {nfiles} file(s)." if nfiles else ""
     shown = (row.name if row else name) or "Part"
-    flash(f"{shown} saved on {item.name}.{extra} Add the next part on a blank form — only the store carries over.", "success")
-    return redirect(url_for("items.detail", item_id=item.id, tab="systems") + "#add-part")
+    flash(f"{shown} is on {item.name}.{extra} Store name stays for the next one.", "success")
+    return _after_part_change(item, row.system if row else "")
 
 
 @items_bp.route("/<int:item_id>/parts/<int:part_id>/retire", methods=["POST"])
@@ -1017,8 +1076,8 @@ def retire_part(item_id, part_id):
     row.is_current = False
     row.status = "retired"
     db.session.commit()
-    flash(f"{row.name} moved to history.", "info")
-    return redirect(url_for("items.detail", item_id=item.id, tab="systems") + f"#sys-{row.system}")
+    flash(f"{row.name} is off {item.name}. Still in Used to be on it if you need the old one.", "info")
+    return _after_part_change(item, row.system)
 
 
 @items_bp.route("/<int:item_id>/parts/<int:part_id>/edit", methods=["POST"])
@@ -1061,7 +1120,7 @@ def edit_part(item_id, part_id):
     nfiles = attach_part_uploads(item, row, current_user.id)
     db.session.commit()
     flash(f"{row.name} updated." + (f" {nfiles} file(s)." if nfiles else ""), "success")
-    return redirect(url_for("items.detail", item_id=item.id, tab="systems") + f"#sys-{row.system}")
+    return _after_part_change(item, row.system)
 
 
 @items_bp.route("/<int:item_id>/delete", methods=["POST"])

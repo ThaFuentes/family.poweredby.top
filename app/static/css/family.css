@@ -137,6 +137,15 @@ h2 { font-size: 1.02rem; margin: 1.15rem 0 .55rem; letter-spacing: -0.02em; }
   grid-template-columns: 1fr 1fr;
   gap: .75rem;
 }
+.sys-menu { margin: 0 0 1rem; }
+.sys-menu .tile {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
 .tile {
   display: flex;
   flex-direction: column;

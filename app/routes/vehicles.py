@@ -159,5 +159,5 @@ def retire_part(item_id, part_id):
     row.is_current = False
     row.status = "retired"
     db.session.commit()
-    flash(f"{row.name} moved to history.", "info")
+    flash(f"{row.name} is off {item.name}. Still in Used to be on it if you need the old one.", "info")
     return redirect(url_for("items.detail", item_id=item.id, tab="systems"))

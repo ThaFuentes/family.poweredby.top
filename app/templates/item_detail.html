@@ -7,7 +7,7 @@
     <p>{{ kind_label or item.item_type }}{% if item.category %} · {{ item.category }}{% endif %}{% if linked %} · for {{ linked.name }}{% endif %}{% if item.barcode %} · {{ item.barcode }}{% endif %}</p>
   </div>
   {% if tab == 'systems' and systems_host and (can_maintain or can_edit) %}
-  <a class="btn sm" href="#add-part" data-open-part>Add part</a>
+  <button type="button" class="btn sm" data-sheet="{{ url_for('items.parts_sheet', item_id=item.id) }}" data-sheet-title="Add a part">Add part</button>
   {% endif %}
 </div>
 <div class="tabs">
