@@ -16,6 +16,35 @@
   let lastCode = "";
   let lastAt = 0;
   let settleTimer = null;
+  const JOB_KEY = "family_scan_job";
+
+  function getScanJob() {
+    try {
+      const j = localStorage.getItem(JOB_KEY);
+      if (j === "out" || j === "buy" || j === "in") return j;
+    } catch (e) {}
+    return "in";
+  }
+  function setScanJob(job) {
+    if (job !== "out" && job !== "buy") job = "in";
+    try {
+      localStorage.setItem(JOB_KEY, job);
+    } catch (e) {}
+    document.querySelectorAll("[data-scan-job]").forEach(function (el) {
+      el.classList.toggle("on", el.getAttribute("data-scan-job") === job);
+    });
+    const st = document.getElementById("scan-live-status");
+    if (st) {
+      st.textContent =
+        job === "out" ? "Out — scan to take one off." : job === "buy" ? "Buy — scan onto the basket." : "In — scan to add one.";
+    }
+  }
+  function actionForJob() {
+    const j = getScanJob();
+    if (j === "out") return "consume";
+    if (j === "buy") return "buy";
+    return "into";
+  }
   const QUEUE_KEY = "family_scan_queue";
 
   function readQueue() {
@@ -72,11 +101,44 @@
     }
     pauseDecode = false;
     busy = false;
+    pauseDecode = false;
+    busy = false;
     if (statusEl) statusEl.textContent = msg || "Next.";
-    if (resultEl && document.getElementById("scan-live") && !document.getElementById("scan-live").hidden) {
+    const live = document.getElementById("scan-live");
+    if (resultEl && live && !live.hidden) {
       resultEl.hidden = true;
       resultEl.innerHTML = "";
     }
+  }
+
+  function flashToast(data) {
+    const live = document.getElementById("scan-live");
+    if (!resultEl || !live || live.hidden) return false;
+    const qty = data.quantity_label != null ? data.quantity_label : data.quantity;
+    let html =
+      "<strong>" +
+      encode(data.name || "Item") +
+      "</strong> " +
+      encode(String(qty != null ? qty : "")) +
+      " on hand";
+    if (data.ask_list) {
+      html +=
+        ' <button type="button" class="btn sm" data-add-list data-barcode="' +
+        encode(data.barcode || "") +
+        '">Add to list</button>';
+    }
+    resultEl.hidden = false;
+    resultEl.className = "scan-toast";
+    resultEl.innerHTML = html;
+    resultEl.dataset.barcode = data.barcode || "";
+    if (settleTimer) clearTimeout(settleTimer);
+    settleTimer = setTimeout(function () {
+      if (resultEl) {
+        resultEl.hidden = true;
+        resultEl.innerHTML = "";
+      }
+    }, data.ask_list ? 4500 : 1200);
+    return true;
   }
 
   function isUpcLike(raw) {
@@ -431,7 +493,6 @@
   async function applyBarcode(barcode, forcedAction, fromQueue, amount, extra) {
     barcode = preferUpc(barcode);
     if (!barcode || busy) return;
-    if (!forcedAction && pauseDecode) return;
     if (!statusEl) statusEl = document.getElementById("scan-live-status") || document.getElementById("scan-status");
     if (!resultEl) resultEl = document.getElementById("scan-live-result") || document.getElementById("scan-result");
     if (!statusEl) return;
@@ -467,7 +528,13 @@
         },
         body: JSON.stringify({
           barcode: barcode,
-          action: forcedAction || (window.FAMILY_SCAN_INTO ? "into" : scanKind === "basket" ? "got_more" : "check"),
+          action: forcedAction || (document.getElementById("scan-live") && !document.getElementById("scan-live").hidden
+            ? actionForJob()
+            : window.FAMILY_SCAN_INTO
+              ? "into"
+              : scanKind === "basket"
+                ? "got_more"
+                : "check"),
           amount: amount != null ? amount : window.FAMILY_SCAN_INTO ? 1 : 1,
           location: extra && extra.location != null ? extra.location : placeFromCard(),
           skip_place: extra && extra.skip_place ? true : false,
@@ -501,13 +568,14 @@
         return;
       }
       if (data.item_type === "grocery") {
+        if (flashToast(data)) {
+          statusEl.textContent = data.message || "Next.";
+          pauseDecode = false;
+          return;
+        }
         showResult(groceryCard(data), statusClass(data));
-        statusEl.textContent = encode(data.name || "") + " · tap a number, or next box.";
-        pauseDecode = true;
-        if (settleTimer) clearTimeout(settleTimer);
-        settleTimer = setTimeout(function () {
-          readyNextScan((data.name || "In") + " · " + (data.quantity_label || data.quantity || "") + " on hand. Next.");
-        }, forcedAction ? 700 : 1600);
+        statusEl.textContent = encode(data.name || "") + " · next.";
+        pauseDecode = false;
         return;
       }
       if (data.item_type === "vehicle" || data.item_type === "tool") {
@@ -557,6 +625,12 @@
         el.querySelectorAll("[data-place]").forEach(function (c) {
           c.classList.toggle("on", c === place);
         });
+        return;
+      }
+      const addList = e.target.closest("[data-add-list]");
+      if (addList) {
+        const code = addList.getAttribute("data-barcode") || el.dataset.barcode;
+        if (code) applyBarcode(code, "need_more", false, 1);
         return;
       }
       resultEl = el;
@@ -746,6 +820,7 @@
   function openLiveScan(e) {
     if (e) e.preventDefault();
     window.FAMILY_SCAN_INTO = true;
+    setScanJob(getScanJob());
     const live = document.getElementById("scan-live");
     if (!live) {
       startPageCamera();
@@ -791,6 +866,12 @@
   if (fab) {
     fab.addEventListener("click", openLiveScan);
   }
+  document.querySelectorAll("[data-scan-job]").forEach(function (el) {
+    el.addEventListener("click", function () {
+      setScanJob(el.getAttribute("data-scan-job") || "in");
+    });
+  });
+  setScanJob(getScanJob());
   const liveClose = document.getElementById("scan-live-close");
   if (liveClose) liveClose.addEventListener("click", closeLiveScan);
   flushQueue();

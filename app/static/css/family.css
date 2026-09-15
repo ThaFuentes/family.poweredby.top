@@ -430,11 +430,32 @@ textarea { min-height: 5rem; }
 .scan-live-bar {
   display: flex;
   align-items: center;
-  gap: .75rem;
-  padding: calc(.45rem + var(--safe-t)) .85rem .55rem;
+  gap: .55rem;
+  padding: calc(.45rem + var(--safe-t)) .7rem .55rem;
   color: #f3f1ec;
   font-weight: 700;
   font-size: .92rem;
+}
+.scan-jobs { display: flex; gap: .35rem; flex: 1; justify-content: center; }
+.scan-jobs .chip {
+  min-height: 2.4rem;
+  padding: .35rem .85rem;
+  border-radius: 999px;
+  border: 1.5px solid #f3f1ec;
+  background: transparent;
+  color: #f3f1ec;
+  font-weight: 800;
+}
+.scan-jobs .chip.on {
+  background: #f3f1ec;
+  color: #0b0c0d;
+}
+.scan-toast {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  flex-wrap: wrap;
+  padding: .75rem 1rem calc(.85rem + var(--safe-b));
 }
 .scan-live-bar .sheet-close { color: var(--ink); }
 #scan-live-reader {

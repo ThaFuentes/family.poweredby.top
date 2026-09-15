@@ -52,6 +52,10 @@ _ACTION_ALIASES = {
     "into": "into",
     "into_house": "into",
     "inventory": "into",
+    "in": "into",
+    "out": "consume",
+    "buy": "buy",
+    "basket": "buy",
     "miles": "mileage",
     "odometer": "mileage",
     "hours": "hours",
@@ -142,6 +146,26 @@ def _open_list_row(g: GroceryItem, item: Item):
     return GroceryListEntry.query.filter_by(
         household_id=g.household_id, item_id=item.id, status="open"
     ).first()
+
+
+def put_on_list(g: GroceryItem, item: Item, user_id, reason="buy") -> bool:
+    open_row = _open_list_row(g, item)
+    if open_row:
+        open_row.added_reason = reason
+        open_row.name = item.name
+        return True
+    db.session.add(
+        GroceryListEntry(
+            household_id=g.household_id,
+            item_id=item.id,
+            name=item.name,
+            quantity_needed=max(clamp_qty(g.restock_threshold, "1"), Decimal("1")),
+            status="open",
+            added_reason=reason,
+            created_by=user_id,
+        )
+    )
+    return True
 
 
 def _sync_grocery_list(g: GroceryItem, item: Item, user_id) -> bool:
@@ -325,10 +349,11 @@ def grocery_payload(g: GroceryItem, item: Item, action="check", on_list=False, a
         "places": _places_for(item),
         "needs_place": not bool(loc),
         "ai_ready": _ai_ready(item),
+        "ask_list": False,
     }
 
 
-def apply_grocery_stock(g: GroceryItem, item: Item, action: str, amount, user_id):
+def apply_grocery_stock(g: GroceryItem, item: Item, action: str, amount, user_id, *, sync_list=True):
     prev = clamp_qty(g.quantity)
     was_needed = bool(g.needs_restock)
     amt = clamp_qty(amount, "1")
@@ -344,12 +369,12 @@ def apply_grocery_stock(g: GroceryItem, item: Item, action: str, amount, user_id
         g.last_restocked_at = datetime.utcnow()
         g.needs_restock = qty <= thresh
     else:
-        qty = set_quantity(g, prev - amt)
+        qty = set_quantity(g, max(Decimal("0"), prev - amt))
         if prev > 0:
             g.last_consumed_at = datetime.utcnow()
             g.consume_count = int(g.consume_count or 0) + 1
         g.needs_restock = qty <= thresh or was_needed or qty <= 0
-    on_list = _sync_grocery_list(g, item, user_id)
+    on_list = _sync_grocery_list(g, item, user_id) if sync_list else bool(_open_list_row(g, item))
     try:
         from app.utils.activity import log_grocery
 
@@ -552,7 +577,12 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
         elif action == "restock":
             stock = apply_grocery_stock(g, item, "restock", amount, user_id)
         elif action in ("consume", "just_used"):
-            stock = apply_grocery_stock(g, item, "consume", amount, user_id)
+            stock = apply_grocery_stock(g, item, "consume", amount, user_id, sync_list=False)
+            if clamp_qty(g.quantity) <= 0:
+                stock["ask_list"] = not bool(_open_list_row(g, item))
+                stock["message"] = f"{item.name} is at 0." + (
+                    " Add to the list?" if stock["ask_list"] else " Already on the list."
+                )
         elif action == "set":
             stock = apply_grocery_stock(g, item, "set", amount, user_id)
         elif action == "into":
@@ -564,6 +594,10 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
                 + (f" · {loc}" if loc else "")
                 + f". {qlab} on hand."
             )
+        elif action == "buy":
+            put_on_list(g, item, user_id, "buy")
+            stock = grocery_payload(g, item, action="buy", on_list=True)
+            stock["message"] = f"{item.name} on the basket."
         elif action in ("need_more", "want"):
             stock = flag_need_more(g, item, user_id)
         else:
@@ -574,7 +608,7 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
                 + (" That's the barcode lookup." if looked else " New here — rename it if the name is wrong.")
                 + " Tap Got more if it's on the shelf."
             )
-        if g is not None:
+        if g is not None and action == "into":
             payload.update(apply_place(g, item, location=location, skip_place=skip_place))
         payload.update(stock)
         payload["hint"] = consumption_hint(g) if g is not None else None
@@ -617,13 +651,20 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
                 apply_product_lookup(g, item, lookup_product(item.barcode))
             except Exception:
                 pass
-        if action in ("consume", "restock", "set", "into"):
+        if action == "buy":
+            put_on_list(g, item, user_id, "buy")
+            stock = grocery_payload(g, item, action="buy", on_list=True)
+            stock["message"] = f"{item.name} on the basket."
+            payload.update(stock)
+            payload["hint"] = consumption_hint(g)
+        elif action in ("consume", "restock", "set", "into"):
             extra = dict(g.extra_data or {})
             if action == "consume" and not extra.get("first_consumed_at") and clamp_qty(g.quantity) > 0:
                 extra["first_consumed_at"] = datetime.utcnow().isoformat()
                 g.extra_data = extra
             stock_action = "restock" if action == "into" else action
-            stock = apply_grocery_stock(g, item, stock_action, amount, user_id)
+            sync = action != "consume"
+            stock = apply_grocery_stock(g, item, stock_action, amount, user_id, sync_list=sync)
             if action == "into":
                 loc = (g.default_location or "").strip()
                 qlab = stock.get("quantity_label") or stock.get("quantity")
@@ -632,8 +673,17 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
                     + (f" · {loc}" if loc else "")
                     + f". {qlab} on hand."
                 )
+            if action == "consume":
+                left = clamp_qty(g.quantity)
+                if left <= 0:
+                    stock["quantity"] = 0
+                    stock["ask_list"] = not bool(_open_list_row(g, item))
+                    stock["message"] = f"{item.name} is at 0." + (
+                        " Add to the list?" if stock["ask_list"] else " Already on the list."
+                    )
             payload.update(stock)
-            payload.update(apply_place(g, item, location=location, skip_place=skip_place))
+            if action == "into":
+                payload.update(apply_place(g, item, location=location, skip_place=skip_place))
             payload["hint"] = consumption_hint(g)
         elif action in ("need_more", "want"):
             stock = flag_need_more(g, item, user_id)
