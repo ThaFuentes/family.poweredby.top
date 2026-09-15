@@ -83,11 +83,8 @@
 {% endif %}
 
 <details class="card home-fold" style="margin-top:1rem">
-  <summary>Scan or add by name</summary>
-  {% set compact = true %}
-  {% set scan_kind = "grocery" %}
-  {% set scan_title = "Scan a grocery UPC" %}
-  {% include "partials/scan_strip.html" %}
+  <summary>Add by name</summary>
+  <p class="muted">The camera button at the bottom is scan. This is only if you type it.</p>
   {% if can('edit_grocery') %}
   <form method="post" action="{{ url_for('items.create_item') }}" enctype="multipart/form-data">
     <input type="hidden" name="item_type" value="grocery">

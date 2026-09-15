@@ -107,9 +107,10 @@
     <div class="scan-live-bar">
       <button type="button" class="sheet-close" id="scan-live-close">Close</button>
       <div class="scan-jobs" role="tablist" aria-label="Scan type">
-        <button type="button" class="chip on" data-scan-job="in">In</button>
-        <button type="button" class="chip" data-scan-job="out">Out</button>
-        <button type="button" class="chip" data-scan-job="buy">Buy</button>
+        <button type="button" class="chip on" data-scan-job="in">Incoming</button>
+        <button type="button" class="chip" data-scan-job="out">Used</button>
+        <button type="button" class="chip" data-scan-job="buy">Needed</button>
+        <button type="button" class="chip" data-scan-job="mix">Mix</button>
       </div>
     </div>
     <div id="scan-live-reader"></div>
@@ -118,7 +119,7 @@
   </div>
   <script>window.FAMILY_CAN_CREATE = {{ 'true' if can('edit_grocery') or can('edit_meta') or can('maintain') else 'false' }};</script>
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="{{ url_for('static', filename='js/scan.js') }}?v=os20"></script>
+  <script src="{{ url_for('static', filename='js/scan.js') }}?v=os21"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}?v=os11"></script>
   {% block scripts %}{% endblock %}
 </body>

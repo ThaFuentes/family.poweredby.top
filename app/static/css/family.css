@@ -418,9 +418,9 @@ textarea { min-height: 5rem; }
 }
 .nav .scan-fab svg { width: 1.45rem; height: 1.45rem; stroke: #fff; }
 .scan-live {
-  position: fixed;
+  position: fixed !important;
   inset: 0;
-  z-index: 90;
+  z-index: 100;
   background: #0b0c0d;
   display: flex;
   flex-direction: column;
@@ -436,7 +436,7 @@ textarea { min-height: 5rem; }
   font-weight: 700;
   font-size: .92rem;
 }
-.scan-jobs { display: flex; gap: .35rem; flex: 1; justify-content: center; }
+.scan-jobs { display: flex; gap: .3rem; flex: 1; justify-content: center; flex-wrap: wrap; }
 .scan-jobs .chip {
   min-height: 2.4rem;
   padding: .35rem .85rem;
@@ -489,7 +489,13 @@ textarea { min-height: 5rem; }
   border-radius: 1.1rem 1.1rem 0 0;
   box-shadow: 0 -12px 40px rgba(0, 0, 0, .28);
 }
-.scan-live { position: relative; }
+.nav .scan-fab {
+  position: relative;
+  z-index: 41;
+  font-size: 1rem;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
 .scan-qty {
   display: flex;
   flex-wrap: wrap;
@@ -1207,12 +1213,20 @@ html.family-intro-out #family-intro{opacity:0;transition:opacity .4s ease}
     max-width: 9.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .side-links { display: flex; flex-direction: column; gap: .12rem; }
-  .side-links a {
+  .side-links a,
+  .side-links .side-scan {
     padding: .55rem .7rem;
     border-radius: .75rem;
     color: var(--ink);
     font-weight: 700;
     font-size: .92rem;
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: 0;
+    font-family: inherit;
+    cursor: pointer;
   }
   .side-links a:hover { background: var(--green-soft); color: var(--ink); }
   .side-links a.active { background: var(--green); color: #fff; }

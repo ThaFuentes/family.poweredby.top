@@ -35,13 +35,7 @@
   </div>
 </div>
 {% set compact = true %}
-{% set scan_kind = "basket" %}
-{% set scan_title = "Scan what you just picked up" %}
-{% set scan_hint = "Marks it got and puts it back in stock." %}
-{% set scan_autostart = false %}
-{% set can_create = can_add %}
-{% include "partials/scan_strip.html" %}
-
+<p class="muted">Use the camera button to scan. Set it to <strong>Buy</strong> or <strong>In</strong> once.</p>
 <div id="basket-live">
 {% if want_rows %}
 <h2>Want</h2>

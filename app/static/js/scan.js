@@ -21,12 +21,12 @@
   function getScanJob() {
     try {
       const j = localStorage.getItem(JOB_KEY);
-      if (j === "out" || j === "buy" || j === "in") return j;
+      if (j === "out" || j === "buy" || j === "in" || j === "mix") return j;
     } catch (e) {}
     return "in";
   }
   function setScanJob(job) {
-    if (job !== "out" && job !== "buy") job = "in";
+    if (job !== "out" && job !== "buy" && job !== "mix") job = "in";
     try {
       localStorage.setItem(JOB_KEY, job);
     } catch (e) {}
@@ -36,13 +36,20 @@
     const st = document.getElementById("scan-live-status");
     if (st) {
       st.textContent =
-        job === "out" ? "Out — scan to take one off." : job === "buy" ? "Buy — scan onto the basket." : "In — scan to add one.";
+        job === "out"
+          ? "Used — every scan takes one off."
+          : job === "buy"
+            ? "Needed — every scan goes on the list."
+            : job === "mix"
+              ? "Mix — pick Incoming, Used, or Needed after each scan."
+              : "Incoming — every scan adds one.";
     }
   }
   function actionForJob() {
     const j = getScanJob();
     if (j === "out") return "consume";
     if (j === "buy") return "buy";
+    if (j === "mix") return "mix";
     return "into";
   }
   const QUEUE_KEY = "family_scan_queue";
@@ -138,6 +145,22 @@
         resultEl.innerHTML = "";
       }
     }, data.ask_list ? 4500 : 1200);
+    return true;
+  }
+
+  function flashMixPick(data) {
+    const live = document.getElementById("scan-live");
+    if (!resultEl || !live || live.hidden) return false;
+    resultEl.hidden = false;
+    resultEl.className = "scan-toast";
+    resultEl.dataset.barcode = data.barcode || "";
+    resultEl.innerHTML =
+      "<strong>" +
+      encode(data.name || "Item") +
+      "</strong>" +
+      '<button type="button" class="btn sm" data-mix="into">Incoming</button>' +
+      '<button type="button" class="btn sm terracotta" data-mix="consume">Used</button>' +
+      '<button type="button" class="btn sm" data-mix="buy">Needed</button>';
     return true;
   }
 
@@ -528,13 +551,13 @@
         },
         body: JSON.stringify({
           barcode: barcode,
-          action: forcedAction || (document.getElementById("scan-live") && !document.getElementById("scan-live").hidden
-            ? actionForJob()
-            : window.FAMILY_SCAN_INTO
-              ? "into"
-              : scanKind === "basket"
-                ? "got_more"
-                : "check"),
+          action: forcedAction || (function () {
+            const liveOn = document.getElementById("scan-live") && !document.getElementById("scan-live").hidden;
+            if (!liveOn) return scanKind === "basket" ? "got_more" : "check";
+            const job = getScanJob();
+            if (job === "mix") return "check";
+            return actionForJob();
+          })(),
           amount: amount != null ? amount : window.FAMILY_SCAN_INTO ? 1 : 1,
           location: extra && extra.location != null ? extra.location : placeFromCard(),
           skip_place: extra && extra.skip_place ? true : false,
@@ -568,6 +591,11 @@
         return;
       }
       if (data.item_type === "grocery") {
+        if (!forcedAction && getScanJob() === "mix" && flashMixPick(data)) {
+          statusEl.textContent = "Incoming, used, or needed?";
+          pauseDecode = true;
+          return;
+        }
         if (flashToast(data)) {
           statusEl.textContent = data.message || "Next.";
           pauseDecode = false;
@@ -625,6 +653,17 @@
         el.querySelectorAll("[data-place]").forEach(function (c) {
           c.classList.toggle("on", c === place);
         });
+        return;
+      }
+      const mix = e.target.closest("[data-mix]");
+      if (mix) {
+        const code = el.dataset.barcode;
+        pauseDecode = false;
+        if (code) {
+          applyBarcode(code, mix.getAttribute("data-mix"), false, 1).then(function () {
+            readyNextScan("Next.");
+          });
+        }
         return;
       }
       const addList = e.target.closest("[data-add-list]");
@@ -750,7 +789,16 @@
       return;
     }
     if (instanceSlot.qr && instanceSlot.qr.isScanning) return;
-    const qr = new Html5Qrcode(readerId, false);
+    try {
+      host.innerHTML = "";
+    } catch (e) {}
+    let qr;
+    try {
+      qr = new Html5Qrcode(readerId, false);
+    } catch (e) {
+      if (onFail) onFail("Could not start the camera box.");
+      return;
+    }
     instanceSlot.qr = qr;
     function go(target) {
       return qr.start(target, scanConfig(), function (decoded) {
@@ -818,30 +866,31 @@
   }
 
   function openLiveScan(e) {
-    if (e) e.preventDefault();
-    window.FAMILY_SCAN_INTO = true;
-    setScanJob(getScanJob());
-    const live = document.getElementById("scan-live");
-    if (!live) {
-      startPageCamera();
-      return;
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
     }
+    window.FAMILY_SCAN_INTO = true;
+    const live = document.getElementById("scan-live");
+    if (!live) return;
     live.hidden = false;
     document.body.classList.add("scan-live-open");
-    statusEl = liveStatus || statusEl;
-    resultEl = liveResult || resultEl;
-    if (liveStatus) liveStatus.textContent = "Opening camera…";
+    statusEl = document.getElementById("scan-live-status") || statusEl;
+    resultEl = document.getElementById("scan-live-result") || resultEl;
+    setScanJob(getScanJob());
+    if (statusEl) statusEl.textContent = "Opening camera…";
     startOn(
       "scan-live-reader",
       liveSlot,
       function () {
-        if (liveStatus) liveStatus.textContent = "Hold a UPC or QR in the frame.";
+        setScanJob(getScanJob());
       },
       function (msg) {
-        if (liveStatus) liveStatus.textContent = msg;
+        if (statusEl) statusEl.textContent = msg;
       }
     );
   }
+  window.familyOpenScan = openLiveScan;
 
   function closeLiveScan() {
     const live = document.getElementById("scan-live");
@@ -859,19 +908,16 @@
       startPageCamera();
     });
   }
-  if (window.FAMILY_SCAN_AUTOSTART !== false && document.getElementById("reader")) {
-    startPageCamera();
-  }
-  const fab = document.getElementById("scan-fab");
-  if (fab) {
-    fab.addEventListener("click", openLiveScan);
-  }
+  document.addEventListener("click", function (e) {
+    const hit = e.target.closest("#scan-fab, [data-open-scan]");
+    if (!hit) return;
+    openLiveScan(e);
+  });
   document.querySelectorAll("[data-scan-job]").forEach(function (el) {
     el.addEventListener("click", function () {
       setScanJob(el.getAttribute("data-scan-job") || "in");
     });
   });
-  setScanJob(getScanJob());
   const liveClose = document.getElementById("scan-live-close");
   if (liveClose) liveClose.addEventListener("click", closeLiveScan);
   flushQueue();

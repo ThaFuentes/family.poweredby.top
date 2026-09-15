@@ -35,13 +35,7 @@
 </form>
 {% endif %}
 <div class="and-or">optional</div>
-{% set compact = true %}
-{% set scan_kind = "tool" %}
-{% set scan_title = "Scan a tool QR" %}
-{% set scan_hint = "Only if the tool already has a code. Camera does not start until you tap Open camera." %}
-{% set scan_autostart = false %}
-{% set can_create = can_add %}
-{% include "partials/scan_strip.html" %}
+<p class="muted">Scan with the camera button at the bottom.</p>
 <div class="card list">
   {% for item in items %}
     <a class="row" href="{{ url_for('items.detail', item_id=item.id) }}">
