@@ -148,18 +148,22 @@ def _open_list_row(g: GroceryItem, item: Item):
     ).first()
 
 
-def put_on_list(g: GroceryItem, item: Item, user_id, reason="buy") -> bool:
+def put_on_list(g: GroceryItem, item: Item, user_id, reason="buy", amount=None) -> bool:
     open_row = _open_list_row(g, item)
+    need = clamp_qty(amount) if amount not in (None, "") else None
+    if need is None or need <= 0:
+        need = max(clamp_qty(g.restock_threshold, "1"), Decimal("1"))
     if open_row:
         open_row.added_reason = reason
         open_row.name = item.name
+        open_row.quantity_needed = need
         return True
     db.session.add(
         GroceryListEntry(
             household_id=g.household_id,
             item_id=item.id,
             name=item.name,
-            quantity_needed=max(clamp_qty(g.restock_threshold, "1"), Decimal("1")),
+            quantity_needed=need,
             status="open",
             added_reason=reason,
             created_by=user_id,
@@ -595,7 +599,7 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
                 + f". {qlab} on hand."
             )
         elif action == "buy":
-            put_on_list(g, item, user_id, "buy")
+            put_on_list(g, item, user_id, "buy", amount)
             stock = grocery_payload(g, item, action="buy", on_list=True)
             stock["message"] = f"{item.name} on the basket."
         elif action in ("need_more", "want"):
@@ -652,7 +656,7 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
             except Exception:
                 pass
         if action == "buy":
-            put_on_list(g, item, user_id, "buy")
+            put_on_list(g, item, user_id, "buy", amount)
             stock = grocery_payload(g, item, action="buy", on_list=True)
             stock["message"] = f"{item.name} on the basket."
             payload.update(stock)

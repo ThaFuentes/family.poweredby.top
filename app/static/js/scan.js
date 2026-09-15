@@ -16,6 +16,7 @@
   let lastCode = "";
   let lastAt = 0;
   let settleTimer = null;
+  let pending = null;
   const JOB_KEY = "family_scan_job";
 
   function getScanJob() {
@@ -118,16 +119,26 @@
     }
   }
 
+  function qtyChips() {
+    return [1, 2, 4, 6, 10]
+      .map(function (n) {
+        return '<button type="button" class="chip" data-qty-now="' + n + '">' + n + "</button>";
+      })
+      .join("");
+  }
+
   function flashToast(data) {
     const live = document.getElementById("scan-live");
     if (!resultEl || !live || live.hidden) return false;
     const qty = data.quantity_label != null ? data.quantity_label : data.quantity;
+    const job = getScanJob();
     let html =
       "<strong>" +
       encode(data.name || "Item") +
       "</strong> " +
       encode(String(qty != null ? qty : "")) +
-      " on hand";
+      " now · how many this scan? " +
+      qtyChips();
     if (data.ask_list) {
       html +=
         ' <button type="button" class="btn sm" data-add-list data-barcode="' +
@@ -138,14 +149,32 @@
     resultEl.className = "scan-toast";
     resultEl.innerHTML = html;
     resultEl.dataset.barcode = data.barcode || "";
+    resultEl.dataset.jobAction = job === "mix" ? "" : actionForJob();
     if (settleTimer) clearTimeout(settleTimer);
     settleTimer = setTimeout(function () {
-      if (resultEl) {
+      flushPending(1);
+    }, 2200);
+    return true;
+  }
+
+  function flushPending(amount) {
+    if (settleTimer) {
+      clearTimeout(settleTimer);
+      settleTimer = null;
+    }
+    const p = pending;
+    pending = null;
+    pauseDecode = false;
+    if (!p) {
+      if (resultEl && !resultEl.querySelector("[data-add-list]")) {
         resultEl.hidden = true;
         resultEl.innerHTML = "";
       }
-    }, data.ask_list ? 4500 : 1200);
-    return true;
+      return Promise.resolve();
+    }
+    return applyBarcode(p.barcode, p.action, false, amount || 1).then(function () {
+      readyNextScan((amount || 1) + " · next.");
+    });
   }
 
   function flashMixPick(data) {
@@ -515,7 +544,14 @@
 
   async function applyBarcode(barcode, forcedAction, fromQueue, amount, extra) {
     barcode = preferUpc(barcode);
-    if (!barcode || busy) return;
+    if (!barcode) return;
+    if (!forcedAction && pending && pending.barcode && pending.barcode !== barcode) {
+      const hold = barcode;
+      return flushPending(1).then(function () {
+        return applyBarcode(hold, null, fromQueue, amount, extra);
+      });
+    }
+    if (busy) return;
     if (!statusEl) statusEl = document.getElementById("scan-live-status") || document.getElementById("scan-status");
     if (!resultEl) resultEl = document.getElementById("scan-live-result") || document.getElementById("scan-result");
     if (!statusEl) return;
@@ -554,9 +590,8 @@
           action: forcedAction || (function () {
             const liveOn = document.getElementById("scan-live") && !document.getElementById("scan-live").hidden;
             if (!liveOn) return scanKind === "basket" ? "got_more" : "check";
-            const job = getScanJob();
-            if (job === "mix") return "check";
-            return actionForJob();
+            if (getScanJob() === "mix") return "check";
+            return "check";
           })(),
           amount: amount != null ? amount : window.FAMILY_SCAN_INTO ? 1 : 1,
           location: extra && extra.location != null ? extra.location : placeFromCard(),
@@ -591,9 +626,18 @@
         return;
       }
       if (data.item_type === "grocery") {
-        if (!forcedAction && getScanJob() === "mix" && flashMixPick(data)) {
-          statusEl.textContent = "Incoming, used, or needed?";
+        const liveOn = document.getElementById("scan-live") && !document.getElementById("scan-live").hidden;
+        if (liveOn && !forcedAction && getScanJob() === "mix" && flashMixPick(data)) {
+          pending = { barcode: data.barcode || barcode, action: "into" };
+          statusEl.textContent = "Incoming, used, or needed — then how many.";
           pauseDecode = true;
+          return;
+        }
+        if (liveOn && !forcedAction) {
+          pending = { barcode: data.barcode || barcode, action: actionForJob() };
+          flashToast(data);
+          statusEl.textContent = "Tap 2, 4, 10… or next box = 1.";
+          pauseDecode = false;
           return;
         }
         if (flashToast(data)) {
@@ -655,14 +699,22 @@
         });
         return;
       }
+      const qtyNow = e.target.closest("[data-qty-now]");
+      if (qtyNow) {
+        const n = parseFloat(qtyNow.getAttribute("data-qty-now") || "1") || 1;
+        pauseDecode = false;
+        flushPending(n);
+        return;
+      }
       const mix = e.target.closest("[data-mix]");
       if (mix) {
         const code = el.dataset.barcode;
         pauseDecode = false;
         if (code) {
-          applyBarcode(code, mix.getAttribute("data-mix"), false, 1).then(function () {
-            readyNextScan("Next.");
-          });
+          pending = { barcode: code, action: mix.getAttribute("data-mix") || "into" };
+          flashToast({ name: el.querySelector("strong") ? el.querySelector("strong").textContent : "Item", barcode: code, quantity: "" });
+          statusEl.textContent = "How many this scan?";
+          pauseDecode = false;
         }
         return;
       }
