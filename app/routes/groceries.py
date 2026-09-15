@@ -49,6 +49,11 @@ def index():
     if place:
         q = [item for item in q if _place_of(item).lower() == place.lower()]
     want_items, out_items, low_items, ok_items = _pantry_groups(q)
+    hand_items = ok_items + low_items
+    hand_items.sort(key=lambda i: (_place_of(i).lower(), (i.name or "").lower()))
+    view = (request.args.get("view") or "hand").strip().lower()
+    if view not in ("hand", "out", "want", "all"):
+        view = "hand"
     return render_template(
         "groceries.html",
         items=q,
@@ -56,7 +61,15 @@ def index():
         out_items=out_items,
         low_items=low_items,
         ok_items=ok_items,
+        hand_items=hand_items,
+        view=view,
         place=place,
+        counts={
+            "hand": len(hand_items),
+            "out": len(out_items),
+            "want": len(want_items),
+            "all": len(q),
+        },
     )
 
 

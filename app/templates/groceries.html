@@ -1,13 +1,16 @@
 {% extends "base.html" %}
-{% block title %}Groceries · Family OS{% endblock %}
+{% block title %}On hand · Family OS{% endblock %}
 
-{% macro pantry_row(item) %}
-  <a class="row" href="{{ url_for('items.detail', item_id=item.id) }}">
+{% macro pantry_row(item, onhand=false) %}
+  <a class="row {% if onhand %}onhand-row{% endif %}" href="{{ url_for('items.detail', item_id=item.id) }}">
+    {% if onhand and item.grocery %}
+    <span class="onhand-qty">{{ qty_label(item.grocery.quantity) }}</span>
+    {% endif %}
     <div>
       <strong>{{ item.name }}</strong>
       <div class="muted">
         {% if item.grocery %}
-          {{ qty_label(item.grocery.quantity) }} {{ item.grocery.unit or '' }}
+          {% if not onhand %}{{ qty_label(item.grocery.quantity) }} {{ item.grocery.unit or '' }}{% else %}{{ item.grocery.unit or '' }}{% endif %}
           {% if item.grocery.brand %} · {{ item.grocery.brand }}{% endif %}
           {% if item.grocery.default_location %} · {{ item.grocery.default_location }}{% endif %}
         {% else %}
@@ -15,14 +18,18 @@
         {% endif %}
       </div>
     </div>
-    {% if item.grocery and item.grocery.quantity and item.grocery.quantity > 0 and item.grocery.needs_restock %}
-      <span class="badge low">Need more</span>
-    {% elif item.grocery and item.grocery.quantity and item.grocery.quantity > 0 %}
-      <span class="badge">Have</span>
-    {% elif item.grocery and (item.grocery.last_restocked_at or item.grocery.last_consumed_at or item.grocery.consume_count) %}
-      <span class="badge out">Had</span>
-    {% else %}
-      <span class="badge want">Want</span>
+    {% if onhand and item.grocery and item.grocery.needs_restock %}
+      <span class="badge low">Low</span>
+    {% elif not onhand %}
+      {% if item.grocery and item.grocery.quantity and item.grocery.quantity > 0 and item.grocery.needs_restock %}
+        <span class="badge low">Need more</span>
+      {% elif item.grocery and item.grocery.quantity and item.grocery.quantity > 0 %}
+        <span class="badge">Have</span>
+      {% elif item.grocery and (item.grocery.last_restocked_at or item.grocery.last_consumed_at or item.grocery.consume_count) %}
+        <span class="badge out">Had</span>
+      {% else %}
+        <span class="badge want">Want</span>
+      {% endif %}
     {% endif %}
   </a>
 {% endmacro %}
@@ -30,77 +37,73 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>Things</h1>
-    <p>Scan a UPC <strong>and / or</strong> type it in. Both stay on this page.</p>
+    <h1>Pantry</h1>
+    <p>What’s in the house. Want and out are other tabs — not mixed in.</p>
   </div>
   <a class="btn sm secondary" href="{{ url_for('groceries.grocery_list') }}">Basket</a>
 </div>
+<div class="place-chips no-print" role="tablist">
+  <a class="{% if view=='hand' %}on{% endif %}" href="{% if place %}{{ url_for('groceries.index', view='hand', place=place) }}{% else %}{{ url_for('groceries.index', view='hand') }}{% endif %}">On hand {{ counts.hand }}</a>
+  <a class="{% if view=='out' %}on{% endif %}" href="{% if place %}{{ url_for('groceries.index', view='out', place=place) }}{% else %}{{ url_for('groceries.index', view='out') }}{% endif %}">Out {{ counts.out }}</a>
+  <a class="{% if view=='want' %}on{% endif %}" href="{% if place %}{{ url_for('groceries.index', view='want', place=place) }}{% else %}{{ url_for('groceries.index', view='want') }}{% endif %}">Want {{ counts.want }}</a>
+</div>
 {% if places %}
 <div class="place-chips no-print">
-  <a class="{% if not place %}on{% endif %}" href="{{ url_for('groceries.index') }}">All</a>
+  <a class="{% if not place %}on{% endif %}" href="{{ url_for('groceries.index', view=view) }}">Every place</a>
   {% for p in places %}
-    <a class="{% if place==p %}on{% endif %}" href="{{ url_for('groceries.index', place=p) }}">{{ p }}</a>
+    <a class="{% if place==p %}on{% endif %}" href="{{ url_for('groceries.index', view=view, place=p) }}">{{ p }}</a>
   {% endfor %}
 </div>
 {% endif %}
-{% set compact = true %}
-{% set scan_kind = "grocery" %}
-{% set scan_title = "Scan a grocery UPC" %}
-{% include "partials/scan_strip.html" %}
-<div class="and-or">and / or type it in</div>
-{% if can('edit_grocery') %}
-<form class="card" method="post" action="{{ url_for('items.create_item') }}" enctype="multipart/form-data">
-  <h2>Add by hand</h2>
-  <input type="hidden" name="item_type" value="grocery">
-  <label>Name</label>
-  <input name="name" required placeholder="Milk, cereal, paper towels">
-  <label>UPC (optional)</label>
-  <input name="barcode" placeholder="If you already have the number">
-  <label>Quantity on hand</label>
-  <input name="quantity" value="2">
-  <label>Brand</label>
-  <input name="brand">
-  <label>Where it lives</label>
-  <select name="default_location">
-    <option value="">—</option>
-    {% for p in places %}
-      <option value="{{ p }}">{{ p }}</option>
-    {% endfor %}
-  </select>
-  <label>Photo (optional)</label>
-  <input type="file" name="photo" accept="image/*" capture="environment">
-  <label>Photo caption</label>
-  <input name="caption" placeholder="The actual box if the UPC is wrong">
-  <div class="btn-row"><button class="btn" type="submit">Save grocery</button></div>
-</form>
-{% endif %}
-{% if not items %}
-<div class="card"><div class="empty"><strong>Nothing tracked yet</strong>Type a name or scan a box — either works.</div></div>
-{% else %}
-  {% if want_items %}
-  <h2>Want</h2>
+
+{% if view == 'hand' %}
+  {% if hand_items %}
   <div class="card list">
-    {% for item in want_items %}{{ pantry_row(item) }}{% endfor %}
+    {% for item in hand_items %}{{ pantry_row(item, true) }}{% endfor %}
   </div>
+  {% else %}
+  <div class="card"><div class="empty"><strong>Nothing on hand</strong>Scan a box and tap Add that many.</div></div>
   {% endif %}
+{% elif view == 'out' %}
   {% if out_items %}
-  <h2>Had — now out</h2>
   <div class="card list">
     {% for item in out_items %}{{ pantry_row(item) }}{% endfor %}
   </div>
+  {% else %}
+  <div class="card"><div class="empty"><strong>Nothing out</strong>You’re not empty on tracked stuff.</div></div>
   {% endif %}
-  {% if low_items %}
-  <h2>Need more</h2>
+{% elif view == 'want' %}
+  {% if want_items %}
   <div class="card list">
-    {% for item in low_items %}{{ pantry_row(item) }}{% endfor %}
+    {% for item in want_items %}{{ pantry_row(item) }}{% endfor %}
   </div>
-  {% endif %}
-  {% if ok_items %}
-  <h2>Have</h2>
-  <div class="card list">
-    {% for item in ok_items %}{{ pantry_row(item) }}{% endfor %}
-  </div>
+  {% else %}
+  <div class="card"><div class="empty"><strong>No wants</strong>Scan something new if you want it.</div></div>
   {% endif %}
 {% endif %}
 
+<details class="card home-fold" style="margin-top:1rem">
+  <summary>Scan or add by name</summary>
+  {% set compact = true %}
+  {% set scan_kind = "grocery" %}
+  {% set scan_title = "Scan a grocery UPC" %}
+  {% include "partials/scan_strip.html" %}
+  {% if can('edit_grocery') %}
+  <form method="post" action="{{ url_for('items.create_item') }}" enctype="multipart/form-data">
+    <input type="hidden" name="item_type" value="grocery">
+    <label>Name</label>
+    <input name="name" required placeholder="Milk, cereal, A.1.">
+    <label>How many on hand</label>
+    <input name="quantity" value="1" inputmode="numeric">
+    <label>Where it lives</label>
+    <select name="default_location">
+      <option value="">—</option>
+      {% for p in places %}
+        <option value="{{ p }}">{{ p }}</option>
+      {% endfor %}
+    </select>
+    <div class="btn-row"><button class="btn" type="submit">Save grocery</button></div>
+  </form>
+  {% endif %}
+</details>
 {% endblock %}

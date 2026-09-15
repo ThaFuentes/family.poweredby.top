@@ -879,6 +879,16 @@ body.platform { padding-bottom: 1.5rem; }
   font-size: .78rem; white-space: nowrap;
 }
 .place-chips a.on { background: var(--green); color: #fff; border-color: var(--green); }
+.onhand-row { align-items: center; gap: .85rem; }
+.onhand-qty {
+  flex: 0 0 3.1rem;
+  font-size: 1.45rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: var(--green);
+  text-align: right;
+}
 #family-intro{display:none;position:fixed;inset:0;z-index:2147483000;background:#1c1814;align-items:stretch;justify-content:center;overflow:hidden}
 html.family-intro-on #family-intro{display:flex}
 html.family-intro-on,html.family-intro-on body{overflow:hidden}
