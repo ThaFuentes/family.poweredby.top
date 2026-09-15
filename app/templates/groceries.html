@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}On hand · Family OS{% endblock %}
+{% block title %}{% if place %}{{ place }} · {% endif %}On hand · Family OS{% endblock %}
 
 {% macro pantry_row(item, onhand=false) %}
   <a class="row {% if onhand %}onhand-row{% endif %}" href="{{ url_for('items.detail', item_id=item.id) }}">
@@ -12,7 +12,7 @@
         {% if item.grocery %}
           {% if not onhand %}{{ qty_label(item.grocery.quantity) }} {{ item.grocery.unit or '' }}{% else %}{{ item.grocery.unit or '' }}{% endif %}
           {% if item.grocery.brand %} · {{ item.grocery.brand }}{% endif %}
-          {% if item.grocery.default_location %} · {{ item.grocery.default_location }}{% endif %}
+          {% if item.grocery.default_location and not place %} · {{ item.grocery.default_location }}{% endif %}
         {% else %}
           {{ item.category or '' }}
         {% endif %}
@@ -34,11 +34,19 @@
   </a>
 {% endmacro %}
 
+{% macro room_href(room) -%}
+  {%- if q -%}
+    {{ url_for('groceries.index', view=view, place=room, q=q) }}
+  {%- else -%}
+    {{ url_for('groceries.index', view=view, place=room) }}
+  {%- endif -%}
+{%- endmacro %}
+
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>Pantry</h1>
-    <p>What’s in the house. Want and out are other tabs — not mixed in.</p>
+    <h1>{% if place %}{{ place }}{% else %}Pantry{% endif %}</h1>
+    <p>{% if place %}What’s in this room.{% else %}What’s in the house, by room. Tap Fridge or Pantry for that section.{% endif %}</p>
   </div>
   <div class="btn-row" style="margin:0">
     <a class="btn sm secondary" href="{{ url_for('groceries.grocery_list') }}">Basket</a>
@@ -50,6 +58,16 @@
     {% endif %}
   </div>
 </div>
+<form class="card" method="get" action="{{ url_for('groceries.index') }}" style="margin-bottom:1rem">
+  <input type="hidden" name="view" value="{{ view }}">
+  {% if place %}<input type="hidden" name="place" value="{{ place }}">{% endif %}
+  <label>Search groceries and supplies</label>
+  <div class="btn-row" style="margin:.35rem 0 0">
+    <input name="q" value="{{ q or '' }}" placeholder="A.1., tp, soap…" autofocus>
+    <button class="btn" type="submit">Find</button>
+    {% if q %}<a class="btn secondary" href="{{ url_for('groceries.index', view=view, place=place or none) }}">Clear</a>{% endif %}
+  </div>
+</form>
 {% if pantry_ai_report and pantry_ai_report.lines %}
 <div class="card">
   <h2>{% if pantry_ai_report.used_ai %}AI rooms{% else %}Guessed rooms{% endif %}</h2>
@@ -60,26 +78,42 @@
 </div>
 {% endif %}
 <div class="place-chips no-print" role="tablist">
-  <a class="{% if view=='hand' %}on{% endif %}" href="{% if place %}{{ url_for('groceries.index', view='hand', place=place) }}{% else %}{{ url_for('groceries.index', view='hand') }}{% endif %}">On hand {{ counts.hand }}</a>
-  <a class="{% if view=='out' %}on{% endif %}" href="{% if place %}{{ url_for('groceries.index', view='out', place=place) }}{% else %}{{ url_for('groceries.index', view='out') }}{% endif %}">Out {{ counts.out }}</a>
-  <a class="{% if view=='want' %}on{% endif %}" href="{% if place %}{{ url_for('groceries.index', view='want', place=place) }}{% else %}{{ url_for('groceries.index', view='want') }}{% endif %}">Want {{ counts.want }}</a>
+  <a class="{% if view=='hand' %}on{% endif %}" href="{{ url_for('groceries.index', view='hand', place=place or none, q=q or none) }}">On hand {{ counts.hand }}</a>
+  <a class="{% if view=='out' %}on{% endif %}" href="{{ url_for('groceries.index', view='out', place=place or none, q=q or none) }}">Out {{ counts.out }}</a>
+  <a class="{% if view=='want' %}on{% endif %}" href="{{ url_for('groceries.index', view='want', place=place or none, q=q or none) }}">Want {{ counts.want }}</a>
 </div>
-{% if places %}
 <div class="place-chips no-print">
-  <a class="{% if not place %}on{% endif %}" href="{{ url_for('groceries.index', view=view) }}">Every place</a>
+  <a class="{% if not place %}on{% endif %}" href="{{ url_for('groceries.index', view=view, q=q or none) }}">Every room</a>
   {% for p in places %}
-    <a class="{% if place==p %}on{% endif %}" href="{{ url_for('groceries.index', view=view, place=p) }}">{{ p }}</a>
+    <a class="{% if place==p %}on{% endif %}" href="{{ url_for('groceries.index', view=view, place=p, q=q or none) }}">{{ p }}{% if place_counts.get(p) %} {{ place_counts[p] }}{% endif %}</a>
   {% endfor %}
+  {% if place_counts.get('No room yet') %}
+    <a class="{% if place=='No room yet' %}on{% endif %}" href="{{ url_for('groceries.index', view=view, place='No room yet', q=q or none) }}">No room yet {{ place_counts['No room yet'] }}</a>
+  {% endif %}
 </div>
-{% endif %}
 
 {% if view == 'hand' %}
-  {% if hand_items %}
-  <div class="card list">
-    {% for item in hand_items %}{{ pantry_row(item, true) }}{% endfor %}
-  </div>
+  {% if place %}
+    {% if hand_items %}
+    <div class="card list">
+      <h2>{{ place }} · {{ hand_items|length }}</h2>
+      {% for item in hand_items %}{{ pantry_row(item, true) }}{% endfor %}
+    </div>
+    {% else %}
+    <div class="card"><div class="empty"><strong>Nothing in {{ place }}</strong>Scan a box, or AI put these in rooms.</div></div>
+    {% endif %}
+  {% elif rooms %}
+    {% for room, rows in rooms.items() %}
+    <section class="card list" style="margin-bottom:1rem">
+      <a href="{{ url_for('groceries.index', view='hand', place=room, q=q or none) }}" class="room-head">
+        <h2>{{ room }}</h2>
+        <span class="muted">{{ rows|length }} · open</span>
+      </a>
+      {% for item in rows %}{{ pantry_row(item, true) }}{% endfor %}
+    </section>
+    {% endfor %}
   {% else %}
-  <div class="card"><div class="empty"><strong>Nothing on hand</strong>Scan a box and tap Add that many.</div></div>
+  <div class="card"><div class="empty"><strong>Nothing on hand</strong>Scan a box and tap how many.</div></div>
   {% endif %}
 {% elif view == 'out' %}
   {% if out_items %}

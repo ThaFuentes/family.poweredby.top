@@ -34,11 +34,37 @@ def _place_of(item):
     return ((g.default_location if g else None) or "").strip()
 
 
+def _matches(item, needle: str) -> bool:
+    if not needle:
+        return True
+    n = needle.lower()
+    g = getattr(item, "grocery", None)
+    blob = " ".join(
+        [
+            item.name or "",
+            (g.brand if g else "") or "",
+            (g.default_location if g else "") or "",
+            (g.size if g else "") or "",
+            item.category or "",
+        ]
+    ).lower()
+    return n in blob
+
+
+def _rooms(items):
+    rooms = {}
+    for item in items:
+        room = _place_of(item) or "No room yet"
+        rooms.setdefault(room, []).append(item)
+    return rooms
+
+
 @groceries_bp.route("/")
 @login_required
 def index():
     hid = household_id()
     place = (request.args.get("place") or "").strip()
+    qtext = (request.args.get("q") or "").strip()
     q = (
         Item.query.options(joinedload(Item.grocery))
         .filter_by(household_id=hid, item_type="grocery")
@@ -46,14 +72,23 @@ def index():
         .order_by(Item.name.asc())
         .all()
     )
+    if qtext:
+        q = [item for item in q if _matches(item, qtext)]
+    want_all, out_all, low_all, ok_all = _pantry_groups(q)
+    all_hand = ok_all + low_all
+    place_counts = {room: len(rows) for room, rows in _rooms(all_hand).items()}
     if place:
-        q = [item for item in q if _place_of(item).lower() == place.lower()]
+        if place.lower() == "no room yet":
+            q = [item for item in q if not _place_of(item)]
+        else:
+            q = [item for item in q if _place_of(item).lower() == place.lower()]
     want_items, out_items, low_items, ok_items = _pantry_groups(q)
     hand_items = ok_items + low_items
     hand_items.sort(key=lambda i: (_place_of(i).lower(), (i.name or "").lower()))
     view = (request.args.get("view") or "hand").strip().lower()
     if view not in ("hand", "out", "want", "all"):
         view = "hand"
+    rooms = _rooms(hand_items) if view == "hand" else {}
     return render_template(
         "groceries.html",
         items=q,
@@ -62,8 +97,11 @@ def index():
         low_items=low_items,
         ok_items=ok_items,
         hand_items=hand_items,
+        rooms=rooms,
         view=view,
         place=place,
+        q=qtext,
+        place_counts=place_counts,
         counts={
             "hand": len(hand_items),
             "out": len(out_items),

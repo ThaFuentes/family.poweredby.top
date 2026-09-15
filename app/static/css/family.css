@@ -990,6 +990,15 @@ body.platform { padding-bottom: 1.5rem; }
 }
 .place-chips a.on { background: var(--green); color: #fff; border-color: var(--green); }
 .onhand-row { align-items: center; gap: .85rem; }
+.room-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: .75rem;
+  padding: .15rem 0 .5rem;
+  color: inherit;
+}
+.room-head h2 { margin: 0; font-size: 1.15rem; }
 .onhand-qty {
   flex: 0 0 3.1rem;
   font-size: 1.45rem;
