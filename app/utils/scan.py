@@ -45,6 +45,10 @@ _ACTION_ALIASES = {
     "wish": "want",
     "wishlist": "want",
     "want_this": "want",
+    "set": "set",
+    "set_count": "set",
+    "on_hand": "set",
+    "in_use": "consume",
     "miles": "mileage",
     "odometer": "mileage",
     "hours": "hours",
@@ -177,7 +181,9 @@ def grocery_payload(g: GroceryItem, item: Item, action="check", on_list=False, a
     amt = qty_label(amount)
     loc = (g.default_location or "").strip()
 
-    if action == "restock":
+    if action == "set":
+        message = f"{item.name} is {qty} {unit} on hand."
+    elif action == "restock":
         if status == STATUS_OK:
             message = f"Got more {item.name}. {qty} {unit} now."
         elif status == STATUS_LOW:
@@ -248,7 +254,11 @@ def apply_grocery_stock(g: GroceryItem, item: Item, action: str, amount, user_id
     if amt <= 0:
         amt = Decimal("1")
     thresh = clamp_qty(g.restock_threshold, "1")
-    if action == "restock":
+    if action == "set":
+        qty = set_quantity(g, amt)
+        g.last_restocked_at = datetime.utcnow()
+        g.needs_restock = qty <= thresh
+    elif action == "restock":
         qty = set_quantity(g, prev + amt)
         g.last_restocked_at = datetime.utcnow()
         g.needs_restock = qty <= thresh
@@ -453,6 +463,8 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
             stock = apply_grocery_stock(g, item, "restock", amount, user_id)
         elif action in ("consume", "just_used"):
             stock = apply_grocery_stock(g, item, "consume", amount, user_id)
+        elif action == "set":
+            stock = apply_grocery_stock(g, item, "set", amount, user_id)
         elif action in ("need_more", "want"):
             stock = flag_need_more(g, item, user_id)
         else:
@@ -465,7 +477,7 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
             )
         payload.update(stock)
         payload["hint"] = consumption_hint(g) if g is not None else None
-        event.action = action if action in ("restock", "consume", "need_more", "want") else "check"
+        event.action = action if action in ("restock", "consume", "need_more", "want", "set") else "check"
         event.result_json = {
             "name": item.name,
             "type": item.item_type,
@@ -504,7 +516,7 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
                 apply_product_lookup(g, item, lookup_product(item.barcode))
             except Exception:
                 pass
-        if action in ("consume", "restock"):
+        if action in ("consume", "restock", "set"):
             extra = dict(g.extra_data or {})
             if action == "consume" and not extra.get("first_consumed_at") and clamp_qty(g.quantity) > 0:
                 extra["first_consumed_at"] = datetime.utcnow().isoformat()

@@ -455,6 +455,36 @@ textarea { min-height: 5rem; }
   color: #f3f1ec;
 }
 #scan-live-result { background: var(--card); color: var(--ink); max-height: 42vh; overflow: auto; }
+.scan-qty {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+  align-items: center;
+  margin: 0 0 .55rem;
+}
+.scan-qty .chip {
+  min-height: 2.6rem;
+  min-width: 2.6rem;
+  padding: .4rem .7rem;
+  border-radius: .8rem;
+  border: 1.5px solid var(--ink);
+  background: var(--card);
+  color: var(--ink);
+  font-weight: 800;
+  cursor: pointer;
+}
+.scan-qty .chip.on,
+.scan-qty .chip:active {
+  background: var(--green);
+  color: #fff;
+  border-color: var(--green);
+}
+.scan-qty [data-scan-qty] {
+  width: 4.6rem;
+  min-height: 2.6rem;
+  text-align: center;
+  font-weight: 800;
+}
 body.scan-live-open { overflow: hidden; }
 
 .side-nav,

@@ -103,12 +103,10 @@
       ? '<p class="muted">On the basket.</p>'
       : "";
     const buttons =
-      tone === "want"
-        ? '<button type="button" class="btn warn" data-rescan="want">Want this</button>' +
-          '<button type="button" class="btn" data-rescan="got_more">Got more</button>'
-        : '<button type="button" class="btn terracotta" data-rescan="just_used">Just used</button>' +
-          '<button type="button" class="btn warn" data-rescan="need_more">Needs more</button>' +
-          '<button type="button" class="btn" data-rescan="got_more">Got more</button>';
+      '<button type="button" class="btn" data-rescan="got_more">Add that many</button>' +
+      '<button type="button" class="btn secondary" data-rescan="set">That\'s how many we have</button>' +
+      '<button type="button" class="btn terracotta" data-rescan="just_used">Just used that many</button>' +
+      '<button type="button" class="btn warn" data-rescan="need_more">Needs more</button>';
     return (
       '<div class="scan-status-card">' +
       '<span class="badge ' +
@@ -132,7 +130,15 @@
       (meta.length ? '<p class="muted">' + encode(meta.join(" · ")) + "</p>" : "") +
       factsHtml +
       listLine +
-      '<p class="kicker" style="margin:.85rem 0 .2rem">What happened?</p>' +
+      '<p class="kicker" style="margin:.85rem 0 .35rem">How many?</p>' +
+      '<div class="scan-qty" role="group" aria-label="How many">' +
+      '<button type="button" class="chip" data-qty-chip="1">1</button>' +
+      '<button type="button" class="chip" data-qty-chip="2">2</button>' +
+      '<button type="button" class="chip" data-qty-chip="4">4</button>' +
+      '<button type="button" class="chip" data-qty-chip="6">6</button>' +
+      '<input type="number" min="0" step="1" value="1" inputmode="numeric" data-scan-qty aria-label="Count">' +
+      "</div>" +
+      '<p class="muted">Add 4 bottles, or set 1 in use.</p>' +
       '<div class="scan-kid-actions">' +
       buttons +
       "</div>" +
@@ -337,7 +343,14 @@
     );
   }
 
-  async function applyBarcode(barcode, forcedAction, fromQueue) {
+  function qtyFromCard() {
+    const el = resultEl && resultEl.querySelector("[data-scan-qty]");
+    if (!el) return 1;
+    const n = parseFloat(String(el.value || "1").replace(",", "."));
+    return isFinite(n) && n >= 0 ? n : 1;
+  }
+
+  async function applyBarcode(barcode, forcedAction, fromQueue, amount) {
     if (!barcode || busy) return;
     if (!statusEl) statusEl = document.getElementById("scan-live-status") || document.getElementById("scan-status");
     if (!resultEl) resultEl = document.getElementById("scan-live-result") || document.getElementById("scan-result");
@@ -356,6 +369,8 @@
             ? "Adding to the want list…"
             : forcedAction === "got_more" || forcedAction === "restock"
             ? "Adding what you got…"
+            : forcedAction === "set"
+            ? "Setting the count…"
             : "Looking it up…";
     statusEl.textContent = verb;
     if (!navigator.onLine && !fromQueue) {
@@ -373,7 +388,7 @@
         body: JSON.stringify({
           barcode: barcode,
           action: forcedAction || (scanKind === "basket" ? "got_more" : "check"),
-          amount: 1,
+          amount: amount != null ? amount : 1,
         }),
       });
       if (!res.ok) {
@@ -426,8 +441,20 @@
     }
   }
 
-  if (resultEl) {
-    resultEl.addEventListener("click", function (e) {
+  function bindResult(el) {
+    if (!el || el.dataset.scanBound) return;
+    el.dataset.scanBound = "1";
+    el.addEventListener("click", function (e) {
+      const chip = e.target.closest("[data-qty-chip]");
+      if (chip) {
+        const input = el.querySelector("[data-scan-qty]");
+        if (input) input.value = chip.getAttribute("data-qty-chip") || "1";
+        el.querySelectorAll("[data-qty-chip]").forEach(function (c) {
+          c.classList.toggle("on", c === chip);
+        });
+        return;
+      }
+      resultEl = el;
       const quick = e.target.closest("[data-quick]");
       if (quick) {
         const code = resultEl.dataset.barcode;
@@ -448,9 +475,9 @@
       const code = resultEl.dataset.barcode;
       if (!code) return;
       lastAt = 0;
-      applyBarcode(code, btn.getAttribute("data-rescan"));
+      applyBarcode(code, btn.getAttribute("data-rescan"), false, qtyFromCard());
     });
-    resultEl.addEventListener("submit", function (e) {
+    el.addEventListener("submit", function (e) {
       const form = e.target.closest("[data-mileage-form]");
       if (!form) return;
       e.preventDefault();
@@ -468,7 +495,7 @@
         statusEl.textContent = "Could not save miles.";
       });
     });
-    resultEl.addEventListener("change", function (e) {
+    el.addEventListener("change", function (e) {
       const input = e.target.closest("[data-wrong-upc]");
       if (!input || !input.files || !input.files[0]) return;
       const code = resultEl.dataset.barcode;
@@ -484,6 +511,8 @@
       });
     });
   }
+  bindResult(pageResult);
+  bindResult(liveResult);
 
   if (manualForm) {
     manualForm.addEventListener("submit", function (e) {
