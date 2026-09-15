@@ -15,14 +15,4 @@
   {% if cal_links.cal_ready %}Calendar · {{ cal_links.cal_provider_label }}{% else %}Your calendar{% endif %}
 </button>
 
-{% if needs.activity %}
-<section class="card list activity-strip">
-  <h2>Just now</h2>
-  {% for ev in needs.activity %}
-    <div class="row">
-      <div><strong>{{ ev.line }}</strong><div class="muted">{{ ev.at }}</div></div>
-    </div>
-  {% endfor %}
-</section>
-{% endif %}
 {% endblock %}

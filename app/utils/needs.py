@@ -190,32 +190,6 @@ def household_needs(household_id: int, *, is_child: bool = False) -> dict:
             continue
         expiring.append({"item": item, "expires_on": exp, "gone": exp < now.date()})
 
-    since = now - timedelta(hours=48)
-    events = (
-        ScanEvent.query.filter_by(household_id=hid)
-        .filter(ScanEvent.created_at >= since)
-        .order_by(ScanEvent.created_at.desc())
-        .limit(12)
-        .all()
-    )
-    uids = {e.user_id for e in events if e.user_id}
-    people = {}
-    if uids:
-        people = {
-            u.id: u
-            for u in User.query.filter(User.household_id == hid, User.id.in_(uids)).all()
-        }
-    activity = [
-        {
-            "id": e.id,
-            "line": activity_line(e, people),
-            "item_id": e.item_id,
-            "at": e.created_at,
-            "action": e.action,
-        }
-        for e in events
-    ]
-
     out_items = []
     low_items = []
     if not is_child:
@@ -253,7 +227,7 @@ def household_needs(household_id: int, *, is_child: bool = False) -> dict:
         "want": want_n,
         "due": due,
         "expiring": expiring[:8],
-        "activity": activity,
+        "activity": [],
         "out_items": out_items[:8],
         "low_items": low_items[:8],
         "want_status": STATUS_WANT,

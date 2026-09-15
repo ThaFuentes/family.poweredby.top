@@ -343,7 +343,7 @@
     if (!resultEl) resultEl = document.getElementById("scan-live-result") || document.getElementById("scan-result");
     if (!statusEl) return;
     const now = Date.now();
-    if (!forcedAction && barcode === lastCode && now - lastAt < 2500) return;
+    if (!forcedAction && barcode === lastCode && now - lastAt < 8000) return;
     lastCode = barcode;
     lastAt = now;
     busy = true;

@@ -409,6 +409,22 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
     code = (barcode or "").strip()
     action = _normalize_action(action)
     item = find_item(household_id, code)
+    if action == "check":
+        recent = (
+            ScanEvent.query.filter_by(
+                household_id=household_id, user_id=user_id, barcode=code, action="check"
+            )
+            .order_by(ScanEvent.id.desc())
+            .first()
+        )
+        if recent and recent.created_at and (datetime.utcnow() - recent.created_at).total_seconds() < 12:
+            if item and item.item_type == "grocery":
+                g = GroceryItem.query.filter_by(household_id=household_id, item_id=item.id).first()
+                if g:
+                    payload = grocery_payload(g, item, action="check")
+                    payload["found"] = True
+                    payload["create"] = False
+                    return payload
     event = ScanEvent(
         household_id=household_id,
         user_id=user_id,
