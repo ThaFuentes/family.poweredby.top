@@ -317,7 +317,7 @@ def grocery_payload(g: GroceryItem, item: Item, action="check", on_list=False, a
             message = f"Just used {item.name}. {qty} {unit} left."
     else:
         if status == STATUS_WANT:
-            message = f"We don't have {item.name} yet."
+            message = f"{item.name} — tap how many to put in."
         elif status == STATUS_OUT:
             message = f"We're out of {item.name}."
         elif status == STATUS_LOW:

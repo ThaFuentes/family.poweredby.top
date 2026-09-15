@@ -112,11 +112,7 @@
     pauseDecode = false;
     busy = false;
     if (statusEl) statusEl.textContent = msg || "Next.";
-    const live = document.getElementById("scan-live");
-    if (resultEl && live && !live.hidden) {
-      resultEl.hidden = true;
-      resultEl.innerHTML = "";
-    }
+    unfreezeScan();
   }
 
   function qtyChips() {
@@ -150,11 +146,37 @@
     resultEl.innerHTML = html;
     resultEl.dataset.barcode = data.barcode || "";
     resultEl.dataset.jobAction = job === "mix" ? "" : actionForJob();
-    if (settleTimer) clearTimeout(settleTimer);
-    settleTimer = setTimeout(function () {
-      flushPending(1);
-    }, 2200);
+    freezeScan();
     return true;
+  }
+
+  function snapFrame() {
+    const video = document.querySelector("#scan-live-reader video");
+    const canvas = document.getElementById("scan-freeze");
+    if (!video || !canvas || !video.videoWidth) return;
+    try {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d").drawImage(video, 0, 0);
+      canvas.hidden = false;
+    } catch (e) {}
+  }
+
+  function freezeScan() {
+    snapFrame();
+    pauseDecode = true;
+    try {
+      if (liveSlot.qr && liveSlot.qr.pause) liveSlot.qr.pause(true);
+    } catch (e) {}
+  }
+
+  function unfreezeScan() {
+    const canvas = document.getElementById("scan-freeze");
+    if (canvas) canvas.hidden = true;
+    pauseDecode = false;
+    try {
+      if (liveSlot.qr && liveSlot.qr.resume) liveSlot.qr.resume();
+    } catch (e) {}
   }
 
   function flushPending(amount) {
@@ -166,14 +188,23 @@
     pending = null;
     pauseDecode = false;
     if (!p) {
-      if (resultEl && !resultEl.querySelector("[data-add-list]")) {
-        resultEl.hidden = true;
-        resultEl.innerHTML = "";
-      }
+      unfreezeScan();
       return Promise.resolve();
     }
     return applyBarcode(p.barcode, p.action, false, amount || 1).then(function () {
-      readyNextScan((amount || 1) + " · next.");
+      if (resultEl) {
+        resultEl.hidden = false;
+        resultEl.className = "scan-toast";
+        resultEl.innerHTML = "<strong>" + encode(String(amount || 1)) + " done.</strong> Next box.";
+      }
+      unfreezeScan();
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(function () {
+        if (resultEl) {
+          resultEl.hidden = true;
+          resultEl.innerHTML = "";
+        }
+      }, 900);
     });
   }
 
@@ -556,10 +587,12 @@
     if (!resultEl) resultEl = document.getElementById("scan-live-result") || document.getElementById("scan-result");
     if (!statusEl) return;
     const now = Date.now();
+    if (!forcedAction && pauseDecode) return;
     if (!forcedAction && barcode === lastCode && now - lastAt < 1800) return;
     lastCode = barcode;
     lastAt = now;
     busy = true;
+    if (!forcedAction) freezeScan();
     const verb =
       forcedAction === "just_used" || forcedAction === "consume"
         ? "Marking just used…"
