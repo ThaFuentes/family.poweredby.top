@@ -82,7 +82,13 @@ def create_app():
 
     from app.builddb.builddb import init_tenant_system
 
-    init_tenant_system(app)
+    try:
+        init_tenant_system(app)
+    except Exception as e:
+        try:
+            app.logger.exception("init_tenant_system failed (app still starts): %s", e)
+        except Exception:
+            pass
     login_manager.init_app(app)
 
     from werkzeug.middleware.proxy_fix import ProxyFix

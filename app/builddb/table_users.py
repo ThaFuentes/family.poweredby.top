@@ -127,11 +127,19 @@ def _scope_usernames():
                         "ON users (household_id, username)"
                     )
                 )
-                print("[BUILD-DB] unique usernames per household")
+                from app.builddb.builddb import _say
+
+                _say("[BUILD-DB] unique usernames per household")
             except Exception as idx_e:
-                print(f"[BUILD-DB] household username unique: {idx_e}")
+                from app.builddb.builddb import _say, _rollback
+
+                _rollback()
+                _say(f"[BUILD-DB] household username unique: {idx_e}")
     except Exception as exc:
-        print(f"[BUILD-DB] scope usernames: {exc}")
+        from app.builddb.builddb import _say, _rollback
+
+        _rollback()
+        _say(f"[BUILD-DB] scope usernames: {exc}")
 
 
 def _backfill_leaders():

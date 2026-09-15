@@ -20,18 +20,27 @@ SCHEMA_STAMP_NAME = "schema.fingerprint"
 
 
 def _say(msg):
-    """HostM Passenger stdout is often ASCII. Never encode('ascii')."""
+    """HostM Passenger often closes stdout. A print must never kill create_app."""
     text = str(msg)
     try:
         print(text, flush=True)
         return
-    except UnicodeEncodeError:
+    except (BrokenPipeError, OSError, UnicodeEncodeError):
+        pass
+    except Exception:
         pass
     try:
         buf = getattr(sys.stdout, "buffer", None)
         if buf is not None:
             buf.write((text + "\n").encode("utf-8"))
             buf.flush()
+    except Exception:
+        pass
+
+
+def _rollback():
+    try:
+        db.session.rollback()
     except Exception:
         pass
 
@@ -58,6 +67,7 @@ def evolve_table(table_name, columns, indexes=None):
             existing.add(col_name)
             _say(f"[BUILD-DB] added {table_name}.{col_name}")
         except Exception as col_e:
+            _rollback()
             _say(f"[BUILD-DB] add {table_name}.{col_name}: {col_e}")
     if not indexes:
         return
@@ -75,6 +85,7 @@ def evolve_table(table_name, columns, indexes=None):
                 )
             _say(f"[BUILD-DB] added index {idx_name}")
         except Exception as idx_e:
+            _rollback()
             _say(f"[BUILD-DB] index {idx_name}: {idx_e}")
 
 
@@ -121,6 +132,20 @@ def _users_schema_ready() -> bool:
     return {"calendar_email", "calendar_provider", "calendar_mode"} <= cols
 
 
+def _schema_ready() -> bool:
+    """Do not skip evolve if Happened / soft-remove columns are missing."""
+    try:
+        names = set(inspect(db.engine).get_table_names())
+        if "household_activity" not in names:
+            return False
+        items = {c["name"] for c in inspect(db.engine).get_columns("items")}
+        if "removed_at" not in items:
+            return False
+    except Exception:
+        return False
+    return _users_schema_ready()
+
+
 def _write_schema_stamp(app) -> None:
     path = _stamp_path(app)
     try:
@@ -142,8 +167,8 @@ def init_tenant_system(app):
             importlib.import_module(f"{package_name}.{module_name}")
 
         skip_evolve = _schema_is_current(app)
-        if skip_evolve and not _users_schema_ready():
-            _say("[BUILD-DB] stamp said current but users columns missing - evolve")
+        if skip_evolve and not _schema_ready():
+            _say("[BUILD-DB] stamp said current but columns/tables missing - evolve")
             skip_evolve = False
         if skip_evolve:
             _say("[BUILD-DB] schema current - skip evolve")
@@ -186,14 +211,15 @@ def init_tenant_system(app):
                         module.create_table()
                 except Exception as _build_exc:
                     evolve_ok = False
-                    try:
-                        _say(f"[BUILD-DB] {module_name} create failed: {_build_exc}")
-                    except Exception:
-                        pass
+                    _rollback()
+                    _say(f"[BUILD-DB] {module_name} create failed: {_build_exc}")
 
-            with db.engine.connect() as conn:
-                conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
-            if evolve_ok and _users_schema_ready():
+            try:
+                with db.engine.connect() as conn:
+                    conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
+            except Exception:
+                _rollback()
+            if evolve_ok and _schema_ready():
                 _write_schema_stamp(app)
             else:
                 _say("[BUILD-DB] evolve incomplete - will retry next boot")

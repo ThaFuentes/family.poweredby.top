@@ -58,16 +58,17 @@ def _backfill_handles():
         if rows:
             db.session.commit()
     except Exception as exc:
-        print(f"[BUILD-DB] household handle backfill: {exc}")
-        try:
-            db.session.rollback()
-        except Exception:
-            pass
+        from app.builddb.builddb import _say, _rollback
+
+        _rollback()
+        _say(f"[BUILD-DB] household handle backfill: {exc}")
 
 
 def _unique_handle_index():
     from sqlalchemy import text
+    from app.builddb.builddb import _say, _rollback
 
+    _rollback()
     try:
         with db.engine.begin() as conn:
             try:
@@ -75,6 +76,7 @@ def _unique_handle_index():
             except Exception:
                 pass
             conn.execute(text("CREATE UNIQUE INDEX idx_households_handle ON households (handle)"))
-            print("[BUILD-DB] unique household handles")
+            _say("[BUILD-DB] unique household handles")
     except Exception as idx_e:
-        print(f"[BUILD-DB] household handle unique: {idx_e}")
+        _rollback()
+        _say(f"[BUILD-DB] household handle unique: {idx_e}")
