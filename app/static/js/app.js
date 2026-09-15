@@ -44,7 +44,36 @@
     }
   }
 
+  function closeSheet() {
+    var overlay = document.getElementById("sheet-overlay");
+    var frame = document.getElementById("sheet-frame");
+    if (!overlay || overlay.hidden) return;
+    overlay.hidden = true;
+    if (frame) {
+      frame.src = "about:blank";
+      frame.hidden = true;
+    }
+    document.body.classList.remove("sheet-open");
+  }
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") closeSheet();
+  });
   document.addEventListener("click", function (e) {
+    var overlay = document.getElementById("sheet-overlay");
+    var frame = document.getElementById("sheet-frame");
+    var openBtn = e.target.closest("[data-sheet]");
+    if (openBtn && overlay && frame) {
+      e.preventDefault();
+      frame.hidden = false;
+      frame.src = openBtn.getAttribute("data-sheet") || "";
+      overlay.hidden = false;
+      document.body.classList.add("sheet-open");
+      return;
+    }
+    if (overlay && !overlay.hidden && (e.target === overlay || e.target.closest("[data-sheet-close]"))) {
+      closeSheet();
+      return;
+    }
     var close = e.target.closest("[data-close-issued]");
     if (close) {
       var wrap = document.getElementById("issued-key");

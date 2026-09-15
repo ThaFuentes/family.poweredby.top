@@ -1,5 +1,5 @@
 <meta name="theme-color" content="{{ theme_color }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/family.css') }}?v=os22">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/family.css') }}?v=os23">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}?v=os22">
 <script>
 (function () {
@@ -15,6 +15,7 @@
 })();
 (function () {
   try {
+    if (window.self !== window.top) return;
     if ((location.pathname || "").indexOf("/platform") === 0) return;
     if (sessionStorage.getItem("family.intro.v1") === "1") return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;

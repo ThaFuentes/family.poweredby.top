@@ -31,6 +31,25 @@ def picker():
     )
 
 
+@appearance_bp.route("/calendar-sheet")
+@login_required
+def calendar_sheet():
+    from app.builddb.table_households import Household
+    from app.utils.calendar import ensure_calendar_token, member_subscribe
+    from app.utils.household import household_id
+
+    household = Household.query.get(household_id())
+    token = ensure_calendar_token(current_user)
+    cal_url = url_for("reminders.calendar_feed", token=token, _external=True)
+    links = member_subscribe(current_user, household, cal_url)
+    return render_template(
+        "appearance/calendar_sheet.html",
+        cal_url=links["https"],
+        cal_links=links,
+        cal_next="sheet",
+    )
+
+
 @appearance_bp.route("/dashboard", methods=["POST"])
 @login_required
 def set_dashboard():
@@ -71,6 +90,8 @@ def _calendar_next():
         return redirect(url_for("reminders.index"))
     if nxt == "home":
         return redirect(url_for("home.home"))
+    if nxt == "sheet":
+        return redirect(url_for("appearance.calendar_sheet"))
     return redirect(url_for("appearance.picker") + "#calendar")
 
 

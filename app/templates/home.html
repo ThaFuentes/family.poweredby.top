@@ -9,6 +9,7 @@
 </div>
 
 {% set dash_next = "home" %}
+{% set dash_compact = true %}
 {% include "partials/dashboard_edit.html" %}
 
 {% if dash.show_needs and (needs.due or needs.out or needs.low or needs.expiring) %}
@@ -44,7 +45,9 @@
 </section>
 {% endif %}
 
-{% include "partials/calendar_connect.html" %}
+<button type="button" class="btn secondary home-cal-btn" data-sheet="{{ url_for('appearance.calendar_sheet') }}">
+  {% if cal_links.cal_ready %}Calendar · {{ cal_links.cal_provider_label }}{% else %}Your calendar{% endif %}
+</button>
 {% if needs.activity %}
 <section class="card list activity-strip">
   <h2>Today</h2>

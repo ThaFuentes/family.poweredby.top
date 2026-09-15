@@ -1,6 +1,13 @@
+{% if dash_compact %}
+<details class="card home-fold" id="home">
+  <summary>When I open Family OS</summary>
+  <p class="muted">Yours only. Other people in this house keep their own home.</p>
+  <form method="post" action="{{ url_for('appearance.set_dashboard') }}">
+{% else %}
 <form class="card" method="post" action="{{ url_for('appearance.set_dashboard') }}" id="home">
   <h2>When I open Family OS</h2>
   <p class="muted">Yours only. Other people in this house keep their own home.</p>
+{% endif %}
   <label>Open to</label>
   <select name="start">
     {% for key, label in dash.starts %}
@@ -25,4 +32,9 @@
   {% endif %}
   <input type="hidden" name="next" value="{{ dash_next or 'look' }}">
   <div class="btn-row"><button class="btn" type="submit">Save my home</button></div>
+{% if dash_compact %}
+  </form>
+</details>
+{% else %}
 </form>
+{% endif %}

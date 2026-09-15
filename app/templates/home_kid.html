@@ -11,7 +11,9 @@
 {% set scan_title = "Scan a code" %}
 {% set can_create = false %}
 {% include "partials/scan_strip.html" %}
-{% include "partials/calendar_connect.html" %}
+<button type="button" class="btn secondary home-cal-btn" data-sheet="{{ url_for('appearance.calendar_sheet') }}">
+  {% if cal_links.cal_ready %}Calendar · {{ cal_links.cal_provider_label }}{% else %}Your calendar{% endif %}
+</button>
 
 {% if needs.activity %}
 <section class="card list activity-strip">
