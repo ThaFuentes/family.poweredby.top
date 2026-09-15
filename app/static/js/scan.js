@@ -103,10 +103,37 @@
       ? '<p class="muted">On the basket.</p>'
       : "";
     const buttons =
-      '<button type="button" class="btn" data-rescan="got_more">Add that many</button>' +
+      '<button type="button" class="btn" data-rescan="into">Into the house</button>' +
+      '<button type="button" class="btn secondary" data-skip-place data-rescan="into">No place — just count</button>' +
       '<button type="button" class="btn secondary" data-rescan="set">That\'s how many we have</button>' +
-      '<button type="button" class="btn terracotta" data-rescan="just_used">Just used that many</button>' +
-      '<button type="button" class="btn warn" data-rescan="need_more">Needs more</button>';
+      '<button type="button" class="btn terracotta" data-rescan="just_used">Just used</button>';
+    const places = Array.isArray(data.places) ? data.places : [];
+    const here = data.location || (data.ai_report && data.ai_report.location) || "";
+    const placeHtml =
+      places.length
+        ? '<p class="kicker" style="margin:.85rem 0 .35rem">Where?</p>' +
+          '<div class="scan-qty" role="group" aria-label="Where">' +
+          places
+            .map(function (p) {
+              const on = here && p.toLowerCase() === String(here).toLowerCase() ? " on" : "";
+              return (
+                '<button type="button" class="chip' +
+                on +
+                '" data-place="' +
+                encode(p) +
+                '">' +
+                encode(p) +
+                "</button>"
+              );
+            })
+            .join("") +
+          "</div>" +
+          (data.needs_place && !data.ai_ready
+            ? '<p class="muted">No AI key — tap a room, or skip.</p>'
+            : data.needs_place
+              ? '<p class="muted">AI did not pick a room. Tap one, or skip.</p>'
+              : "")
+        : "";
     return (
       '<div class="scan-status-card">' +
       '<span class="badge ' +
@@ -152,7 +179,8 @@
       '<button type="button" class="chip" data-qty-chip="6">6</button>' +
       '<input type="number" min="0" step="1" value="1" inputmode="numeric" data-scan-qty aria-label="Count">' +
       "</div>" +
-      '<p class="muted">Add 4 bottles, or set 1 in use.</p>' +
+      '<p class="muted">How many to put in. Room is remembered next time.</p>' +
+      placeHtml +
       '<div class="scan-kid-actions">' +
       buttons +
       "</div>" +
@@ -363,8 +391,12 @@
     const n = parseFloat(String(el.value || "1").replace(",", "."));
     return isFinite(n) && n >= 0 ? n : 1;
   }
+  function placeFromCard() {
+    const on = resultEl && resultEl.querySelector("[data-place].on");
+    return on ? on.getAttribute("data-place") || "" : "";
+  }
 
-  async function applyBarcode(barcode, forcedAction, fromQueue, amount) {
+  async function applyBarcode(barcode, forcedAction, fromQueue, amount, extra) {
     if (!barcode || busy) return;
     if (!statusEl) statusEl = document.getElementById("scan-live-status") || document.getElementById("scan-status");
     if (!resultEl) resultEl = document.getElementById("scan-live-result") || document.getElementById("scan-result");
@@ -403,6 +435,8 @@
           barcode: barcode,
           action: forcedAction || (scanKind === "basket" ? "got_more" : "check"),
           amount: amount != null ? amount : 1,
+          location: extra && extra.location != null ? extra.location : placeFromCard(),
+          skip_place: extra && extra.skip_place ? true : false,
         }),
       });
       if (!res.ok) {
@@ -468,6 +502,13 @@
         });
         return;
       }
+      const place = e.target.closest("[data-place]");
+      if (place) {
+        el.querySelectorAll("[data-place]").forEach(function (c) {
+          c.classList.toggle("on", c === place);
+        });
+        return;
+      }
       resultEl = el;
       const quick = e.target.closest("[data-quick]");
       if (quick) {
@@ -489,7 +530,10 @@
       const code = resultEl.dataset.barcode;
       if (!code) return;
       lastAt = 0;
-      applyBarcode(code, btn.getAttribute("data-rescan"), false, qtyFromCard());
+      applyBarcode(code, btn.getAttribute("data-rescan"), false, qtyFromCard(), {
+        location: placeFromCard(),
+        skip_place: !!btn.hasAttribute("data-skip-place"),
+      });
     });
     el.addEventListener("submit", function (e) {
       const form = e.target.closest("[data-mileage-form]");
@@ -646,6 +690,7 @@
 
   function openLiveScan(e) {
     if (e) e.preventDefault();
+    window.FAMILY_SCAN_INTO = true;
     const live = document.getElementById("scan-live");
     if (!live) {
       startPageCamera();

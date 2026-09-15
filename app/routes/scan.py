@@ -30,10 +30,20 @@ def scan_apply():
     barcode = (data.get("barcode") or "").strip()
     action = (data.get("action") or "check").strip().lower()
     amount = data.get("amount") or 1
+    location = (data.get("location") or "").strip() or None
+    skip_place = str(data.get("skip_place") or "").strip().lower() in ("1", "true", "yes")
     if not barcode:
         return jsonify({"error": "barcode required"}), 400
     try:
-        result = process_scan(household_id(), current_user.id, barcode, action, amount)
+        result = process_scan(
+            household_id(),
+            current_user.id,
+            barcode,
+            action,
+            amount,
+            location=location,
+            skip_place=skip_place,
+        )
     except Exception:
         db.session.rollback()
         return jsonify({"error": "Could not update the household. Try again."}), 500

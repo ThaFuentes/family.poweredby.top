@@ -49,6 +49,9 @@ _ACTION_ALIASES = {
     "set_count": "set",
     "on_hand": "set",
     "in_use": "consume",
+    "into": "into",
+    "into_house": "into",
+    "inventory": "into",
     "miles": "mileage",
     "odometer": "mileage",
     "hours": "hours",
@@ -174,6 +177,80 @@ def _sync_grocery_list(g: GroceryItem, item: Item, user_id) -> bool:
     return False
 
 
+def _household_of(item):
+    try:
+        from app.builddb.table_households import Household
+
+        return Household.query.get(item.household_id)
+    except Exception:
+        return None
+
+
+def _places_for(item) -> list:
+    try:
+        from app.utils.places import list_places
+
+        return list_places(_household_of(item))
+    except Exception:
+        return []
+
+
+def _ai_ready(item) -> bool:
+    try:
+        from app.utils.ai import get_ai_config
+
+        return bool(get_ai_config(_household_of(item), household_only=True).get("ready"))
+    except Exception:
+        return False
+
+
+def apply_place(g: GroceryItem, item: Item, *, location=None, skip_place=False) -> dict:
+    """Remember a room, or skip. AI/memory fill in when we can."""
+    from app.builddb.table_households import Household
+    from app.utils.places import remember_upc, recall_upc, snap_location
+
+    household = Household.query.get(item.household_id)
+    report = ((g.extra_data or {}).get("ai") if isinstance(g.extra_data, dict) else None) or {}
+    if skip_place:
+        return {"needs_place": False, "skipped_place": True, "ai_report": report}
+    chosen = snap_location(location, household) if location else None
+    if chosen:
+        g.default_location = chosen
+        try:
+            remember_upc(
+                household,
+                item.barcode or "",
+                {"location": chosen, "name": item.name, "item_type": item.item_type},
+            )
+        except Exception:
+            pass
+        return {"needs_place": False, "ai_report": report, "location": chosen}
+    if (g.default_location or "").strip():
+        return {"needs_place": False, "ai_report": report, "location": g.default_location}
+    mem = None
+    try:
+        mem = recall_upc(household, item.barcode or "")
+    except Exception:
+        mem = None
+    if mem and mem.get("location"):
+        g.default_location = snap_location(mem["location"], household) or mem["location"]
+        return {"needs_place": False, "from_memory": True, "ai_report": report, "location": g.default_location}
+    try:
+        from app.utils.classify import place_new_grocery
+        from app.utils.barcode_lookup import lookup_product
+
+        lookup = lookup_product(item.barcode) if item.barcode else {"name": item.name}
+        report = place_new_grocery(item, g, lookup, household)
+    except Exception:
+        pass
+    has = bool((g.default_location or "").strip())
+    return {
+        "needs_place": not has,
+        "ai_report": report,
+        "location": g.default_location,
+    }
+
+
 def grocery_payload(g: GroceryItem, item: Item, action="check", on_list=False, amount=1, prev_qty=None):
     status = stock_status(g)
     qty = qty_label(g.quantity)
@@ -245,6 +322,9 @@ def grocery_payload(g: GroceryItem, item: Item, action="check", on_list=False, a
         "ingredients": (g.ingredients or "").strip() or None,
         "facts": ((g.extra_data or {}).get("product") if isinstance(g.extra_data, dict) else None) or {},
         "ai_report": ((g.extra_data or {}).get("ai") if isinstance(g.extra_data, dict) else None) or None,
+        "places": _places_for(item),
+        "needs_place": not bool(loc),
+        "ai_ready": _ai_ready(item),
     }
 
 
@@ -425,7 +505,7 @@ def _normalize_action(action: str) -> str:
     return _ACTION_ALIASES.get(action, action)
 
 
-def process_scan(household_id: int, user_id: int, barcode: str, action: str, amount=1):
+def process_scan(household_id: int, user_id: int, barcode: str, action: str, amount=1, location=None, skip_place=False):
     code = (barcode or "").strip()
     action = _normalize_action(action)
     item = find_item(household_id, code)
@@ -475,6 +555,9 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
             stock = apply_grocery_stock(g, item, "consume", amount, user_id)
         elif action == "set":
             stock = apply_grocery_stock(g, item, "set", amount, user_id)
+        elif action == "into":
+            stock = apply_grocery_stock(g, item, "restock", amount, user_id)
+            stock["message"] = f"{item.name} is in the house. {stock.get('quantity_label') or stock.get('quantity')} on hand."
         elif action in ("need_more", "want"):
             stock = flag_need_more(g, item, user_id)
         else:
@@ -485,9 +568,11 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
                 + (" That's the barcode lookup." if looked else " New here — rename it if the name is wrong.")
                 + " Tap Got more if it's on the shelf."
             )
+        if g is not None:
+            payload.update(apply_place(g, item, location=location, skip_place=skip_place))
         payload.update(stock)
         payload["hint"] = consumption_hint(g) if g is not None else None
-        event.action = action if action in ("restock", "consume", "need_more", "want", "set") else "check"
+        event.action = action if action in ("restock", "consume", "need_more", "want", "set", "into") else "check"
         event.result_json = {
             "name": item.name,
             "type": item.item_type,
@@ -526,13 +611,17 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
                 apply_product_lookup(g, item, lookup_product(item.barcode))
             except Exception:
                 pass
-        if action in ("consume", "restock", "set"):
+        if action in ("consume", "restock", "set", "into"):
             extra = dict(g.extra_data or {})
             if action == "consume" and not extra.get("first_consumed_at") and clamp_qty(g.quantity) > 0:
                 extra["first_consumed_at"] = datetime.utcnow().isoformat()
                 g.extra_data = extra
-            stock = apply_grocery_stock(g, item, action, amount, user_id)
+            stock_action = "restock" if action == "into" else action
+            stock = apply_grocery_stock(g, item, stock_action, amount, user_id)
+            if action == "into":
+                stock["message"] = f"{item.name} is in the house. {stock.get('quantity_label') or stock.get('quantity')} on hand."
             payload.update(stock)
+            payload.update(apply_place(g, item, location=location, skip_place=skip_place))
             payload["hint"] = consumption_hint(g)
         elif action in ("need_more", "want"):
             stock = flag_need_more(g, item, user_id)
