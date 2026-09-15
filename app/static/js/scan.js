@@ -116,11 +116,17 @@
   }
 
   function qtyChips() {
-    return [1, 2, 4, 6, 10]
-      .map(function (n) {
-        return '<button type="button" class="chip" data-qty-now="' + n + '">' + n + "</button>";
-      })
-      .join("");
+    return (
+      [1, 5, 10]
+        .map(function (n) {
+          return '<button type="button" class="chip" data-qty-now="' + n + '">' + n + "</button>";
+        })
+        .join("") +
+      '<form class="scan-enter" data-qty-form>' +
+      '<input type="number" min="1" step="1" inputmode="numeric" data-qty-enter placeholder="3" aria-label="Count">' +
+      '<button type="submit" class="chip">Enter</button>' +
+      "</form>"
+    );
   }
 
   function flashToast(data) {

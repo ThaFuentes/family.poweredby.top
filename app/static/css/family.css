@@ -531,6 +531,23 @@ textarea { min-height: 5rem; }
   border-radius: .8rem;
   pointer-events: auto;
 }
+.scan-enter {
+  display: flex;
+  gap: .35rem;
+  align-items: center;
+  pointer-events: auto;
+}
+.scan-enter [data-qty-enter] {
+  width: 4.2rem;
+  min-height: 2.75rem;
+  border: 1.5px solid #fff;
+  border-radius: .8rem;
+  background: rgba(0, 0, 0, .35);
+  color: #fff;
+  font-weight: 800;
+  font-size: 1.05rem;
+  text-align: center;
+}
 .scan-live-bar .sheet-close { color: var(--ink); }
 .nav .scan-fab {
   position: relative;
