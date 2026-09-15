@@ -7,9 +7,9 @@
     <p>1. Point the camera or type the code. 2. Tell us what happened — just used, needs more, or got more.</p>
   </div>
 </div>
-{% set scan_autostart = false %}
+{% set scan_autostart = true %}
 {% set scan_title = "Point the camera" %}
-{% set scan_hint = "Tap Open camera, then hold a UPC or QR in the box. Or type the numbers below." %}
+{% set scan_hint = "Hold a UPC or QR in the wide box. It names the thing for you. Or type the numbers." %}
 {% include "partials/scan_strip.html" %}
 {% if can('edit_grocery') or can('edit_meta') or can('maintain') %}
 <form class="card" method="post" action="{{ url_for('items.create_item') }}" enctype="multipart/form-data">

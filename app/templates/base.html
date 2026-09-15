@@ -83,9 +83,9 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h14l-1.5 9h-13z"/><path d="M7 7 6 4H3"/><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/></svg>
       Basket
     </a>
-    <a class="scan-fab" href="{{ url_for('scan.scan_page') }}" aria-label="Scan">
+    <button type="button" class="scan-fab" id="scan-fab" aria-label="Scan">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8V5h3M20 8V5h-3M4 16v3h3M20 16v3h-3M7 12h10"/></svg>
-    </a>
+    </button>
     <a href="{{ url_for('tools.index') }}" class="{% if request.endpoint and ('tool' in request.endpoint or 'vehicle' in request.endpoint) %}active{% endif %}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 0 0 5.4-5.4l-2.2 2.2-1.8-1.8z"/></svg>
       Tools
@@ -103,6 +103,18 @@
       <iframe class="sheet-frame" id="sheet-frame" title="Sheet" hidden></iframe>
     </div>
   </div>
+  <div class="scan-live" id="scan-live" hidden>
+    <div class="scan-live-bar">
+      <button type="button" class="sheet-close" id="scan-live-close">Close</button>
+      <span>Hold a UPC or QR in the frame</span>
+    </div>
+    <div id="scan-live-reader"></div>
+    <p class="muted" id="scan-live-status">Opening camera…</p>
+    <div id="scan-live-result" hidden></div>
+  </div>
+  <script>window.FAMILY_CAN_CREATE = {{ 'true' if can('edit_grocery') or can('edit_meta') or can('maintain') else 'false' }};</script>
+  <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="{{ url_for('static', filename='js/scan.js') }}?v=os14"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}?v=os11"></script>
   {% block scripts %}{% endblock %}
 </body>

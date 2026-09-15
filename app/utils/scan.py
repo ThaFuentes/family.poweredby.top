@@ -420,65 +420,44 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
     db.session.add(event)
 
     if item is None:
-        if action in ("want", "need_more", "consume", "restock"):
-            item, g, _created = ensure_wanted_item(household_id, user_id, code)
-            event.item_id = item.id
-            payload = {
-                "found": True,
-                "barcode": code,
-                "item_id": item.id,
-                "item_type": item.item_type,
-                "name": item.name,
-                "create": False,
-            }
-            if action == "restock":
-                stock = apply_grocery_stock(g, item, "restock", amount, user_id)
-            else:
-                action = "want"
-                stock = flag_need_more(g, item, user_id)
-            payload.update(stock)
-            payload["hint"] = consumption_hint(g)
-            event.action = action
-            event.result_json = {
-                "name": item.name,
-                "type": item.item_type,
-                "status": payload.get("status"),
-                "quantity": payload.get("quantity"),
-            }
-            db.session.commit()
-            payload["action"] = action
-            return payload
-        name, lookup = _lookup_name(code)
-        extra = _classify_payload(household_id, lookup, name)
-        try:
-            from app.builddb.table_households import Household
-            from app.utils.places import recall_upc
-
-            remembered = recall_upc(Household.query.get(household_id), code)
-        except Exception:
-            remembered = None
-        if remembered:
-            extra["remembered"] = True
-            extra["kind"] = remembered.get("kind") or extra.get("kind")
-            extra["kind_label"] = extra.get("kind_label")
-            extra["suggested_type"] = remembered.get("item_type") or extra.get("suggested_type")
-            extra["location_hint"] = remembered.get("location") or extra.get("location_hint")
-            if remembered.get("linked_item_id"):
-                extra["linked_item_id"] = remembered.get("linked_item_id")
-            if remembered.get("name"):
-                name = remembered["name"]
-        db.session.commit()
+        item, g, created = ensure_wanted_item(household_id, user_id, code)
+        event.item_id = item.id
         payload = {
-            "found": False,
+            "found": True,
             "barcode": code,
-            "create": True,
-            "status": STATUS_WANT,
-            "headline": extra.get("kind_label") or "Want",
-            "name": name,
-            "brand": extra.get("brand") or (lookup.get("brand") or "").strip() or None,
-            "message": extra.get("message") or f"{name} isn't in the house yet. Want it?",
+            "item_id": item.id,
+            "item_type": item.item_type,
+            "name": item.name,
+            "create": False,
+            "looked_up": created,
         }
-        payload.update(extra)
+        if g is None:
+            stock = {"message": f"{item.name} is in the house.", "status": STATUS_OK}
+        elif action == "restock":
+            stock = apply_grocery_stock(g, item, "restock", amount, user_id)
+        elif action in ("consume", "just_used"):
+            stock = apply_grocery_stock(g, item, "consume", amount, user_id)
+        elif action in ("need_more", "want"):
+            stock = flag_need_more(g, item, user_id)
+        else:
+            stock = grocery_payload(g, item, action="check")
+            looked = created and not (item.name or "").startswith("Scanned ")
+            stock["message"] = (
+                f"{item.name}."
+                + (" That's the barcode lookup." if looked else " New here — rename it if the name is wrong.")
+                + " Tap Got more if it's on the shelf."
+            )
+        payload.update(stock)
+        payload["hint"] = consumption_hint(g) if g is not None else None
+        event.action = action if action in ("restock", "consume", "need_more", "want") else "check"
+        event.result_json = {
+            "name": item.name,
+            "type": item.item_type,
+            "status": payload.get("status"),
+            "quantity": payload.get("quantity"),
+        }
+        db.session.commit()
+        payload["action"] = event.action
         return payload
 
     payload = {

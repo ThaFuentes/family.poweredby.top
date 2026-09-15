@@ -397,10 +397,13 @@ textarea { min-height: 5rem; }
   grid-template-columns: repeat(5, 1fr);
   z-index: 40;
 }
-.nav a {
+.nav a,
+.nav .scan-fab {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   color: var(--muted); font-size: .62rem; font-weight: 700; gap: .12rem;
   letter-spacing: .02em;
+  appearance: none; border: 0; background: transparent; font-family: inherit;
+  cursor: pointer;
 }
 .nav a svg { width: 1.35rem; height: 1.35rem; }
 .nav a.active { color: var(--green); }
@@ -414,6 +417,45 @@ textarea { min-height: 5rem; }
   gap: 0;
 }
 .nav .scan-fab svg { width: 1.45rem; height: 1.45rem; stroke: #fff; }
+.scan-live {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: #0b0c0d;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: var(--safe-b);
+}
+.scan-live[hidden] { display: none !important; }
+.scan-live-bar {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: calc(.45rem + var(--safe-t)) .85rem .55rem;
+  color: #f3f1ec;
+  font-weight: 700;
+  font-size: .92rem;
+}
+.scan-live-bar .sheet-close { color: var(--ink); }
+#scan-live-reader {
+  flex: 1;
+  min-height: 42vh;
+  background: #000;
+}
+#scan-live-reader video,
+#scan-live-reader canvas {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
+}
+#scan-live-status,
+#scan-live-result {
+  margin: 0;
+  padding: .75rem 1rem 1rem;
+  color: #f3f1ec;
+}
+#scan-live-result { background: var(--card); color: var(--ink); max-height: 42vh; overflow: auto; }
+body.scan-live-open { overflow: hidden; }
 
 .side-nav,
 .desk-links,

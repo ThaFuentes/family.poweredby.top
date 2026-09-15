@@ -1,11 +1,16 @@
 /* Scan identifies the item. Kids then tap Just used / Needs more / Got more. */
 (function () {
-  const statusEl = document.getElementById("scan-status");
-  const resultEl = document.getElementById("scan-result");
+  const pageStatus = document.getElementById("scan-status");
+  const pageResult = document.getElementById("scan-result");
+  const liveStatus = document.getElementById("scan-live-status");
+  const liveResult = document.getElementById("scan-live-result");
   const manualForm = document.getElementById("manual-form");
   const canCreate = window.FAMILY_CAN_CREATE === true;
   const scanKind = window.FAMILY_SCAN_KIND || "any";
-  if (!statusEl || !resultEl) return;
+  let statusEl = pageStatus || liveStatus;
+  let resultEl = pageResult || liveResult;
+  if (!statusEl) statusEl = liveStatus;
+  if (!resultEl) resultEl = liveResult;
   let busy = false;
   let lastCode = "";
   let lastAt = 0;
@@ -52,6 +57,7 @@
   }
 
   function showResult(html, tone) {
+    if (!resultEl) return;
     resultEl.hidden = false;
     resultEl.className = "scan-result" + (tone ? " " + tone : "");
     resultEl.innerHTML = html;
@@ -333,6 +339,9 @@
 
   async function applyBarcode(barcode, forcedAction, fromQueue) {
     if (!barcode || busy) return;
+    if (!statusEl) statusEl = document.getElementById("scan-live-status") || document.getElementById("scan-status");
+    if (!resultEl) resultEl = document.getElementById("scan-live-result") || document.getElementById("scan-result");
+    if (!statusEl) return;
     const now = Date.now();
     if (!forcedAction && barcode === lastCode && now - lastAt < 2500) return;
     lastCode = barcode;
@@ -485,48 +494,161 @@
     });
   }
 
-  function startCamera() {
+  let qrLive = null;
+  let qrPage = null;
+
+  function scanConfig() {
+    const formats = window.Html5QrcodeSupportedFormats
+      ? [
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.UPC_A,
+          Html5QrcodeSupportedFormats.UPC_E,
+          Html5QrcodeSupportedFormats.QR_CODE,
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.CODE_39,
+          Html5QrcodeSupportedFormats.ITF,
+        ]
+      : undefined;
+    return {
+      fps: 12,
+      disableFlip: false,
+      aspectRatio: 1.777,
+      rememberLastUsedCamera: true,
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+      formatsToSupport: formats,
+      qrbox: function (w, h) {
+        const boxW = Math.floor(Math.min(w * 0.92, 360));
+        const boxH = Math.floor(Math.min(h * 0.28, 140));
+        return { width: Math.max(boxW, 220), height: Math.max(boxH, 80) };
+      },
+    };
+  }
+
+  function startOn(readerId, instanceSlot, onReady, onFail) {
     if (typeof Html5Qrcode === "undefined") {
-      statusEl.textContent = "Camera library failed to load. Type a barcode below.";
+      if (onFail) onFail("Camera library failed to load. Type a barcode.");
       return;
     }
-    const qr = new Html5Qrcode("reader");
-    Html5Qrcode.getCameras()
-      .then(function (cameras) {
-        const cam =
-          cameras.find(function (c) {
-            return /back|rear|environment/i.test(c.label);
-          }) || cameras[0];
-        if (!cam) {
-          statusEl.textContent = "No camera found.";
-          return;
-        }
-        return qr.start(
-          cam.id,
-          { fps: 8, qrbox: { width: 260, height: 260 } },
-          function (decoded) {
-            applyBarcode(decoded);
-          }
-        );
-      })
+    const host = document.getElementById(readerId);
+    if (!host) {
+      if (onFail) onFail("No camera box.");
+      return;
+    }
+    if (instanceSlot.qr && instanceSlot.qr.isScanning) return;
+    const qr = new Html5Qrcode(readerId, false);
+    instanceSlot.qr = qr;
+    function go(target) {
+      return qr.start(target, scanConfig(), function (decoded) {
+        applyBarcode(decoded);
+      });
+    }
+    go({ facingMode: "environment" })
       .then(function () {
-        statusEl.textContent = "Camera on. Hold a barcode in the box.";
+        if (onReady) onReady();
       })
       .catch(function () {
-        statusEl.textContent = "Camera permission needed, or type a barcode.";
+        return Html5Qrcode.getCameras().then(function (cameras) {
+          const cam =
+            (cameras || []).find(function (c) {
+              return /back|rear|environment/i.test(c.label || "");
+            }) || (cameras || [])[0];
+          if (!cam) throw new Error("no camera");
+          return go(cam.id);
+        });
+      })
+      .then(function () {
+        if (onReady) onReady();
+      })
+      .catch(function () {
+        if (onFail) onFail("Camera permission needed, or type a barcode.");
       });
   }
 
-  const openBtn = document.getElementById("scan-open-camera");
-  const readerEl = document.getElementById("reader");
-  if (window.FAMILY_SCAN_AUTOSTART === false && openBtn) {
-    openBtn.addEventListener("click", function () {
-      if (readerEl) readerEl.hidden = false;
-      openBtn.hidden = true;
-      startCamera();
-    });
-  } else {
-    startCamera();
+  function stopQr(slot) {
+    if (!slot || !slot.qr) return;
+    const q = slot.qr;
+    slot.qr = null;
+    try {
+      q.stop().then(function () {
+        try {
+          q.clear();
+        } catch (e) {}
+      }).catch(function () {});
+    } catch (e) {}
   }
+
+  const pageSlot = {};
+  const liveSlot = {};
+
+  function startPageCamera() {
+    const readerEl = document.getElementById("reader");
+    const openBtn = document.getElementById("scan-open-camera");
+    if (readerEl) readerEl.hidden = false;
+    if (openBtn) openBtn.hidden = true;
+    statusEl = pageStatus || statusEl;
+    resultEl = pageResult || resultEl;
+    startOn(
+      "reader",
+      pageSlot,
+      function () {
+        if (pageStatus) pageStatus.textContent = "Camera on. Hold the barcode in the wide box.";
+      },
+      function (msg) {
+        if (pageStatus) pageStatus.textContent = msg;
+        if (openBtn) openBtn.hidden = false;
+      }
+    );
+  }
+
+  function openLiveScan(e) {
+    if (e) e.preventDefault();
+    const live = document.getElementById("scan-live");
+    if (!live) {
+      startPageCamera();
+      return;
+    }
+    live.hidden = false;
+    document.body.classList.add("scan-live-open");
+    statusEl = liveStatus || statusEl;
+    resultEl = liveResult || resultEl;
+    if (liveStatus) liveStatus.textContent = "Opening camera…";
+    startOn(
+      "scan-live-reader",
+      liveSlot,
+      function () {
+        if (liveStatus) liveStatus.textContent = "Hold a UPC or QR in the frame.";
+      },
+      function (msg) {
+        if (liveStatus) liveStatus.textContent = msg;
+      }
+    );
+  }
+
+  function closeLiveScan() {
+    const live = document.getElementById("scan-live");
+    stopQr(liveSlot);
+    if (live) live.hidden = true;
+    document.body.classList.remove("scan-live-open");
+    if (pageStatus) statusEl = pageStatus;
+    if (pageResult) resultEl = pageResult;
+  }
+
+  const openBtn = document.getElementById("scan-open-camera");
+  if (openBtn) {
+    openBtn.addEventListener("click", function (e) {
+      e.preventDefault();
+      startPageCamera();
+    });
+  }
+  if (window.FAMILY_SCAN_AUTOSTART !== false && document.getElementById("reader")) {
+    startPageCamera();
+  }
+  const fab = document.getElementById("scan-fab");
+  if (fab) {
+    fab.addEventListener("click", openLiveScan);
+  }
+  const liveClose = document.getElementById("scan-live-close");
+  if (liveClose) liveClose.addEventListener("click", closeLiveScan);
   flushQueue();
 })();
