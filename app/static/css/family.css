@@ -22,19 +22,26 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
-html { -webkit-text-size-adjust: 100%; }
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
 body {
   min-height: 100dvh;
+  min-height: 100svh;
   font-family: var(--font);
   background:
     radial-gradient(1200px 500px at 10% -10%, #dceadf 0%, transparent 55%),
     var(--bg);
   color: var(--ink);
-  padding-top: var(--safe-t);
   padding-bottom: calc(var(--nav-h) + var(--safe-b) + 1.1rem);
   letter-spacing: -0.011em;
+  overscroll-behavior-y: none;
 }
-body.auth { padding-bottom: var(--safe-b); }
+a, button, input, select, textarea, summary, .tile {
+  touch-action: manipulation;
+}
+body.auth { padding-top: var(--safe-t); padding-bottom: var(--safe-b); }
 html.family-standalone body { background: var(--bg); }
 
 a { color: var(--green); text-decoration: none; }
@@ -250,33 +257,44 @@ h2 { font-size: 1.02rem; margin: 1.15rem 0 .55rem; letter-spacing: -0.02em; }
   position: fixed;
   inset: 0;
   z-index: 80;
-  background: rgba(20, 24, 22, .48);
+  background: rgba(12, 14, 13, .45);
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding: .75rem .75rem calc(.75rem + env(safe-area-inset-bottom, 0px));
+  padding: 0;
 }
 .sheet-overlay[hidden] { display: none; }
 .sheet-panel {
   width: min(28rem, 100%);
   height: min(42rem, 88dvh);
   background: var(--card);
-  border-radius: 1.1rem 1.1rem .6rem .6rem;
-  box-shadow: var(--shadow);
+  border-radius: 1.15rem 1.15rem .6rem .6rem;
+  box-shadow: 0 -12px 40px rgba(20, 24, 22, .18);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transition: transform .18s ease;
+}
+.sheet-grab {
+  flex: 0 0 auto;
+  width: 2.5rem;
+  height: .32rem;
+  margin: .55rem auto .1rem;
+  border-radius: 99px;
+  background: var(--muted);
+  opacity: .38;
 }
 .sheet-close {
   align-self: flex-end;
-  margin: .45rem .55rem 0;
+  margin: .15rem .7rem .15rem;
   border: 0;
   background: var(--bg-2);
   color: var(--ink);
   font-weight: 700;
-  font-size: .82rem;
+  font-size: .88rem;
   border-radius: 999px;
-  padding: .35rem .75rem;
+  padding: .5rem 1rem;
+  min-height: 2.5rem;
   cursor: pointer;
 }
 .sheet-frame {
@@ -285,11 +303,13 @@ h2 { font-size: 1.02rem; margin: 1.15rem 0 .55rem; letter-spacing: -0.02em; }
   border: 0;
   background: var(--bg);
 }
-body.sheet-open { overflow: hidden; }
+body.sheet-open { overflow: hidden; overscroll-behavior: none; }
 body.sheet-body {
   min-height: 100%;
-  padding: .7rem .85rem 1.2rem;
+  min-height: 100dvh;
+  padding: .55rem 1rem calc(1.5rem + var(--safe-b));
   background: var(--bg);
+  padding-bottom: calc(1.5rem + var(--safe-b));
 }
 body.sheet-body .cal-connect { margin: 0; box-shadow: none; }
 .cal-embed {
@@ -519,8 +539,10 @@ textarea { min-height: 5rem; }
 .landing-install { margin-top: auto; }
 
 @media (max-width: 720px) {
-  input, select, textarea { font-size: 16px; }
-  .btn { min-height: 2.9rem; }
+  input, select, textarea { font-size: 16px; min-height: 3rem; }
+  .btn { min-height: 3rem; }
+  .btn.sm { min-height: 2.6rem; padding: .55rem .9rem; }
+  .btn-row .btn { flex: 1 1 8rem; }
 }
 
 .sys-jump {
@@ -876,6 +898,98 @@ html.family-intro-out #family-intro{opacity:0;transition:opacity .4s ease}
 .cal-manual summary { cursor: pointer; font-weight: 700; font-size: .82rem; color: var(--muted); }
 @media (max-width: 420px) {
   .cal-row { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 959px) {
+  .has-nav .topbar.wrap {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    width: auto;
+    max-width: none;
+    margin: 0;
+    padding: calc(.4rem + var(--safe-t)) .85rem .45rem;
+    background: color-mix(in srgb, var(--bg) 78%, transparent);
+    backdrop-filter: blur(22px) saturate(1.6);
+    -webkit-backdrop-filter: blur(22px) saturate(1.6);
+    border-bottom: 1px solid var(--edge);
+  }
+  .has-nav .brand img { width: 32px; height: 32px; border-radius: 9px; }
+  .has-nav .brand-meta strong { font-size: .95rem; }
+  .has-nav main.wrap {
+    width: min(720px, calc(100% - 1.15rem));
+    padding-top: .45rem;
+  }
+  .page-head { margin: .15rem 0 .85rem; align-items: flex-start; }
+  .page-head h1 { font-size: 1.42rem; }
+  .page-head p { font-size: .88rem; }
+  .grid { gap: .55rem; }
+  .tile { min-height: 6.5rem; padding: .85rem .9rem; border-radius: 1.1rem; }
+  .tile .label { font-size: 1.02rem; }
+  .nav {
+    height: calc(3.9rem + var(--safe-b));
+    padding-top: .15rem;
+    background: color-mix(in srgb, var(--card) 88%, transparent);
+  }
+  .nav a {
+    min-height: 2.7rem;
+    font-size: .58rem;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .nav a svg { width: 1.42rem; height: 1.42rem; }
+  .nav .scan-fab {
+    width: 3.55rem;
+    height: 3.55rem;
+    margin-top: -1.35rem;
+  }
+  .sheet-overlay { padding: 0; }
+  .sheet-panel {
+    width: 100%;
+    height: min(94dvh, calc(100dvh - var(--safe-t) - .35rem));
+    max-height: calc(100svh - var(--safe-t));
+    border-radius: 1.2rem 1.2rem 0 0;
+  }
+  .who-menu .sheet {
+    position: fixed;
+    left: .65rem;
+    right: .65rem;
+    top: auto;
+    bottom: calc(var(--nav-h) + var(--safe-b) + .55rem);
+    min-width: 0;
+    max-height: min(70dvh, 28rem);
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 1.15rem;
+    padding: .5rem;
+    box-shadow: 0 18px 50px rgba(20, 24, 22, .22);
+  }
+  .who-menu .sheet a,
+  .who-menu .sheet button {
+    min-height: 2.7rem;
+    padding: .75rem .85rem;
+    font-size: 1rem;
+  }
+  .who-chip { min-height: 2.55rem; }
+  .find-box { max-width: 9.5rem; }
+  .find-box input { min-height: 2.55rem; padding: .45rem .75rem; border-radius: 999px; }
+  .tabs { gap: .35rem; margin-bottom: .85rem; }
+  .tabs a {
+    min-height: 2.45rem;
+    display: inline-flex;
+    align-items: center;
+    padding: .45rem .9rem;
+  }
+  .card { padding: 1rem 1rem 1.05rem; }
+  html.family-standalone body.has-nav {
+    padding-bottom: calc(var(--nav-h) + var(--safe-b) + .85rem);
+  }
+  [data-theme="dark"] .has-nav .topbar.wrap {
+    background: color-mix(in srgb, #0c0d0e 78%, transparent);
+  }
+  [data-theme="dark"] .nav {
+    background: color-mix(in srgb, #16181b 88%, transparent);
+  }
 }
 .label-sheet {
   display: grid; grid-template-columns: repeat(2, 1fr); gap: .85rem;

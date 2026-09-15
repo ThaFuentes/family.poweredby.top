@@ -1,5 +1,5 @@
 <meta name="theme-color" content="{{ theme_color }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/family.css') }}?v=os26">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/family.css') }}?v=os27">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}?v=os23">
 <script>
 (function () {
@@ -15,15 +15,16 @@
 })();
 (function () {
   try {
+    var standNow = window.matchMedia("(display-mode: standalone)").matches
+      || window.matchMedia("(display-mode: window-controls-overlay)").matches
+      || window.matchMedia("(display-mode: minimal-ui)").matches
+      || window.navigator.standalone === true;
+    if (standNow) document.documentElement.classList.add("family-standalone");
     if (window.self !== window.top) return;
     if ((location.pathname || "").indexOf("/platform") === 0) return;
     if (sessionStorage.getItem("family.intro.v1") === "1") return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    var stand = window.matchMedia("(display-mode: standalone)").matches
-      || window.matchMedia("(display-mode: window-controls-overlay)").matches
-      || window.matchMedia("(display-mode: minimal-ui)").matches
-      || window.navigator.standalone === true;
-    if (!stand) return;
+    if (!standNow) return;
     document.documentElement.classList.add("family-intro-on");
     var s = document.createElement("script");
     s.src = "/static/js/intro.js?v=os2";

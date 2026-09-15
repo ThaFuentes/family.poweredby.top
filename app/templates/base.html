@@ -98,11 +98,12 @@
   {% endif %}
   <div class="sheet-overlay" id="sheet-overlay" hidden>
     <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="Sheet">
+      <div class="sheet-grab" id="sheet-grab" aria-hidden="true"></div>
       <button type="button" class="sheet-close" data-sheet-close aria-label="Close">Close</button>
       <iframe class="sheet-frame" id="sheet-frame" title="Sheet" hidden></iframe>
     </div>
   </div>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=os10"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=os11"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

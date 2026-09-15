@@ -58,6 +58,32 @@
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape") closeSheet();
   });
+  (function () {
+    var grab = document.getElementById("sheet-grab");
+    var panel = document.querySelector(".sheet-panel");
+    if (!grab || !panel) return;
+    var startY = 0;
+    function onStart(e) {
+      var t = e.touches ? e.touches[0] : e;
+      startY = t.clientY;
+    }
+    function onMove(e) {
+      if (!startY) return;
+      var t = e.touches ? e.touches[0] : e;
+      var dy = t.clientY - startY;
+      if (dy > 0) panel.style.transform = "translateY(" + Math.min(dy, 280) + "px)";
+    }
+    function onEnd(e) {
+      var t = (e.changedTouches && e.changedTouches[0]) || e;
+      var dy = t.clientY - startY;
+      startY = 0;
+      panel.style.transform = "";
+      if (dy > 90) closeSheet();
+    }
+    grab.addEventListener("touchstart", onStart, { passive: true });
+    grab.addEventListener("touchmove", onMove, { passive: true });
+    grab.addEventListener("touchend", onEnd);
+  })();
   document.addEventListener("click", function (e) {
     var overlay = document.getElementById("sheet-overlay");
     var frame = document.getElementById("sheet-frame");
