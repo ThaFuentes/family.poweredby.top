@@ -1,5 +1,5 @@
 from datetime import datetime
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session
 from flask_login import login_required, current_user
 from sqlalchemy.orm import joinedload
 
@@ -70,7 +70,56 @@ def index():
             "want": len(want_items),
             "all": len(q),
         },
+        ai_ready=_ai_ready(),
+        pantry_ai_report=session.pop("pantry_ai_report", None),
     )
+
+
+def _ai_ready() -> bool:
+    try:
+        from app.builddb.table_households import Household
+        from app.utils.ai import get_ai_config
+
+        return bool(get_ai_config(Household.query.get(household_id()), household_only=True).get("ready"))
+    except Exception:
+        return False
+
+
+@groceries_bp.route("/ai-place", methods=["POST"])
+@login_required
+@require_perm("edit_grocery")
+def ai_place():
+    from flask import session
+    from app.builddb.table_households import Household
+    from app.utils.classify import parse_pantry_places
+
+    hid = household_id()
+    household = Household.query.get(hid)
+    items = (
+        Item.query.options(joinedload(Item.grocery))
+        .filter_by(household_id=hid, item_type="grocery")
+        .filter(Item.removed_at.is_(None))
+        .order_by(Item.name.asc())
+        .all()
+    )
+    only_empty = (request.form.get("only_empty") or "1") == "1"
+    if only_empty:
+        items = [i for i in items if i.grocery and not (i.grocery.default_location or "").strip()]
+    report = parse_pantry_places(household, items)
+    db.session.commit()
+    session["pantry_ai_report"] = report
+    if report.get("error") and not report.get("moved"):
+        flash(report["error"], "danger")
+    elif report.get("moved"):
+        flash(
+            f"AI put {report['moved']} item(s) in rooms."
+            if report.get("used_ai")
+            else f"Guessed rooms for {report['moved']} item(s).",
+            "success",
+        )
+    else:
+        flash("Rooms already looked fine. Nothing moved.", "info")
+    return redirect(url_for("groceries.index", view="hand"))
 
 
 def _basket_payload(rows):

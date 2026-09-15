@@ -477,6 +477,101 @@ def refine_with_ai(lookup: dict | None, heuristic: dict, household=None, extra: 
     return out
 
 
+def parse_pantry_places(household, items: list) -> dict:
+    """One AI pass: put on-hand groceries into rooms. Heuristic if no key."""
+    from app.utils.places import list_places, snap_location
+    from app.utils.ai import complete
+    from sqlalchemy.orm.attributes import flag_modified
+
+    rooms = list_places(household)
+    rows = []
+    for item in items:
+        g = getattr(item, "grocery", None)
+        if g is None:
+            continue
+        rows.append(
+            {
+                "id": item.id,
+                "name": item.name,
+                "brand": g.brand or "",
+                "qty": str(g.quantity or ""),
+                "here": (g.default_location or "").strip(),
+            }
+        )
+    report = {"used_ai": False, "lines": [], "moved": 0, "error": None}
+    if not rows:
+        report["error"] = "Nothing to place."
+        return report
+    placements = {}
+    ok, text = complete(
+        "Items:\n"
+        + "\n".join(
+            f"- id={r['id']} name={r['name']} brand={r['brand']} qty={r['qty']} current={r['here'] or '(none)'}"
+            for r in rows[:80]
+        ),
+        system=(
+            "You put household groceries into rooms. JSON only:\n"
+            '{"placements":[{"id":1,"location":"Fridge","why":"dairy"}]}\n'
+            f"Rooms you may use: {', '.join(rooms)}.\n"
+            "Keep current location if it already looks right. Empty location if you are unsure."
+        ),
+        max_tokens=1200,
+        timeout=45,
+        household=household,
+        household_only=True,
+    )
+    if ok and text:
+        report["used_ai"] = True
+        try:
+            import json
+            raw = text.strip()
+            if "```" in raw:
+                raw = raw.split("```", 2)[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            data = json.loads(raw)
+            for p in data.get("placements") or []:
+                try:
+                    iid = int(p.get("id"))
+                except Exception:
+                    continue
+                loc = snap_location(p.get("location"), household)
+                if loc:
+                    placements[iid] = {"location": loc, "why": (p.get("why") or "")[:160]}
+        except Exception as exc:
+            report["error"] = f"AI answered but was not JSON ({exc}). Used guesses."
+    if not placements:
+        for r in rows:
+            if r["here"]:
+                continue
+            guess = classify({"name": r["name"], "brand": r["brand"]}, household=household, extra=r["name"], use_ai=False)
+            loc = snap_location(guess.get("location_hint"), household)
+            if loc:
+                placements[r["id"]] = {"location": loc, "why": guess.get("message") or "guess"}
+    by_room: dict[str, list[str]] = {}
+    for item in items:
+        g = getattr(item, "grocery", None)
+        hit = placements.get(item.id)
+        if not hit or g is None:
+            continue
+        if (g.default_location or "").strip() == hit["location"]:
+            continue
+        g.default_location = hit["location"]
+        extra = dict(g.extra_data or {})
+        extra["ai"] = {
+            "used_ai": report["used_ai"],
+            "location": hit["location"],
+            "why": hit["why"],
+            "kind": "pantry parse",
+        }
+        g.extra_data = extra
+        flag_modified(g, "extra_data")
+        report["moved"] += 1
+        by_room.setdefault(hit["location"], []).append(item.name)
+    report["lines"] = [f"{room}: {', '.join(names)}" for room, names in sorted(by_room.items())]
+    return report
+
+
 def place_new_grocery(item, g, lookup, household) -> dict:
     """Set default_location from AI if a key exists, else heuristic. Never raises."""
     report = {

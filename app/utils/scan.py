@@ -139,6 +139,17 @@ def find_item(household_id: int, barcode: str):
                 .filter(Item.removed_at.is_(None))
                 .first()
             )
+    try:
+        from app.utils.vehicle_lookup import looks_like_vin
+        from app.builddb.table_vehicles import Vehicle
+
+        if looks_like_vin(code):
+            vin = code.replace(" ", "").upper()
+            row = Vehicle.query.filter_by(household_id=household_id, vin=vin).first()
+            if row:
+                return Item.query.filter_by(id=row.item_id, household_id=household_id).first()
+    except Exception:
+        pass
     return None
 
 
@@ -534,6 +545,56 @@ def _normalize_action(action: str) -> str:
     return _ACTION_ALIASES.get(action, action)
 
 
+def ingest_vin(household_id: int, user_id: int, vin: str) -> dict:
+    """Door-sticker VIN barcode → vehicle in this house."""
+    from app.builddb.table_items import Item
+    from app.builddb.table_vehicles import Vehicle
+    from app.utils.vehicle_lookup import lookup_vehicle, apply_vehicle_lookup, looks_like_vin
+    from app.utils.qr_labels import item_payload
+
+    code = (vin or "").replace(" ", "").upper()
+    if not looks_like_vin(code):
+        return {"found": False, "create": False, "error": "Not a VIN."}
+    row = Vehicle.query.filter_by(household_id=household_id, vin=code).first()
+    if row:
+        item = Item.query.get(row.item_id)
+        return {
+            "found": True,
+            "create": False,
+            "barcode": code,
+            "item_id": item.id if item else row.item_id,
+            "item_type": "vehicle",
+            "name": item.name if item else "Vehicle",
+            "vin": code,
+            "message": f"{item.name if item else 'That car'} is already in the house.",
+        }
+    decoded = lookup_vehicle(vin=code)
+    name = decoded.get("name") or f"VIN {code[:8]}"
+    item = Item(
+        household_id=household_id,
+        name=str(name)[:200],
+        item_type="vehicle",
+        created_by=user_id,
+    )
+    db.session.add(item)
+    db.session.flush()
+    item.barcode = item_payload(household_id, item.id)
+    v = Vehicle(item_id=item.id, household_id=household_id, vin=code)
+    db.session.add(v)
+    apply_vehicle_lookup(v, item, decoded)
+    v.vin = code
+    return {
+        "found": True,
+        "create": True,
+        "barcode": code,
+        "item_id": item.id,
+        "item_type": "vehicle",
+        "name": item.name,
+        "vin": code,
+        "message": f"Added {item.name} from the VIN sticker.",
+    }
+
+
 def process_scan(household_id: int, user_id: int, barcode: str, action: str, amount=1, location=None, skip_place=False):
     code = (barcode or "").strip()
     action = _normalize_action(action)
@@ -565,6 +626,17 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
     db.session.add(event)
 
     if item is None:
+        try:
+            from app.utils.vehicle_lookup import looks_like_vin
+
+            if looks_like_vin(code):
+                payload = ingest_vin(household_id, user_id, code)
+                event.item_id = payload.get("item_id")
+                event.result_json = {"name": payload.get("name"), "type": "vehicle"}
+                db.session.commit()
+                return payload
+        except Exception:
+            pass
         item, g, created = ensure_wanted_item(household_id, user_id, code)
         event.item_id = item.id
         payload = {

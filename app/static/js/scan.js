@@ -139,7 +139,7 @@
       encode(data.name || "Item") +
       "</strong> " +
       encode(String(qty != null ? qty : "")) +
-      " now · how many this scan? " +
+      " now · 1, 5, 10, or type it " +
       qtyChips();
     if (data.ask_list) {
       html +=
@@ -233,6 +233,10 @@
   function isUpcLike(raw) {
     return /^\d{8,14}$/.test(String(raw || "").replace(/\s/g, ""));
   }
+  function isVinLike(raw) {
+    const t = String(raw || "").replace(/[\s-]/g, "").toUpperCase();
+    return t.length === 17 && /^[A-HJ-NPR-Z0-9]{17}$/.test(t);
+  }
   function isFamilyQr(raw) {
     return /^FAM:/i.test(String(raw || ""));
   }
@@ -241,7 +245,7 @@
   }
   function preferUpc(decoded) {
     const s = String(decoded || "").trim();
-    if (isUpcLike(s) || isFamilyQr(s)) return s;
+    if (isUpcLike(s) || isVinLike(s) || isFamilyQr(s)) return isVinLike(s) ? s.replace(/[\s-]/g, "").toUpperCase() : s;
     if (window.FAMILY_SCAN_INTO && isWebQr(s)) return null;
     return s;
   }
@@ -357,9 +361,8 @@
       '<p class="kicker" style="margin:.85rem 0 .35rem">How many?</p>' +
       '<div class="scan-qty" role="group" aria-label="How many">' +
       '<button type="button" class="chip" data-qty-chip="1">1</button>' +
-      '<button type="button" class="chip" data-qty-chip="2">2</button>' +
-      '<button type="button" class="chip" data-qty-chip="4">4</button>' +
-      '<button type="button" class="chip" data-qty-chip="6">6</button>' +
+      '<button type="button" class="chip" data-qty-chip="5">5</button>' +
+      '<button type="button" class="chip" data-qty-chip="10">10</button>' +
       '<input type="number" min="0" step="1" value="1" inputmode="numeric" data-scan-qty aria-label="Count">' +
       "</div>" +
       '<p class="muted">Tap 1, 2, 4… then next box. Camera stays on.</p>' +
@@ -689,7 +692,17 @@
         pauseDecode = false;
         return;
       }
-      if (data.item_type === "vehicle" || data.item_type === "tool") {
+      if (data.item_type === "vehicle") {
+        if (flashToast({ name: data.name, quantity: "car", barcode: data.barcode, message: data.message })) {
+          statusEl.textContent = data.message || "Vehicle in the house.";
+          pauseDecode = false;
+          unfreezeScan();
+          return;
+        }
+        statusEl.textContent = data.message || "Vehicle saved.";
+        return;
+      }
+      if (data.item_type === "tool") {
         showResult(mileageCard(data));
         statusEl.textContent = "Type the reading, or scan the next thing.";
         return;
@@ -793,6 +806,17 @@
       });
     });
     el.addEventListener("submit", function (e) {
+      const qtyForm = e.target.closest("[data-qty-form]");
+      if (qtyForm) {
+        e.preventDefault();
+        const input = qtyForm.querySelector("[data-qty-enter]");
+        const n = parseFloat((input && input.value) || "0");
+        if (n > 0) {
+          pauseDecode = false;
+          flushPending(n);
+        }
+        return;
+      }
       const form = e.target.closest("[data-mileage-form]");
       if (!form) return;
       e.preventDefault();
@@ -851,8 +875,12 @@
           Html5QrcodeSupportedFormats.CODE_128,
           Html5QrcodeSupportedFormats.ITF,
           Html5QrcodeSupportedFormats.CODE_39,
+          Html5QrcodeSupportedFormats.CODE_93,
+          Html5QrcodeSupportedFormats.PDF_417,
           Html5QrcodeSupportedFormats.QR_CODE,
-        ]
+        ].filter(function (x) {
+          return x != null;
+        })
       : undefined;
     return {
       fps: 12,

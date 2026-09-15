@@ -40,8 +40,25 @@
     <h1>Pantry</h1>
     <p>What’s in the house. Want and out are other tabs — not mixed in.</p>
   </div>
-  <a class="btn sm secondary" href="{{ url_for('groceries.grocery_list') }}">Basket</a>
+  <div class="btn-row" style="margin:0">
+    <a class="btn sm secondary" href="{{ url_for('groceries.grocery_list') }}">Basket</a>
+    {% if can('edit_grocery') %}
+    <form method="post" action="{{ url_for('groceries.ai_place') }}" style="margin:0">
+      <input type="hidden" name="only_empty" value="1">
+      <button class="btn sm" type="submit">{% if ai_ready %}AI put these in rooms{% else %}Guess rooms{% endif %}</button>
+    </form>
+    {% endif %}
+  </div>
 </div>
+{% if pantry_ai_report and pantry_ai_report.lines %}
+<div class="card">
+  <h2>{% if pantry_ai_report.used_ai %}AI rooms{% else %}Guessed rooms{% endif %}</h2>
+  {% for line in pantry_ai_report.lines %}
+  <p>{{ line }}</p>
+  {% endfor %}
+  <p class="muted">Change a place on the item if that’s wrong.</p>
+</div>
+{% endif %}
 <div class="place-chips no-print" role="tablist">
   <a class="{% if view=='hand' %}on{% endif %}" href="{% if place %}{{ url_for('groceries.index', view='hand', place=place) }}{% else %}{{ url_for('groceries.index', view='hand') }}{% endif %}">On hand {{ counts.hand }}</a>
   <a class="{% if view=='out' %}on{% endif %}" href="{% if place %}{{ url_for('groceries.index', view='out', place=place) }}{% else %}{{ url_for('groceries.index', view='out') }}{% endif %}">Out {{ counts.out }}</a>
