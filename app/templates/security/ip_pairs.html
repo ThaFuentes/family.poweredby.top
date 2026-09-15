@@ -1,0 +1,56 @@
+{% extends "security/base.html" %}
+{% block security_content %}
+<div class="page-head">
+  <div>
+    <h1>User ↔ IP</h1>
+    <p>Who signed in from where. Empty until people use the site.</p>
+  </div>
+</div>
+<form class="card" method="get">
+  <label>IP</label>
+  <input name="ip" value="{{ ip }}" placeholder="1.2.3.4">
+  <label>Person</label>
+  <input name="user_q" value="{{ user_q }}" placeholder="username or id">
+  <div class="btn-row"><button class="btn" type="submit">Look</button></div>
+</form>
+{% if ip %}
+<div class="card list">
+  <h2>People on {{ ip }}</h2>
+  {% for r in users_for_ip %}
+  <div class="row">
+    <div>
+      <strong><a href="{{ url_for('security.user_profile', user_id=r.user_id) }}">{{ r.username }}</a></strong>
+      <div class="muted">{{ r.role }} · {{ r.hit_count }} · {{ r.last_seen }}</div>
+    </div>
+  </div>
+  {% else %}
+  <p class="muted">Nobody tied to that IP yet.</p>
+  {% endfor %}
+</div>
+{% endif %}
+{% if selected_user %}
+<div class="card list">
+  <h2>IPs for person #{{ selected_user }}</h2>
+  {% for r in ips_for_user %}
+  <div class="row">
+    <div><strong>{{ r.ip }}</strong><div class="muted">{{ r.hit_count }} · {{ r.last_seen }}</div></div>
+  </div>
+  {% else %}
+  <p class="muted">No IPs stored for them.</p>
+  {% endfor %}
+</div>
+{% endif %}
+<div class="card list">
+  <h2>Recent pairs</h2>
+  {% for r in recent %}
+  <div class="row">
+    <div>
+      <strong>{{ r.username }}</strong>
+      <div class="muted">{{ r.ip }} · {{ r.hit_count }} · {{ r.last_seen }}</div>
+    </div>
+  </div>
+  {% else %}
+  <p class="muted">No sightings yet.</p>
+  {% endfor %}
+</div>
+{% endblock %}

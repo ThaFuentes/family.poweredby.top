@@ -7,7 +7,12 @@
   <a href="{{ url_for('security.events') }}" class="{% if request.endpoint == 'security.events' %}on{% endif %}">Events</a>
   <a href="{{ url_for('security.attacks') }}" class="{% if request.endpoint == 'security.attacks' %}on{% endif %}">Attacks</a>
   <a href="{{ url_for('security.bans') }}" class="{% if request.endpoint == 'security.bans' %}on{% endif %}">Bans</a>
-  <a href="{{ url_for('security.devices') }}" class="{% if request.endpoint == 'security.devices' %}on{% endif %}">Devices</a>
+  <a href="{{ url_for('security.devices') }}" class="{% if request.endpoint and 'device' in (request.endpoint or '') %}on{% endif %}">Devices</a>
+  <a href="{{ url_for('security.investigate') }}" class="{% if request.endpoint == 'security.investigate' %}on{% endif %}">Investigate</a>
+  <a href="{{ url_for('security.users_search') }}" class="{% if request.endpoint and request.endpoint.startswith('security.user') %}on{% endif %}">People</a>
+  <a href="{{ url_for('security.ip_pairs') }}" class="{% if request.endpoint == 'security.ip_pairs' %}on{% endif %}">IPs</a>
+  <a href="{{ url_for('security.account_locks') }}" class="{% if request.endpoint == 'security.account_locks' %}on{% endif %}">Locks</a>
+  <a href="{{ url_for('security.audit') }}" class="{% if request.endpoint == 'security.audit' %}on{% endif %}">Audit</a>
 </nav>
 {% block security_content %}{% endblock %}
 {% endblock %}

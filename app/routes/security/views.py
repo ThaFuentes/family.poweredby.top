@@ -240,4 +240,174 @@ def unlock_account():
         _audit("security.unlock", {"user_id": uid})
     else:
         flash("Could not unlock that account.", "danger")
+    nxt = request.form.get("next") or ""
+    if nxt.startswith("/security"):
+        return redirect(nxt)
     return redirect(url_for("security.dashboard"))
+
+
+@security_bp.route("/locks")
+@security_required
+def account_locks():
+    return render_template(
+        "security/account_locks.html",
+        locks=q.list_account_login_locks(),
+        page_title="Login locks",
+        **_base_ctx(),
+    )
+
+
+@security_bp.route("/devices/trail")
+@security_required
+def device_trail():
+    fp = (request.args.get("device_fp") or request.args.get("fp") or "").strip()
+    if not fp:
+        flash("Pick a device from the list first.", "warning")
+        return redirect(url_for("security.devices"))
+    try:
+        limit = int(request.args.get("limit") or 200)
+    except Exception:
+        limit = 200
+    trail = q.get_device_activity_trail(fp, limit=max(20, min(limit, 500)))
+    return render_template(
+        "security/device_trail.html",
+        trail=trail,
+        device_fp=fp,
+        page_title="Device trail",
+        **_base_ctx(),
+    )
+
+
+@security_bp.route("/audit")
+@security_required
+def audit():
+    search = (request.args.get("search") or "").strip()
+    action = (request.args.get("action") or "").strip()
+    ip = (request.args.get("ip") or "").strip()
+    try:
+        days = int(request.args.get("days") or 30)
+    except Exception:
+        days = 30
+    page = max(1, int(request.args.get("page") or 1))
+    page_size = 50
+    rows, total = q.list_audit_logs(
+        search=search,
+        action=action,
+        ip=ip,
+        days=days if days > 0 else None,
+        limit=page_size,
+        offset=(page - 1) * page_size,
+    )
+    total_pages = max(1, (total + page_size - 1) // page_size) if total else 1
+    return render_template(
+        "security/audit.html",
+        logs=rows,
+        total=total,
+        page=page,
+        total_pages=total_pages,
+        search=search,
+        action=action,
+        ip=ip,
+        days=days,
+        actions=q.list_audit_actions(),
+        action_counts=q.audit_action_counts(days=days or 30, limit=20),
+        page_title="Owner audit",
+        **_base_ctx(),
+    )
+
+
+@security_bp.route("/investigate")
+@security_required
+def investigate():
+    device_fp = (request.args.get("device_fp") or request.args.get("fp") or "").strip()
+    ip = (request.args.get("ip") or "").strip()
+    user_q = (request.args.get("user_q") or "").strip()
+    needle = (request.args.get("q") or request.args.get("search") or "").strip()
+    match = (request.args.get("match") or "all").strip().lower()
+    if match not in ("all", "any"):
+        match = "all"
+    user_id = None
+    try:
+        user_id = int(request.args.get("user_id") or 0) or None
+    except Exception:
+        user_id = None
+    if not user_id and user_q:
+        if user_q.isdigit():
+            user_id = int(user_q)
+        else:
+            hits = q.search_users(user_q, limit=1)
+            if hits:
+                user_id = hits[0]["id"]
+    bundle = q.investigate(
+        user_id=user_id,
+        device_fp=device_fp,
+        ip=ip,
+        q=needle,
+        match=match,
+        limit=200,
+    )
+    return render_template(
+        "security/investigate.html",
+        inv=bundle,
+        user_q=user_q,
+        page_title="Investigate",
+        **_base_ctx(),
+    )
+
+
+@security_bp.route("/users")
+@security_required
+def users_search():
+    term = (request.args.get("q") or "").strip()
+    results = q.search_users(term, limit=40) if term else []
+    return render_template(
+        "security/users_search.html",
+        term=term,
+        results=results,
+        page_title="People",
+        **_base_ctx(),
+    )
+
+
+@security_bp.route("/users/<int:user_id>")
+@security_required
+def user_profile(user_id: int):
+    profile = q.get_user_security_profile(user_id)
+    if not profile:
+        flash("Person not found.", "danger")
+        return redirect(url_for("security.users_search"))
+    return render_template(
+        "security/user_profile.html",
+        profile=profile,
+        page_title=f"Person · {profile['user']['username']}",
+        **_base_ctx(),
+    )
+
+
+@security_bp.route("/ip-pairs")
+@security_required
+def ip_pairs():
+    ip = (request.args.get("ip") or "").strip()
+    user_q = (request.args.get("user_q") or "").strip()
+    users_for_ip = q.list_users_for_ip(ip, limit=80) if ip else []
+    ips_for_user = []
+    selected_user = None
+    if user_q:
+        matches = q.search_users(user_q, limit=1)
+        if user_q.isdigit():
+            selected_user = int(user_q)
+        elif matches:
+            selected_user = matches[0]["id"]
+        if selected_user:
+            ips_for_user = q.list_ips_for_user(selected_user, limit=80)
+    return render_template(
+        "security/ip_pairs.html",
+        ip=ip,
+        user_q=user_q,
+        users_for_ip=users_for_ip,
+        ips_for_user=ips_for_user,
+        selected_user=selected_user,
+        recent=q.list_recent_ip_pairs(limit=80),
+        page_title="User ↔ IP",
+        **_base_ctx(),
+    )

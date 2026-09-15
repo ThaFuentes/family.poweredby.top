@@ -1,0 +1,27 @@
+{% extends "security/base.html" %}
+{% block security_content %}
+<div class="page-head">
+  <div>
+    <h1>Login locks</h1>
+    <p>Five bad passwords lock a household login for 15 minutes. You can clear it here.</p>
+  </div>
+</div>
+<div class="card list">
+  {% for u in locks %}
+  <div class="row key-line">
+    <div>
+      <strong>{{ u.username }}</strong>
+      <div class="muted">{{ u.household or '' }} · {{ u.failed_login_attempts }} fails · until {{ u.account_locked_until }}</div>
+    </div>
+    <form method="post" action="{{ url_for('security.unlock_account') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="user_id" value="{{ u.id }}">
+      <input type="hidden" name="next" value="{{ url_for('security.account_locks') }}">
+      <button class="btn sm" type="submit">Unlock</button>
+    </form>
+  </div>
+  {% else %}
+  <p class="muted">Nobody is locked right now.</p>
+  {% endfor %}
+</div>
+{% endblock %}

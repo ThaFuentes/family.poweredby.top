@@ -1,0 +1,26 @@
+{% extends "security/base.html" %}
+{% block security_content %}
+<div class="page-head">
+  <div>
+    <h1>Device trail</h1>
+    <p>{{ (device_fp or '')[:24] }}{% if (device_fp or '')|length > 24 %}…{% endif %}</p>
+  </div>
+</div>
+<p class="muted">
+  <a href="{{ url_for('security.investigate', device_fp=device_fp) }}">Investigate this fingerprint</a>
+  · <a href="{{ url_for('security.devices') }}">All devices</a>
+</p>
+<div class="card list">
+  {% for row in trail.timeline %}
+  <div class="row">
+    <div>
+      <strong>{{ row.action or row.kind or 'hit' }}</strong>
+      <div class="muted">{{ row.ts }} · {{ row.ip or '' }}{% if row.target %} · {{ row.target }}{% endif %}</div>
+      {% if row.description %}<div class="muted">{{ row.description }}</div>{% endif %}
+    </div>
+  </div>
+  {% else %}
+  <p class="muted">No trail for this fingerprint yet.</p>
+  {% endfor %}
+</div>
+{% endblock %}

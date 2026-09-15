@@ -1,0 +1,54 @@
+{% extends "security/base.html" %}
+{% block security_content %}
+<div class="page-head">
+  <div>
+    <h1>Investigate</h1>
+    <p>Person + device + IP against the pipeline. This is not the owner audit.</p>
+  </div>
+</div>
+<form class="card" method="get">
+  <label>Person</label>
+  <input name="user_q" value="{{ user_q or (inv.user.username if inv.user else '') }}" placeholder="username or #id">
+  <label>Device fingerprint</label>
+  <input name="device_fp" value="{{ inv.device_fp or '' }}">
+  <label>IP</label>
+  <input name="ip" value="{{ inv.ip or '' }}">
+  <label>Event / notes</label>
+  <input name="q" value="{{ inv.q or '' }}" placeholder="brute_force, csrf…">
+  <label>Match</label>
+  <select name="match">
+    <option value="all" {% if inv.match=='all' %}selected{% endif %}>All filled (AND)</option>
+    <option value="any" {% if inv.match=='any' %}selected{% endif %}>Any filled (OR)</option>
+  </select>
+  <div class="btn-row"><button class="btn" type="submit">Run</button></div>
+</form>
+{% if inv.has_filters %}
+<div class="stat-grid">
+  <div class="tile"><span class="kicker">Events</span><span class="label">{{ inv.event_total or inv.events|length }}</span></div>
+  <div class="tile"><span class="kicker">Devices</span><span class="label">{{ inv.devices|length }}</span></div>
+  <div class="tile"><span class="kicker">IPs for person</span><span class="label">{{ inv.ips_for_user|length if inv.ips_for_user is defined else 0 }}</span></div>
+</div>
+<div class="card">
+  <h2>Person</h2>
+  {% if inv.user %}
+  <p><a href="{{ url_for('security.user_profile', user_id=inv.user.id) }}">{{ inv.user.username }}</a>
+    <span class="muted">#{{ inv.user.id }} · {{ inv.user.role }}</span></p>
+  {% else %}
+  <p class="muted">None selected.</p>
+  {% endif %}
+</div>
+<div class="card list">
+  <h2>Triggered events</h2>
+  {% for e in inv.events %}
+  <div class="row">
+    <div>
+      <strong>{{ e.event_type or 'event' }}</strong>
+      <div class="muted">{{ e.ip }} · {{ e.created_at or e.timestamp }}{% if e.path %} · {{ e.path }}{% endif %}</div>
+    </div>
+  </div>
+  {% else %}
+  <p class="muted">No pipeline hits for that mix.</p>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

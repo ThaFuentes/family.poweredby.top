@@ -1,0 +1,28 @@
+{% extends "security/base.html" %}
+{% block security_content %}
+<div class="page-head">
+  <div>
+    <h1>People</h1>
+    <p>Household logins. Open a person to see devices, IPs, and pipeline hits.</p>
+  </div>
+</div>
+<form class="card" method="get">
+  <label>Name, username, email, or id</label>
+  <div class="btn-row">
+    <input name="q" value="{{ term }}" required>
+    <button class="btn" type="submit">Find</button>
+  </div>
+</form>
+<div class="card list">
+  {% for u in results %}
+  <div class="row">
+    <div>
+      <strong><a href="{{ url_for('security.user_profile', user_id=u.id) }}">{{ u.username }}</a></strong>
+      <div class="muted">{{ u.name }} · {{ u.role }} · {{ u.household }}{% if u.email %} · {{ u.email }}{% endif %}</div>
+    </div>
+  </div>
+  {% else %}
+  <p class="muted">{% if term %}Nobody matched.{% else %}Type a name.{% endif %}</p>
+  {% endfor %}
+</div>
+{% endblock %}

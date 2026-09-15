@@ -1,0 +1,44 @@
+{% extends "security/base.html" %}
+{% block security_content %}
+<div class="page-head">
+  <div>
+    <h1>Owner audit</h1>
+    <p>What you did on this desk — keys, email, bans. Household grocery scans and notes are not here. Pipeline hits are on Events.</p>
+  </div>
+</div>
+<form class="card" method="get">
+  <label>Search</label>
+  <input name="search" value="{{ search }}" placeholder="action, IP, detail">
+  <label>Action</label>
+  <select name="action">
+    <option value="">All</option>
+    {% for a in actions %}
+    <option value="{{ a }}" {% if action==a %}selected{% endif %}>{{ a }}</option>
+    {% endfor %}
+  </select>
+  <label>IP</label>
+  <input name="ip" value="{{ ip }}">
+  <label>Days</label>
+  <input name="days" value="{{ days }}" inputmode="numeric">
+  <div class="btn-row"><button class="btn" type="submit">Filter</button></div>
+</form>
+{% if action_counts %}
+<p class="muted">{% for c in action_counts %}{{ c.action }} {{ c.count }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+{% endif %}
+<div class="card list">
+  {% for log in logs %}
+  <div class="row">
+    <div>
+      <strong>{{ log.action }}</strong>
+      <div class="muted">{{ log.timestamp }} · {{ log.actor }} · {{ log.ip_address }}{% if log.target and log.target != '—' %} · {{ log.target }}{% endif %}</div>
+      {% if log.description %}<div class="muted">{{ log.description }}</div>{% endif %}
+    </div>
+  </div>
+  {% else %}
+  <p class="muted">Nothing in this window.</p>
+  {% endfor %}
+</div>
+{% if total_pages > 1 %}
+<p class="muted">Page {{ page }} of {{ total_pages }} · {{ total }} rows</p>
+{% endif %}
+{% endblock %}

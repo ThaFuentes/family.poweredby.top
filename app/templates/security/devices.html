@@ -38,6 +38,8 @@
     <div>
       <strong>{{ (r.device_fp or '')[:18] }}…</strong>
       <div class="muted">{{ r.ip or r.last_ip or '' }} · {{ r.last_seen or r.updated_at or '' }}</div>
+      <div class="muted"><a href="{{ url_for('security.device_trail', device_fp=r.device_fp) }}">Trail</a>
+        · <a href="{{ url_for('security.investigate', device_fp=r.device_fp) }}">Investigate</a></div>
     </div>
     <form method="post">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

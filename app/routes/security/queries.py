@@ -1432,14 +1432,15 @@ def list_account_login_locks() -> list[dict]:
 
         out = []
         for u in rows:
+            house = getattr(u, "household", None)
             out.append(
                 {
                     "id": u.id,
                     "username": u.username,
                     "email": u.email,
-                    "first_name": u.first_name,
-                    "last_name": u.last_name,
                     "role": u.role,
+                    "household_id": u.household_id,
+                    "household": getattr(house, "name", None) or "",
                     "failed_login_attempts": u.failed_login_attempts or 0,
                     "account_locked_until": u.account_locked_until,
                     "full_name": u.get_full_name() if hasattr(u, "get_full_name") else u.username,
@@ -1519,12 +1520,24 @@ def find_user_by_username(username: str) -> dict | None:
 
 # ---------- Robust audit log ----------
 
+def _platform_audit():
+    try:
+        from app.builddb.table_platform_audit import PlatformAudit
+
+        return PlatformAudit
+    except Exception:
+        return None
+
+
 def list_audit_actions(limit: int = 200) -> list[str]:
+    Model = _platform_audit()
+    if Model is None:
+        return []
     try:
         rows = (
-            db.session.query(AuditLog.action)
+            db.session.query(Model.action)
             .distinct()
-            .order_by(AuditLog.action.asc())
+            .order_by(Model.action.asc())
             .limit(limit)
             .all()
         )
@@ -1561,29 +1574,32 @@ def search_users(term: str, limit: int = 25) -> list[dict]:
     if not t:
         return []
     like = f"%{t}%"
+    clauses = [User.username.ilike(like), User.email.ilike(like), User.name.ilike(like)]
+    if t.isdigit():
+        clauses.append(User.id == int(t))
     rows = (
-        User.query.filter(
-            or_(
-                User.username.ilike(like),
-                User.email.ilike(like),
-                User.first_name.ilike(like),
-                User.last_name.ilike(like),
-            )
-        )
+        User.query.filter(or_(*clauses))
         .order_by(User.username.asc())
         .limit(limit)
         .all()
     )
     out = []
     for u in rows:
+        house = getattr(u, "household", None)
+        hname = getattr(house, "name", None) or ""
         out.append(
             {
                 "id": u.id,
                 "username": u.username,
+                "name": u.name or "",
                 "email": u.email or "",
                 "role": u.role or "",
+                "household_id": u.household_id,
+                "household": hname,
                 "is_active": bool(u.is_active),
-                "label": f"{u.username} · {u.role}" + (f" · {u.email}" if u.email else ""),
+                "label": f"{u.username} · {u.role}"
+                + (f" · {hname}" if hname else "")
+                + (f" · {u.email}" if u.email else ""),
             }
         )
     return out
@@ -1668,129 +1684,64 @@ def list_audit_logs(
     sponsor_id: int | None = None,
     role_filter: str = "",
 ) -> tuple[list[dict], int]:
-    """Filterable system audit log with actor usernames, IP, and device_fp search."""
+    """Owner-console audit (platform_audit). Household scans/notes are not here."""
+    Model = _platform_audit()
+    if Model is None:
+        return [], 0
     try:
-        q = AuditLog.query
+        q = Model.query
         if days and days > 0:
             since = now_naive_storage() - timedelta(days=int(days))
-            q = q.filter(AuditLog.created_at >= since)
+            q = q.filter(Model.created_at >= since)
         if action:
-            q = q.filter(AuditLog.action == action)
-        if sponsor_id:
-            org_ids = user_ids_for_sponsor(int(sponsor_id))
-            from app.builddb.table_companies import Company
-
-            client_ids = [
-                c.id
-                for c in Company.query.filter_by(security_company_id=int(sponsor_id)).all()
-            ]
-            clauses = []
-            if org_ids:
-                clauses.append(AuditLog.user_id.in_(org_ids))
-            if client_ids:
-                clauses.append(AuditLog.company_id.in_(client_ids))
-            if clauses:
-                q = q.filter(or_(*clauses))
-            else:
-                return [], 0
-        if role_filter and sponsor_id:
-            role_users = [
-                u.id
-                for u in User.query.filter(
-                    User.id.in_(user_ids_for_sponsor(int(sponsor_id))),
-                    User.role == role_filter,
-                ).all()
-            ]
-            if not role_users:
-                return [], 0
-            q = q.filter(AuditLog.user_id.in_(role_users))
+            q = q.filter(Model.action == action)
         if user_id:
-            q = q.filter(AuditLog.user_id == int(user_id))
-        elif user_q:
-            ids = resolve_user_ids_from_query(user_q)
-            if sponsor_id:
-                allowed = set(user_ids_for_sponsor(int(sponsor_id)))
-                ids = [i for i in ids if i in allowed]
-            if not ids:
-                return [], 0
-            q = q.filter(AuditLog.user_id.in_(ids))
+            q = q.filter(Model.owner_id == int(user_id))
         if ip:
-            q = q.filter(AuditLog.ip_address.ilike(f"%{ip}%"))
-        if device_fp:
-            # device_fp stored in extra_data JSON by audit logger
-            dfp = f"%{device_fp.strip()}%"
-            q = q.filter(text("CAST(extra_data AS CHAR) LIKE :dfp").bindparams(dfp=dfp))
-        if reversible_only:
-            q = q.filter(AuditLog.reversible.is_(True), AuditLog.reversed_at.is_(None))
+            q = q.filter(Model.ip.ilike(f"%{ip}%"))
         if search:
             term = f"%{search}%"
-            matching_users = resolve_user_ids_from_query(search) if len(search) >= 2 else []
-            clauses = [
-                AuditLog.action.ilike(term),
-                AuditLog.description.ilike(term),
-                AuditLog.target_table.ilike(term),
-                AuditLog.ip_address.ilike(term),
-                text("CAST(extra_data AS CHAR) LIKE :sterm").bindparams(sterm=term),
-            ]
-            if matching_users:
-                clauses.append(AuditLog.user_id.in_(matching_users))
-            q = q.filter(or_(*clauses))
-
+            q = q.filter(
+                or_(
+                    Model.action.ilike(term),
+                    text("CAST(detail_json AS CHAR) LIKE :sterm").bindparams(sterm=term),
+                    Model.ip.ilike(term),
+                )
+            )
+        hid = None
+        try:
+            hid = int(role_filter) if role_filter and str(role_filter).isdigit() else None
+        except Exception:
+            hid = None
+        if sponsor_id:
+            q = q.filter(Model.household_id == int(sponsor_id))
+        elif hid:
+            q = q.filter(Model.household_id == hid)
         total = q.count()
         rows = (
-            q.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+            q.order_by(Model.created_at.desc(), Model.id.desc())
             .offset(offset)
             .limit(limit)
             .all()
         )
-
-        user_ids = {r.user_id for r in rows if r.user_id}
-        user_ids |= {r.reversed_by for r in rows if getattr(r, "reversed_by", None)}
-        users_map = {}
-        if user_ids:
-            for u in User.query.filter(User.id.in_(list(user_ids))).all():
-                users_map[u.id] = u
-
         result = []
         for log in rows:
-            actor = users_map.get(log.user_id)
-            actor_label = (
-                f"{actor.username} ({actor.role})"
-                if actor
-                else (f"User #{log.user_id}" if log.user_id else "System")
-            )
-            target = "—"
-            if log.target_table and log.target_id:
-                target = f"{log.target_table} #{log.target_id}"
-            elif log.target_table:
-                target = log.target_table
-
-            can_reverse = (
-                bool(getattr(log, "reversible", False))
-                and not getattr(log, "reversed_at", None)
-            )
-            dfp = _device_fp_from_extra(log.extra_data)
+            detail = log.detail_json if isinstance(log.detail_json, dict) else {}
             result.append(
                 {
                     "id": log.id,
                     "timestamp": format_for_user(log.created_at) if log.created_at else "—",
                     "created_at": log.created_at,
-                    "actor": actor_label,
-                    "actor_id": log.user_id,
+                    "actor": f"owner #{log.owner_id}" if log.owner_id else "owner",
+                    "actor_id": log.owner_id,
                     "action": log.action or "—",
-                    "description": log.description or "",
-                    "target": target,
-                    "target_table": log.target_table,
-                    "target_id": log.target_id,
-                    "company_id": log.company_id,
-                    "ip_address": log.ip_address or "—",
-                    "device_fp": dfp or "—",
-                    "extra_data": log.extra_data,
-                    "reversible": bool(getattr(log, "reversible", False)),
-                    "can_reverse": can_reverse,
-                    "reversed_at": format_for_user(log.reversed_at) if getattr(log, "reversed_at", None) else None,
-                    "old_values": getattr(log, "old_values", None),
-                    "new_values": getattr(log, "new_values", None),
+                    "description": str(detail) if detail else "",
+                    "target": f"household #{log.household_id}" if log.household_id else "—",
+                    "household_id": log.household_id,
+                    "ip_address": log.ip or "—",
+                    "device_fp": "—",
+                    "extra_data": detail,
+                    "can_reverse": False,
                 }
             )
         return result, total
@@ -1813,43 +1764,34 @@ def get_user_security_profile(user_id: int) -> dict | None:
         return None
     ips = list_ips_for_user(user_id, limit=50)
     devices = list_devices_for_user(user_id, limit=40)
-    recent, total = list_audit_logs(user_id=user_id, days=None, limit=80, offset=0)
+    house = getattr(user, "household", None)
     triggered, triggered_total = list_security_events(
         user_id=int(user_id),
         include_sightings_fallback=False,
         limit=80,
         offset=0,
     )
-    timeline = _user_activity_timeline(recent, triggered, limit=80)
-    audit_ips = (
-        db.session.query(AuditLog.ip_address, func.count(AuditLog.id))
-        .filter(AuditLog.user_id == user_id, AuditLog.ip_address.isnot(None))
-        .group_by(AuditLog.ip_address)
-        .order_by(func.count(AuditLog.id).desc())
-        .limit(30)
-        .all()
-    )
-    # Distinct device count for "new device" signal
+    timeline = _user_activity_timeline([], triggered, limit=80)
     distinct_devices = len({d.get("device_fp") for d in devices if d.get("device_fp")})
     return {
         "user": {
             "id": user.id,
             "username": user.username,
+            "name": user.name or "",
             "email": user.email or "",
             "role": user.role or "",
             "is_active": bool(user.is_active),
-            "company_id": user.company_id,
-            "security_company_id": user.security_company_id,
+            "household_id": user.household_id,
+            "household": getattr(house, "name", None) or "",
             "last_login_at": format_for_user(getattr(user, "last_login_at", None)) if getattr(user, "last_login_at", None) else None,
             "failed_login_attempts": getattr(user, "failed_login_attempts", 0) or 0,
-            "two_factor_enabled": bool(getattr(user, "two_factor_enabled", False)),
         },
         "ips": ips,
         "devices": devices,
         "distinct_device_count": distinct_devices,
-        "audit_ips": [{"ip": ip or "—", "count": int(c)} for ip, c in audit_ips],
-        "recent_audit": recent,
-        "audit_total": total,
+        "audit_ips": [{"ip": r.get("ip"), "count": r.get("hit_count") or 0} for r in ips],
+        "recent_audit": [],
+        "audit_total": 0,
         "triggered_events": triggered,
         "triggered_total": triggered_total,
         "timeline": timeline,
@@ -2002,13 +1944,16 @@ def list_recent_ip_pairs(limit: int = 80) -> list[dict]:
 
 
 def audit_action_counts(days: int = 7, limit: int = 15) -> list[dict]:
+    Model = _platform_audit()
+    if Model is None:
+        return []
     try:
         since = now_naive_storage() - timedelta(days=max(1, int(days)))
         rows = (
-            db.session.query(AuditLog.action, func.count(AuditLog.id).label("c"))
-            .filter(AuditLog.created_at >= since)
-            .group_by(AuditLog.action)
-            .order_by(func.count(AuditLog.id).desc())
+            db.session.query(Model.action, func.count(Model.id).label("c"))
+            .filter(Model.created_at >= since)
+            .group_by(Model.action)
+            .order_by(func.count(Model.id).desc())
             .limit(limit)
             .all()
         )

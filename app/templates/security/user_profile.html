@@ -1,0 +1,46 @@
+{% extends "security/base.html" %}
+{% block security_content %}
+{% set u = profile.user %}
+<div class="page-head">
+  <div>
+    <h1>{{ u.username }}</h1>
+    <p>{{ u.name }} · {{ u.role }} · {{ u.household }}{% if u.email %} · {{ u.email }}{% endif %}</p>
+  </div>
+</div>
+<div class="stat-grid">
+  <div class="tile"><span class="kicker">Events</span><span class="label">{{ profile.triggered_total }}</span></div>
+  <div class="tile"><span class="kicker">Devices</span><span class="label">{{ profile.distinct_device_count }}</span></div>
+  <div class="tile"><span class="kicker">Fails</span><span class="label">{{ u.failed_login_attempts }}</span></div>
+</div>
+<div class="card">
+  <h2>IPs</h2>
+  {% for r in profile.ips %}
+  <div class="row"><div><strong>{{ r.ip }}</strong><div class="muted">{{ r.hit_count }} · {{ r.last_seen }}</div></div>
+    <a class="btn sm secondary" href="{{ url_for('security.investigate', ip=r.ip, user_id=u.id) }}">Look</a></div>
+  {% else %}
+  <p class="muted">No IP sightings stored for this login yet.</p>
+  {% endfor %}
+</div>
+<div class="card">
+  <h2>Devices</h2>
+  {% for d in profile.devices %}
+  <div class="row"><div><strong>{{ (d.device_fp or '')[:18] }}…</strong><div class="muted">{{ d.ip or d.last_ip or '' }}</div></div>
+    <a class="btn sm secondary" href="{{ url_for('security.device_trail', device_fp=d.device_fp) }}">Trail</a></div>
+  {% else %}
+  <p class="muted">No fingerprints yet.</p>
+  {% endfor %}
+</div>
+<div class="card list">
+  <h2>Pipeline hits</h2>
+  {% for e in profile.triggered_events %}
+  <div class="row">
+    <div>
+      <strong>{{ e.event_type or 'event' }}</strong>
+      <div class="muted">{{ e.ip }} · {{ e.created_at or e.timestamp }}</div>
+    </div>
+  </div>
+  {% else %}
+  <p class="muted">Clean so far — no pipeline flags on this person.</p>
+  {% endfor %}
+</div>
+{% endblock %}
