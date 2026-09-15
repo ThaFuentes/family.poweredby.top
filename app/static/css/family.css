@@ -454,7 +454,21 @@ textarea { min-height: 5rem; }
   padding: .75rem 1rem 1rem;
   color: #f3f1ec;
 }
-#scan-live-result { background: var(--card); color: var(--ink); max-height: 42vh; overflow: auto; }
+#scan-live-result {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  background: var(--card);
+  color: var(--ink);
+  max-height: 46%;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 1.1rem 1.1rem 0 0;
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, .28);
+}
+.scan-live { position: relative; }
 .scan-qty {
   display: flex;
   flex-wrap: wrap;

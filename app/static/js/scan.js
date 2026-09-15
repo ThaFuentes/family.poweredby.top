@@ -12,8 +12,10 @@
   if (!statusEl) statusEl = liveStatus;
   if (!resultEl) resultEl = liveResult;
   let busy = false;
+  let pauseDecode = false;
   let lastCode = "";
   let lastAt = 0;
+  let settleTimer = null;
   const QUEUE_KEY = "family_scan_queue";
 
   function readQueue() {
@@ -61,6 +63,36 @@
     resultEl.hidden = false;
     resultEl.className = "scan-result" + (tone ? " " + tone : "");
     resultEl.innerHTML = html;
+  }
+
+  function readyNextScan(msg) {
+    if (settleTimer) {
+      clearTimeout(settleTimer);
+      settleTimer = null;
+    }
+    pauseDecode = false;
+    busy = false;
+    if (statusEl) statusEl.textContent = msg || "Next.";
+    if (resultEl && document.getElementById("scan-live") && !document.getElementById("scan-live").hidden) {
+      resultEl.hidden = true;
+      resultEl.innerHTML = "";
+    }
+  }
+
+  function isUpcLike(raw) {
+    return /^\d{8,14}$/.test(String(raw || "").replace(/\s/g, ""));
+  }
+  function isFamilyQr(raw) {
+    return /^FAM:/i.test(String(raw || ""));
+  }
+  function isWebQr(raw) {
+    return /^https?:\/\//i.test(String(raw || "").trim());
+  }
+  function preferUpc(decoded) {
+    const s = String(decoded || "").trim();
+    if (isUpcLike(s) || isFamilyQr(s)) return s;
+    if (window.FAMILY_SCAN_INTO && isWebQr(s)) return null;
+    return s;
   }
 
   function statusClass(data) {
@@ -179,7 +211,7 @@
       '<button type="button" class="chip" data-qty-chip="6">6</button>' +
       '<input type="number" min="0" step="1" value="1" inputmode="numeric" data-scan-qty aria-label="Count">' +
       "</div>" +
-      '<p class="muted">Already in the house. Extra rolls, bottles, boxes — set the count. Room is optional.</p>' +
+      '<p class="muted">Tap 1, 2, 4… then next box. Camera stays on.</p>' +
       placeHtml +
       '<div class="scan-kid-actions">' +
       buttons +
@@ -397,12 +429,14 @@
   }
 
   async function applyBarcode(barcode, forcedAction, fromQueue, amount, extra) {
+    barcode = preferUpc(barcode);
     if (!barcode || busy) return;
+    if (!forcedAction && pauseDecode) return;
     if (!statusEl) statusEl = document.getElementById("scan-live-status") || document.getElementById("scan-status");
     if (!resultEl) resultEl = document.getElementById("scan-live-result") || document.getElementById("scan-result");
     if (!statusEl) return;
     const now = Date.now();
-    if (!forcedAction && barcode === lastCode && now - lastAt < 8000) return;
+    if (!forcedAction && barcode === lastCode && now - lastAt < 1800) return;
     lastCode = barcode;
     lastAt = now;
     busy = true;
@@ -468,7 +502,12 @@
       }
       if (data.item_type === "grocery") {
         showResult(groceryCard(data), statusClass(data));
-        statusEl.textContent = "Scan another, or tap what happened.";
+        statusEl.textContent = encode(data.name || "") + " · tap a number, or next box.";
+        pauseDecode = true;
+        if (settleTimer) clearTimeout(settleTimer);
+        settleTimer = setTimeout(function () {
+          readyNextScan((data.name || "In") + " · " + (data.quantity_label || data.quantity || "") + " on hand. Next.");
+        }, forcedAction ? 700 : 1600);
         return;
       }
       if (data.item_type === "vehicle" || data.item_type === "tool") {
@@ -496,10 +535,21 @@
       const chip = e.target.closest("[data-qty-chip]");
       if (chip) {
         const input = el.querySelector("[data-scan-qty]");
-        if (input) input.value = chip.getAttribute("data-qty-chip") || "1";
+        const n = chip.getAttribute("data-qty-chip") || "1";
+        if (input) input.value = n;
         el.querySelectorAll("[data-qty-chip]").forEach(function (c) {
           c.classList.toggle("on", c === chip);
         });
+        const code = el.dataset.barcode;
+        if (code && window.FAMILY_SCAN_INTO) {
+          if (settleTimer) clearTimeout(settleTimer);
+          lastAt = 0;
+          applyBarcode(code, "set", false, parseFloat(n) || 1, {
+            location: placeFromCard(),
+          }).then(function () {
+            readyNextScan("Set to " + n + ". Next.");
+          });
+        }
         return;
       }
       const place = e.target.closest("[data-place]");
@@ -530,9 +580,12 @@
       const code = resultEl.dataset.barcode;
       if (!code) return;
       lastAt = 0;
+      if (settleTimer) clearTimeout(settleTimer);
       applyBarcode(code, btn.getAttribute("data-rescan"), false, qtyFromCard(), {
         location: placeFromCard(),
         skip_place: !!btn.hasAttribute("data-skip-place"),
+      }).then(function () {
+        readyNextScan("Saved. Next.");
       });
     });
     el.addEventListener("submit", function (e) {
@@ -587,14 +640,14 @@
   function scanConfig() {
     const formats = window.Html5QrcodeSupportedFormats
       ? [
-          Html5QrcodeSupportedFormats.EAN_13,
-          Html5QrcodeSupportedFormats.EAN_8,
           Html5QrcodeSupportedFormats.UPC_A,
           Html5QrcodeSupportedFormats.UPC_E,
-          Html5QrcodeSupportedFormats.QR_CODE,
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
           Html5QrcodeSupportedFormats.CODE_128,
-          Html5QrcodeSupportedFormats.CODE_39,
           Html5QrcodeSupportedFormats.ITF,
+          Html5QrcodeSupportedFormats.CODE_39,
+          Html5QrcodeSupportedFormats.QR_CODE,
         ]
       : undefined;
     return {
@@ -627,7 +680,9 @@
     instanceSlot.qr = qr;
     function go(target) {
       return qr.start(target, scanConfig(), function (decoded) {
-        applyBarcode(decoded);
+        const code = preferUpc(decoded);
+        if (!code) return;
+        applyBarcode(code);
       });
     }
     go({ facingMode: "environment" })
