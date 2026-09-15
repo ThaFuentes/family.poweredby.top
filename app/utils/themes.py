@@ -31,6 +31,12 @@ THEMES = {
         "blurb": "Teal desktop, chunky 3-D, a taskbar. 1999 called.",
         "color": "#008080",
     },
+    "mimix": {
+        "id": "mimix",
+        "label": "Mimix",
+        "blurb": "Unix Motif. Slate desktop, beveled gray, navy. Like a workstation from the lab.",
+        "color": "#5c6b7a",
+    },
 }
 
 

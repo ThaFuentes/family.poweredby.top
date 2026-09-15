@@ -1,14 +1,14 @@
 <meta name="theme-color" content="{{ theme_color }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/family.css') }}?v=os24">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}?v=os22">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/family.css') }}?v=os25">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}?v=os23">
 <script>
 (function () {
   try {
     var m = document.cookie.match(/(?:^|; )family_theme=([^;]*)/);
     var t = m ? decodeURIComponent(m[1]) : {{ current_theme|tojson }};
-    if (!/^(default|clean|dark|when99)$/.test(t)) t = "default";
+    if (!/^(default|clean|dark|when99|mimix)$/.test(t)) t = "default";
     document.documentElement.setAttribute("data-theme", t);
-    var colors = { default: "#1f6a45", clean: "#111111", dark: "#0c0d0e", when99: "#008080" };
+    var colors = { default: "#1f6a45", clean: "#111111", dark: "#0c0d0e", when99: "#008080", mimix: "#5c6b7a" };
     var meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute("content", colors[t] || colors.default);
   } catch (e) {}

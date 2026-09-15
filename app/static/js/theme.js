@@ -9,7 +9,7 @@
 
   function paint(id) {
     document.documentElement.setAttribute("data-theme", id);
-    const colors = { default: "#1f6a45", clean: "#111111", dark: "#0c0d0e", when99: "#008080" };
+    const colors = { default: "#1f6a45", clean: "#111111", dark: "#0c0d0e", when99: "#008080", mimix: "#5c6b7a" };
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute("content", colors[id] || colors.default);
     grid.querySelectorAll(".theme-card").forEach(function (card) {
