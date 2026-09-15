@@ -100,6 +100,16 @@ def _scope_usernames():
         inspector = inspect(db.engine)
         if "users" not in inspector.get_table_names():
             return
+        have_scoped = any(
+            (idx.get("name") == "idx_users_household_username")
+            or (
+                idx.get("unique")
+                and (idx.get("column_names") or []) == ["household_id", "username"]
+            )
+            for idx in inspector.get_indexes("users")
+        )
+        if have_scoped:
+            return
         with db.engine.begin() as conn:
             for idx in inspector.get_indexes("users"):
                 cols = idx.get("column_names") or []
@@ -116,10 +126,6 @@ def _scope_usernames():
                         conn.execute(text(f"ALTER TABLE users DROP INDEX `{uq['name']}`"))
                     except Exception:
                         pass
-            try:
-                conn.execute(text("ALTER TABLE users DROP INDEX `idx_users_household_username`"))
-            except Exception:
-                pass
             try:
                 conn.execute(
                     text(

@@ -37,6 +37,39 @@ def list_places(household) -> list[str]:
     return out or list(DEFAULT_PLACES)
 
 
+_PLACE_WORDS = (
+    ("Fridge", ("fridge", "refrigerator", "cooler", "cold")),
+    ("Freezer", ("freezer", "ice")),
+    ("Pantry", ("pantry", "cupboard", "cabinet", "shelf", "dry")),
+    ("Bathroom", ("bathroom", "bath", "toilet", "shower")),
+    ("Junk drawer", ("junk", "drawer", "odds")),
+    ("Garage", ("garage", "workshop", "shed")),
+    ("Laundry", ("laundry", "washer", "dryer")),
+    ("Hall closet", ("closet", "linen", "hall")),
+    ("Driveway", ("driveway", "car", "vehicle", "outside")),
+)
+
+
+def snap_location(hint, household=None) -> str | None:
+    """Map an AI/heuristic hint onto this house's place names."""
+    raw = " ".join(str(hint or "").strip().split())
+    if not raw or raw.lower() in ("null", "none", "n/a", "-"):
+        return None
+    places = list_places(household) if household is not None else list(DEFAULT_PLACES)
+    low = raw.lower()
+    for p in places:
+        pl = p.lower()
+        if pl == low or pl in low or low in pl:
+            return p
+    for label, words in _PLACE_WORDS:
+        if any(w in low for w in words):
+            for p in places:
+                if any(w in p.lower() for w in words) or p.lower() == label.lower():
+                    return p
+            return label if label in places else raw[:80]
+    return raw[:80]
+
+
 def save_places(household, raw) -> list[str]:
     if isinstance(raw, str):
         bits = raw.replace(",", "\n").splitlines()

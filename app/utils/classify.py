@@ -372,17 +372,19 @@ Reply with JSON only, no markdown:
   "kind": "food|drink|household|pet|beauty|aa_battery|car_battery|motor_oil|filter|auto_part|mower|tool|equipment|vehicle|unknown",
   "kind_label": "short label",
   "attach_to": "vehicle" | "tool" | null,
-  "location_hint": "pantry|fridge|garage|bathroom|junk drawer|driveway|null",
+  "location_hint": "one place from the house list, or fridge/pantry/garage/bathroom",
   "confidence": 0.0-1.0,
   "questions": ["one short question if a human must choose"],
-  "message": "one short sentence the household sees"
+  "message": "one short sentence: what it is and where you put it",
+  "why": "one short sentence why that room"
 }
 Rules:
-- A 12V / group-size / AGM / DieHard / EverStart car battery is kind=car_battery, item_type=grocery (consumable), attach_to=vehicle. Ask which vehicle.
-- AA/AAA/C/D/9V/CR2032 is aa_battery, not a car battery.
-- Motor oil, oil/air/cabin filters, wiper blades, coolant: grocery + attach_to=vehicle.
-- Lawn mowers, trimmers, chainsaws, drills: tool.
-- Food and drinks: grocery, attach_to null.
+- Pick location_hint from the house's place list when you can (Fridge, Pantry, Garage…).
+- A 12V / group-size / AGM / DieHard / EverStart car battery is kind=car_battery, item_type=grocery (consumable), attach_to=vehicle. Ask which vehicle. Location garage or driveway.
+- AA/AAA/C/D/9V/CR2032 is aa_battery, not a car battery. Junk drawer or pantry.
+- Motor oil, oil/air/cabin filters, wiper blades, coolant: grocery + attach_to=vehicle. Garage.
+- Lawn mowers, trimmers, chainsaws, drills: tool. Garage.
+- Food: pantry. Drinks and dairy: fridge. Frozen: freezer. Soap/shampoo: bathroom.
 - If the UPC catalog called a car part 'food', override it.
 - Site is a household OS, not a chatbot. Be brief.
 """
@@ -401,7 +403,14 @@ def refine_with_ai(lookup: dict | None, heuristic: dict, household=None, extra: 
     if not cfg.get("ready"):
         return out
     lookup = lookup or {}
+    try:
+        from app.utils.places import list_places
+
+        rooms = ", ".join(list_places(household))
+    except Exception:
+        rooms = "Fridge, Freezer, Pantry, Bathroom, Junk drawer, Garage, Laundry, Hall closet, Driveway"
     prompt = (
+        f"House places: {rooms}\n"
         f"Barcode: {lookup.get('barcode') or ''}\n"
         f"Name: {lookup.get('name') or ''}\n"
         f"Brand: {lookup.get('brand') or ''}\n"
@@ -443,7 +452,14 @@ def refine_with_ai(lookup: dict | None, heuristic: dict, household=None, extra: 
         conf = 0.5
     conf = max(0.0, min(conf, 1.0))
     message = str(data.get("message") or out.get("message") or "").strip()
+    why = str(data.get("why") or "").strip()[:240]
     label = str(data.get("kind_label") or KIND_LABELS.get(kind) or kind).strip()[:80]
+    try:
+        from app.utils.places import snap_location
+
+        location = snap_location(location, household) or location
+    except Exception:
+        pass
     out.update(
         {
             "item_type": item_type,
@@ -454,10 +470,47 @@ def refine_with_ai(lookup: dict | None, heuristic: dict, household=None, extra: 
             "confidence": conf,
             "questions": questions,
             "message": message,
+            "why": why,
             "source": "ai",
         }
     )
     return out
+
+
+def place_new_grocery(item, g, lookup, household) -> dict:
+    """Set default_location from AI if a key exists, else heuristic. Never raises."""
+    report = {
+        "used_ai": False,
+        "kind": "",
+        "location": None,
+        "confidence": None,
+        "why": "",
+        "questions": [],
+    }
+    try:
+        from sqlalchemy.orm.attributes import flag_modified
+        from app.utils.places import snap_location
+
+        guess = classify(lookup, household=household, extra=getattr(item, "name", "") or "", use_ai=True)
+        loc = snap_location(guess.get("location_hint"), household)
+        if loc and not (g.default_location or "").strip():
+            g.default_location = loc
+        report = {
+            "used_ai": guess.get("source") == "ai",
+            "kind": guess.get("kind_label") or guess.get("kind") or "",
+            "location": loc or guess.get("location_hint"),
+            "confidence": guess.get("confidence"),
+            "why": guess.get("why") or guess.get("message") or "",
+            "questions": guess.get("questions") or [],
+        }
+        extra = g.extra_data if isinstance(g.extra_data, dict) else {}
+        extra = dict(extra)
+        extra["ai"] = report
+        g.extra_data = extra
+        flag_modified(g, "extra_data")
+    except Exception:
+        pass
+    return report
 
 
 def classify(lookup: dict | None, household=None, extra: str = "", use_ai: bool = True) -> dict:

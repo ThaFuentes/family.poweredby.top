@@ -70,11 +70,16 @@ def _unique_handle_index():
 
     _rollback()
     try:
+        from sqlalchemy import inspect as sa_inspect
+
+        inspector = sa_inspect(db.engine)
+        if "households" not in inspector.get_table_names():
+            return
+        for idx in inspector.get_indexes("households"):
+            cols = idx.get("column_names") or []
+            if idx.get("unique") and cols == ["handle"]:
+                return
         with db.engine.begin() as conn:
-            try:
-                conn.execute(text("ALTER TABLE households DROP INDEX `idx_households_handle`"))
-            except Exception:
-                pass
             conn.execute(text("CREATE UNIQUE INDEX idx_households_handle ON households (handle)"))
             _say("[BUILD-DB] unique household handles")
     except Exception as idx_e:

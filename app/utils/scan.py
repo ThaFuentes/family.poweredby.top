@@ -244,6 +244,7 @@ def grocery_payload(g: GroceryItem, item: Item, action="check", on_list=False, a
         "allergens": (g.allergens or "").strip() or None,
         "ingredients": (g.ingredients or "").strip() or None,
         "facts": ((g.extra_data or {}).get("product") if isinstance(g.extra_data, dict) else None) or {},
+        "ai_report": ((g.extra_data or {}).get("ai") if isinstance(g.extra_data, dict) else None) or None,
     }
 
 
@@ -348,6 +349,8 @@ def ensure_wanted_item(household_id: int, user_id: int, barcode: str):
             g.needs_restock = True
         return existing, g, False
     name, lookup = _lookup_name(barcode)
+    item = None
+    g = None
     try:
         with db.session.begin_nested():
             item = Item(
@@ -379,13 +382,20 @@ def ensure_wanted_item(household_id: int, user_id: int, barcode: str):
                 apply_product_lookup(g, item, lookup)
             except Exception:
                 pass
-            return item, g, True
     except IntegrityError:
         existing = find_item(household_id, barcode)
         if existing:
             g = GroceryItem.query.filter_by(household_id=household_id, item_id=existing.id).first()
             return existing, g, False
         raise
+    try:
+        from app.builddb.table_households import Household
+        from app.utils.classify import place_new_grocery
+
+        place_new_grocery(item, g, lookup, Household.query.get(household_id))
+    except Exception:
+        pass
+    return item, g, True
 
 
 def consumption_hint(g: GroceryItem) -> str | None:

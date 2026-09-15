@@ -129,6 +129,20 @@
       img +
       (meta.length ? '<p class="muted">' + encode(meta.join(" · ")) + "</p>" : "") +
       factsHtml +
+      (function () {
+        const r = data.ai_report;
+        if (!r || typeof r !== "object") return "";
+        const bits = [];
+        if (r.used_ai) bits.push("AI");
+        else bits.push("Guess");
+        if (r.kind) bits.push(r.kind);
+        if (r.location) bits.push("put in " + r.location);
+        if (r.confidence != null && r.used_ai) bits.push(Math.round(Number(r.confidence) * 100) + "%");
+        let html = '<div class="ai-report"><strong>' + encode(bits.join(" · ")) + "</strong>";
+        if (r.why) html += "<p>" + encode(r.why) + "</p>";
+        html += '<p class="muted">Change the place on the item if that is wrong.</p></div>';
+        return html;
+      })() +
       listLine +
       '<p class="kicker" style="margin:.85rem 0 .35rem">How many?</p>' +
       '<div class="scan-qty" role="group" aria-label="How many">' +

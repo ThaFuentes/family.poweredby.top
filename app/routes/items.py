@@ -322,6 +322,20 @@ def quick_create_item(
                 apply_product_lookup(g, item, lookup_product(barcode))
             except Exception:
                 pass
+        if not g.default_location:
+            try:
+                from app.builddb.table_households import Household
+                from app.utils.classify import place_new_grocery
+                from app.utils.barcode_lookup import lookup_product
+
+                place_new_grocery(
+                    item,
+                    g,
+                    lookup_product(barcode) if barcode else {"name": name},
+                    Household.query.get(hid),
+                )
+            except Exception:
+                pass
         extra = dict(g.extra_data or {})
         if kind:
             extra["kind"] = str(kind)[:40]

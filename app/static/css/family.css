@@ -479,6 +479,15 @@ textarea { min-height: 5rem; }
   color: #fff;
   border-color: var(--green);
 }
+.ai-report {
+  margin: .65rem 0 .35rem;
+  padding: .7rem .8rem;
+  border-radius: .85rem;
+  background: var(--green-soft);
+  color: var(--ink);
+  font-size: .9rem;
+}
+.ai-report p { margin: .35rem 0 0; }
 .scan-qty [data-scan-qty] {
   width: 4.6rem;
   min-height: 2.6rem;

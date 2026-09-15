@@ -16,6 +16,39 @@ from sqlalchemy import text, inspect
 
 db = SQLAlchemy()
 
+
+def _quiet_dead_sessions():
+    """HostM drops idle MariaDB sockets. Teardown rollback must not 500 the page."""
+    from sqlalchemy.orm.session import Session as SASession
+
+    if getattr(SASession.close, "_family_quiet", False):
+        return
+    orig = SASession.close
+
+    def close(self, *args, **kwargs):
+        try:
+            return orig(self, *args, **kwargs)
+        except Exception as exc:
+            msg = str(exc).lower()
+            if not any(
+                s in msg
+                for s in (
+                    "gone away",
+                    "broken pipe",
+                    "lost connection",
+                    "server has gone",
+                    "can't reconnect",
+                )
+            ):
+                raise
+            try:
+                self.invalidate()
+            except Exception:
+                pass
+
+    close._family_quiet = True
+    SASession.close = close
+
 SCHEMA_STAMP_NAME = "schema.fingerprint"
 
 
@@ -158,6 +191,7 @@ def _write_schema_stamp(app) -> None:
 
 def init_tenant_system(app):
     db.init_app(app)
+    _quiet_dead_sessions()
     with app.app_context():
         package_name = __name__.rsplit(".", 1)[0]
         package_path = os.path.dirname(__file__)
