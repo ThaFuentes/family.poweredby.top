@@ -150,8 +150,12 @@
   transform: translateZ(0);
 }
 .tm-land {
-  fill: #0d1620; stroke: #1a2838; stroke-width: .35;
-  opacity: .62;
+  fill: #1c3348;
+  stroke: #8eb4d4;
+  stroke-width: 1.15;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  opacity: .95;
   cursor: pointer;
 }
 .tm-land.is-hot {
@@ -180,7 +184,7 @@
 .tm-legend i {
   width: .7rem; height: .7rem; border-radius: 2px; display: inline-block;
 }
-.tm-leg-quiet { background: #0d1620; border: 1px solid #1a2838; }
+.tm-leg-quiet { background: #1c3348; border: 1px solid #8eb4d4; }
 .tm-leg-hot { background: #d44a32; border: 1px solid #ff7a55; }
 .tm-leg-heavy { background: #ff8a28; border: 1px solid #ffd36a; }
 .tm-hud {

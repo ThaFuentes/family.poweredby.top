@@ -312,7 +312,7 @@
         .classed("is-hot-mid", band === "mid")
         .classed("is-hot-hi", band === "hi")
         .attr("data-iso", iso)
-        .attr("fill", count ? heatColor(count, max) : "#0d1620");
+        .attr("fill", count ? heatColor(count, max) : "#1c3348");
     });
     svg.selectAll("path.tm-land.is-hot").raise();
     svg.selectAll(".tm-home").raise();

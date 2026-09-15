@@ -1,6 +1,6 @@
 {% extends "security/base.html" %}
 {% block security_content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='security/threat-map/threat-map.css') }}?v=family1">
+<link rel="stylesheet" href="{{ url_for('static', filename='security/threat-map/threat-map.css') }}?v=family2">
 <div class="tm-wrap" id="tm-wrap" data-tm-alert="{{ alert_url or '' }}">
   <div class="tm-toolbar">
     <div class="tm-windows" role="tablist" aria-label="Time window">
@@ -150,5 +150,5 @@
 </div>
 <script src="{{ url_for('static', filename='security/threat-map/vendor/d3.min.js') }}"></script>
 <script src="{{ url_for('static', filename='security/threat-map/vendor/topojson-client.min.js') }}"></script>
-<script src="{{ url_for('static', filename='security/threat-map/threat-map.js') }}?v=live9"></script>
+<script src="{{ url_for('static', filename='security/threat-map/threat-map.js') }}?v=family2"></script>
 {% endblock %}
