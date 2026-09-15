@@ -105,7 +105,11 @@ def find_item(household_id: int, barcode: str):
     code = (barcode or "").strip()
     if not code:
         return None
-    item = Item.query.filter_by(household_id=household_id, barcode=code).first()
+    item = (
+        Item.query.filter_by(household_id=household_id, barcode=code)
+        .filter(Item.removed_at.is_(None))
+        .first()
+    )
     if item:
         return item
     # FAM:{hid}:{item_id} payload from our own QR labels
@@ -119,7 +123,11 @@ def find_item(household_id: int, barcode: str):
                 return None
             if hid != household_id:
                 return None
-            return Item.query.filter_by(household_id=household_id, id=iid).first()
+            return (
+                Item.query.filter_by(household_id=household_id, id=iid)
+                .filter(Item.removed_at.is_(None))
+                .first()
+            )
     return None
 
 
@@ -251,14 +259,27 @@ def apply_grocery_stock(g: GroceryItem, item: Item, action: str, amount, user_id
             g.consume_count = int(g.consume_count or 0) + 1
         g.needs_restock = qty <= thresh or was_needed or qty <= 0
     on_list = _sync_grocery_list(g, item, user_id)
+    try:
+        from app.utils.activity import log_grocery
+
+        log_grocery(item, g, action, prev, qty, amt, user_id=user_id)
+    except Exception:
+        pass
     return grocery_payload(g, item, action=action, on_list=on_list, amount=amt, prev_qty=prev)
 
 
 def flag_need_more(g: GroceryItem, item: Item, user_id):
     set_quantity(g, g.quantity)
     g.needs_restock = True
+    prev = clamp_qty(g.quantity)
     on_list = _sync_grocery_list(g, item, user_id)
     action = "want" if stock_status(g) == STATUS_WANT else "need_more"
+    try:
+        from app.utils.activity import log_grocery
+
+        log_grocery(item, g, action, prev, prev, 0, user_id=user_id)
+    except Exception:
+        pass
     return grocery_payload(g, item, action=action, on_list=on_list)
 
 

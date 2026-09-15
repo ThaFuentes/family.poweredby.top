@@ -20,7 +20,10 @@
     {% endif %}
     {% if current_user.role != 'child' %}
     <a href="{{ url_for('legal.index') }}" class="{% if request.endpoint and request.endpoint.startswith('legal.') %}active{% endif %}">Records</a>
-    <a href="{{ url_for('members.index') }}" class="{% if request.endpoint and 'member' in request.endpoint %}active{% endif %}">Household</a>
+    <a href="{{ url_for('members.index') }}" class="{% if request.endpoint == 'members.index' %}active{% endif %}">Household</a>
+    {% if can('override') %}
+    <a href="{{ url_for('members.happened') }}" class="{% if request.endpoint and 'happened' in request.endpoint %}active{% endif %}">Happened</a>
+    {% endif %}
     {% endif %}
     <a href="{{ url_for('reminders.index') }}" class="{% if request.endpoint and 'reminder' in request.endpoint %}active{% endif %}">Due</a>
     <a href="{{ url_for('appearance.picker') }}" class="{% if request.endpoint and 'appearance' in request.endpoint %}active{% endif %}">Look</a>

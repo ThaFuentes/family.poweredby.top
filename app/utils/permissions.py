@@ -19,6 +19,7 @@ ROLE_PERMS = {
             "members",
             "settings",
             "leaders",
+            "override",
         }
     ),
 }
@@ -42,6 +43,7 @@ def can(action: str, user=None) -> bool:
         "leaders",
         "members",
         "settings",
+        "override",
     ):
         return True
     return action in ROLE_PERMS.get(role_of(u), frozenset())

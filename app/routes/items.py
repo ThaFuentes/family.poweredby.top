@@ -638,6 +638,21 @@ def lookup_again(item_id):
     return redirect(url_for("items.detail", item_id=item.id, tab="overview"))
 
 
+@items_bp.route("/<int:item_id>/count", methods=["POST"])
+@login_required
+@require_perm("override")
+def set_count(item_id):
+    from app.utils.activity import set_item_qty
+
+    item = _item_or_404(item_id)
+    ok, msg = set_item_qty(item, request.form.get("quantity") or 0, user_id=current_user.id)
+    flash(msg, "success" if ok else "danger")
+    nxt = (request.form.get("next") or "").strip()
+    if nxt == "happened":
+        return redirect(url_for("members.happened"))
+    return redirect(url_for("items.detail", item_id=item.id))
+
+
 @items_bp.route("/<int:item_id>/qty", methods=["POST"])
 @login_required
 def qty(item_id):
@@ -1053,9 +1068,23 @@ def add_part(item_id):
         )
     nfiles = attach_part_uploads(item, row, current_user.id)
     _remember_part_source(item, request.form.get("source"))
-    db.session.commit()
     extra = f" {nfiles} file(s)." if nfiles else ""
     shown = (row.name if row else name) or "Part"
+    try:
+        from app.utils.activity import record
+
+        if row:
+            record(
+                action="part.add",
+                summary=f"{current_user.name or current_user.username} put {shown} on {item.name}",
+                target_table="vehicle_parts",
+                target_id=row.id,
+                item_id=item.id,
+                new_json={"name": shown, "system": row.system, "slot": row.slot},
+            )
+    except Exception:
+        pass
+    db.session.commit()
     flash(f"{shown} is on {item.name}.{extra} Store name stays for the next one.", "success")
     return _after_part_change(item, row.system if row else "")
 
@@ -1075,8 +1104,22 @@ def retire_part(item_id, part_id):
     )
     row.is_current = False
     row.status = "retired"
+    try:
+        from app.utils.activity import record
+
+        record(
+            action="part.off",
+            summary=f"{current_user.name or current_user.username} took {row.name} off {item.name}",
+            target_table="vehicle_parts",
+            target_id=row.id,
+            item_id=item.id,
+            old_json={"status": "installed", "is_current": True, "name": row.name, "system": row.system},
+            new_json={"status": "retired"},
+        )
+    except Exception:
+        pass
     db.session.commit()
-    flash(f"{row.name} is off {item.name}. Still in Used to be on it if you need the old one.", "info")
+    flash(f"{row.name} is off {item.name}. A parent can put it back on Happened.", "info")
     return _after_part_change(item, row.system)
 
 
@@ -1127,8 +1170,27 @@ def edit_part(item_id, part_id):
 @login_required
 @require_perm("edit_meta")
 def delete_item(item_id):
+    from datetime import datetime as _dt
+    from app.utils.activity import record
+    from sqlalchemy.orm.attributes import flag_modified
+
     item = _item_or_404(item_id)
-    db.session.delete(item)
+    extra = dict(item.extra_data) if isinstance(item.extra_data, dict) else {}
+    if item.barcode:
+        extra["removed_barcode"] = item.barcode
+        item.barcode = None
+        item.extra_data = extra
+        flag_modified(item, "extra_data")
+    item.removed_at = _dt.utcnow()
+    record(
+        action="item.remove",
+        summary=f"{current_user.name or current_user.username} removed {item.name}",
+        target_table="items",
+        target_id=item.id,
+        item_id=item.id,
+        old_json={"name": item.name, "item_type": item.item_type},
+        reversible=True,
+    )
     db.session.commit()
-    flash("Item removed.", "info")
+    flash(f"{item.name} is out of the house. A parent can put it back on Happened.", "info")
     return redirect(url_for("home.home"))

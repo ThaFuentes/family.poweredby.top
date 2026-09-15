@@ -20,6 +20,7 @@ def index():
     items = (
         Item.query.options(joinedload(Item.tool))
         .filter_by(household_id=hid, item_type="tool")
+        .filter(Item.removed_at.is_(None))
         .order_by(Item.name.asc())
         .all()
     )

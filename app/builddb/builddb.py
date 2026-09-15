@@ -167,6 +167,7 @@ def init_tenant_system(app):
                 "table_legal_records",
                 "table_legal_files",
                 "table_scan_events",
+                "table_household_activity",
                 "table_grocery_list",
                 "table_invites",
                 "table_service_passes",

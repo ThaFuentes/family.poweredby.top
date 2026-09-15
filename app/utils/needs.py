@@ -186,6 +186,8 @@ def household_needs(household_id: int, *, is_child: bool = False) -> dict:
         item = g.item
         if not item or int(getattr(item, "household_id", 0) or 0) != hid:
             continue
+        if getattr(item, "removed_at", None):
+            continue
         expiring.append({"item": item, "expires_on": exp, "gone": exp < now.date()})
 
     since = now - timedelta(hours=48)

@@ -48,6 +48,26 @@
 <button type="button" class="btn secondary home-cal-btn" data-sheet="{{ url_for('appearance.calendar_sheet') }}">
   {% if cal_links.cal_ready %}Calendar · {{ cal_links.cal_provider_label }}{% else %}Your calendar{% endif %}
 </button>
+{% if happened %}
+<section class="card list">
+  <h2>Happened</h2>
+  <p class="muted">Parents can put a tap back. Kid used 30 cookies? Undo or set the count.</p>
+  {% for r in happened %}
+  <div class="row key-line">
+    <div>
+      <strong>{{ r.summary }}</strong>
+      <div class="muted">{{ r.when }}{% if r.reversed_at %} · put back{% endif %}</div>
+    </div>
+    {% if r.can_reverse %}
+    <form method="post" action="{{ url_for('members.undo_happened', aid=r.id) }}">
+      <button class="btn sm" type="submit">Put back</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endfor %}
+  <div class="btn-row"><a class="btn secondary" href="{{ url_for('members.happened') }}">All of it</a></div>
+</section>
+{% endif %}
 {% if needs.activity %}
 <section class="card list activity-strip">
   <h2>Today</h2>

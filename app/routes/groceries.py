@@ -42,6 +42,7 @@ def index():
     q = (
         Item.query.options(joinedload(Item.grocery))
         .filter_by(household_id=hid, item_type="grocery")
+        .filter(Item.removed_at.is_(None))
         .order_by(Item.name.asc())
         .all()
     )

@@ -74,10 +74,19 @@ def ensure_house_item(household_id: int, user_id=None, name: str | None = None):
 
     row = (
         Item.query.filter_by(household_id=household_id, item_type="house")
+        .filter(Item.removed_at.is_(None))
         .order_by(Item.id.asc())
         .first()
     )
     if row:
+        return row, False
+    row = (
+        Item.query.filter_by(household_id=household_id, item_type="house")
+        .order_by(Item.id.asc())
+        .first()
+    )
+    if row:
+        row.removed_at = None
         return row, False
     item = Item(
         household_id=household_id,

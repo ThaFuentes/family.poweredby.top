@@ -20,6 +20,7 @@ class Item(db.Model):
     created_by = db.Column(db.Integer, nullable=True)
     linked_item_id = db.Column(db.Integer, nullable=True)
     extra_data = db.Column(db.JSON, nullable=True)
+    removed_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.current_timestamp())
     updated_at = db.Column(
         db.DateTime,
@@ -47,6 +48,7 @@ def create_table():
             ("created_by", "INT NULL"),
             ("linked_item_id", "INT NULL"),
             ("extra_data", "JSON NULL"),
+            ("removed_at", "TIMESTAMP NULL"),
         ],
         indexes=[
             ("idx_items_household_id", "household_id"),

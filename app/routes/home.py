@@ -40,6 +40,15 @@ def home():
     from app.utils.dashboard import dashboard_prefs
 
     prefs = dashboard_prefs(current_user)
+    happened = []
+    try:
+        from app.utils.permissions import can as _can
+        from app.utils.activity import recent as activity_recent
+
+        if _can("override"):
+            happened = activity_recent(hid, limit=8, hours=48)
+    except Exception:
+        happened = []
     tmpl = "home_kid.html" if is_child else "home.html"
     return render_template(
         tmpl,
@@ -51,4 +60,5 @@ def home():
         cal_links=cal_links,
         cal_next="home",
         dash=prefs,
+        happened=happened,
     )

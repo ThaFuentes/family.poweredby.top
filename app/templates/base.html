@@ -50,6 +50,9 @@
         <a href="{{ url_for('appearance.picker') }}#calendar">Your calendar</a>
         {% if current_user.role != 'child' %}
         <a href="{{ url_for('members.index') }}">Household</a>
+        {% if can('override') %}
+        <a href="{{ url_for('members.happened') }}">Happened</a>
+        {% endif %}
         <a href="{{ url_for('items.labels') }}">Print QR labels</a>
         {% endif %}
         {% if current_user.is_admin %}

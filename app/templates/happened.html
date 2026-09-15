@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Happened · Family OS{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Happened</h1>
+    <p>What this house did. A kid used 30 cookies or took a part off — put it back here. Leaders only.</p>
+  </div>
+</div>
+<p class="muted">
+  <a href="{{ url_for('members.happened', hours=24) }}">24 hours</a> ·
+  <a href="{{ url_for('members.happened', hours=48) }}">2 days</a> ·
+  <a href="{{ url_for('members.happened', hours=168) }}">7 days</a> ·
+  <a href="{{ url_for('members.happened', hours=0) }}">All</a>
+</p>
+<div class="card list">
+  {% for r in rows %}
+  <div class="row key-line">
+    <div>
+      <strong>{{ r.summary }}</strong>
+      <div class="muted">{{ r.when }}{% if r.reversed_at %} · put back{% endif %}</div>
+      {% if r.can_reverse and r.item_id and r.action.startswith('grocery.') %}
+      <form method="post" action="{{ url_for('items.set_count', item_id=r.item_id) }}" class="btn-row" style="margin:.35rem 0 0">
+        <input name="quantity" inputmode="decimal" placeholder="set count" style="width:7rem">
+        <input type="hidden" name="next" value="happened">
+        <button class="btn sm" type="submit">Set count</button>
+      </form>
+      {% endif %}
+    </div>
+    {% if r.can_reverse %}
+    <form method="post" action="{{ url_for('members.undo_happened', aid=r.id) }}">
+      <button class="btn sm" type="submit">Put back</button>
+    </form>
+    {% endif %}
+  </div>
+  {% else %}
+  <p class="muted">Nothing in this window. Scans, basket taps, parts taken off, and removed items show up here.</p>
+  {% endfor %}
+</div>
+{% endblock %}

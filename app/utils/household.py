@@ -11,9 +11,12 @@ def household_id() -> int:
     return int(hid)
 
 
-def scoped(model):
+def scoped(model, include_removed=False):
     """Every list query is household-scoped. Never skip this."""
-    return model.query.filter_by(household_id=household_id())
+    q = model.query.filter_by(household_id=household_id())
+    if not include_removed and getattr(model, "removed_at", None) is not None:
+        q = q.filter(model.removed_at.is_(None))
+    return q
 
 
 def get_or_404(model, ident, id_field="id"):

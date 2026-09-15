@@ -12,6 +12,43 @@ from app.utils.permissions import require_perm
 members_bp = Blueprint("members", __name__, url_prefix="/members")
 
 
+@members_bp.route("/happened")
+@login_required
+@require_perm("override")
+def happened():
+    from app.utils.activity import recent
+
+    hid = household_id()
+    hours = request.args.get("hours") or "48"
+    try:
+        hours_n = int(hours)
+    except Exception:
+        hours_n = 48
+    if hours_n <= 0:
+        hours_n = None
+    rows = recent(hid, limit=80, hours=hours_n)
+    return render_template(
+        "happened.html",
+        rows=rows,
+        hours=hours_n or 0,
+        household=Household.query.get(hid),
+    )
+
+
+@members_bp.route("/happened/<int:aid>/undo", methods=["POST"])
+@login_required
+@require_perm("override")
+def undo_happened(aid):
+    from app.builddb.table_household_activity import HouseholdActivity
+    from app.utils.activity import reverse_row
+
+    hid = household_id()
+    row = HouseholdActivity.query.filter_by(id=aid, household_id=hid).first_or_404()
+    ok, msg = reverse_row(row, by_id=current_user.id)
+    flash(msg, "success" if ok else "danger")
+    return redirect(url_for("members.happened"))
+
+
 @members_bp.route("/")
 @login_required
 def index():

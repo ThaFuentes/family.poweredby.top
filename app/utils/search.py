@@ -32,6 +32,7 @@ def search_household(household_id: int, q: str, *, user_id: int, limit: int = 40
     items = (
         Item.query.outerjoin(GroceryItem, GroceryItem.item_id == Item.id)
         .filter(Item.household_id == household_id)
+        .filter(Item.removed_at.is_(None))
         .filter(
             or_(
                 Item.name.ilike(like, **esc),
