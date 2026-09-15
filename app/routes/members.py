@@ -11,6 +11,89 @@ from app.utils.permissions import require_perm
 
 members_bp = Blueprint("members", __name__, url_prefix="/members")
 
+SHEETS = (
+    "people",
+    "add",
+    "house",
+    "keys",
+    "mail",
+    "lock",
+    "ai",
+    "trusted",
+    "remind",
+    "danger",
+)
+
+
+def _after(panel=None):
+    nxt = (request.form.get("next") or request.args.get("next") or "").strip()
+    p = (panel or request.form.get("panel") or request.args.get("panel") or "").strip()
+    if nxt == "sheet" and p in SHEETS:
+        return redirect(url_for("members.sheet", panel=p))
+    return _after()
+
+
+def _page_ctx():
+    hid = household_id()
+    members = User.query.filter_by(household_id=hid).order_by(User.name.asc()).all()
+    invites = (
+        Invite.query.filter_by(household_id=hid)
+        .filter(Invite.used_at.is_(None))
+        .filter(Invite.revoked_at.is_(None))
+        .order_by(Invite.created_at.desc())
+        .all()
+    )
+    household = Household.query.get(hid)
+    from app.utils.calendar import household_reminders_via
+    from app.utils.ai import public_ai_config
+    from app.builddb.table_service_passes import ServicePass
+    from app.builddb.table_trusted_emails import TrustedEmail
+    from app.utils.places import list_places
+    from app.utils.keys_ui import pop_issued_key
+    from app.utils.household_delete import confirm_phrase
+    from app.utils.household_vault import FORMAT_HINT, vault_enabled, vault_hint, vault_unlocked
+    from app.utils.household_mail import public_mail_config
+
+    show_revoked = (request.args.get("revoked") or "").strip() in ("1", "yes", "all")
+    service_q = ServicePass.query.filter_by(household_id=hid)
+    revoked_count = service_q.filter(ServicePass.revoked_at.isnot(None)).count()
+    if show_revoked:
+        service_keys = service_q.order_by(ServicePass.created_at.desc()).limit(60).all()
+    else:
+        service_keys = (
+            service_q.filter(ServicePass.revoked_at.is_(None))
+            .order_by(ServicePass.created_at.desc())
+            .limit(40)
+            .all()
+        )
+    trusted = (
+        TrustedEmail.query.filter_by(household_id=hid)
+        .order_by(TrustedEmail.created_at.desc())
+        .all()
+    )
+    return {
+        "issued_key": pop_issued_key(),
+        "delete_confirm": confirm_phrase(household) if household else "",
+        "members": members,
+        "invites": invites,
+        "household": household,
+        "roles": ROLES,
+        "reminders_via": household_reminders_via(household),
+        "is_leader": bool(current_user.is_leader),
+        "ai": public_ai_config(household, household_only=True),
+        "service_keys": service_keys,
+        "show_revoked": show_revoked,
+        "revoked_count": revoked_count,
+        "trusted": trusted,
+        "can_mint_service": current_user.role != "child",
+        "places_text": "\n".join(list_places(household)),
+        "vault_on": vault_enabled(household),
+        "vault_hint": vault_hint(household),
+        "vault_unlocked": vault_unlocked(household),
+        "vault_format": FORMAT_HINT,
+        "mail": public_mail_config(household),
+    }
+
 
 @members_bp.route("/happened")
 @login_required
@@ -54,67 +137,19 @@ def undo_happened(aid):
 def index():
     if current_user.role == "child":
         abort(403)
-    hid = household_id()
-    members = User.query.filter_by(household_id=hid).order_by(User.name.asc()).all()
-    invites = (
-        Invite.query.filter_by(household_id=hid)
-        .filter(Invite.used_at.is_(None))
-        .filter(Invite.revoked_at.is_(None))
-        .order_by(Invite.created_at.desc())
-        .all()
-    )
-    household = Household.query.get(hid)
-    from app.utils.calendar import household_reminders_via
-    from app.utils.ai import public_ai_config
-    from app.builddb.table_service_passes import ServicePass
-    from app.builddb.table_trusted_emails import TrustedEmail
+    return render_template("members.html", **_page_ctx())
 
-    show_revoked = (request.args.get("revoked") or "").strip() in ("1", "yes", "all")
-    service_q = ServicePass.query.filter_by(household_id=hid)
-    revoked_count = service_q.filter(ServicePass.revoked_at.isnot(None)).count()
-    if show_revoked:
-        service_keys = service_q.order_by(ServicePass.created_at.desc()).limit(60).all()
-    else:
-        service_keys = (
-            service_q.filter(ServicePass.revoked_at.is_(None))
-            .order_by(ServicePass.created_at.desc())
-            .limit(40)
-            .all()
-        )
-    trusted = (
-        TrustedEmail.query.filter_by(household_id=hid)
-        .order_by(TrustedEmail.created_at.desc())
-        .all()
-    )
-    from app.utils.places import list_places
-    from app.utils.keys_ui import pop_issued_key
-    from app.utils.household_delete import confirm_phrase
-    from app.utils.household_vault import FORMAT_HINT, vault_enabled, vault_hint, vault_unlocked
-    from app.utils.household_mail import public_mail_config
 
-    return render_template(
-        "members.html",
-        issued_key=pop_issued_key(),
-        delete_confirm=confirm_phrase(household) if household else "",
-        members=members,
-        invites=invites,
-        household=household,
-        roles=ROLES,
-        reminders_via=household_reminders_via(household),
-        is_leader=bool(current_user.is_leader),
-        ai=public_ai_config(household, household_only=True),
-        service_keys=service_keys,
-        show_revoked=show_revoked,
-        revoked_count=revoked_count,
-        trusted=trusted,
-        can_mint_service=current_user.role != "child",
-        places_text="\n".join(list_places(household)),
-        vault_on=vault_enabled(household),
-        vault_hint=vault_hint(household),
-        vault_unlocked=vault_unlocked(household),
-        vault_format=FORMAT_HINT,
-        mail=public_mail_config(household),
-    )
+@members_bp.route("/sheet/<panel>")
+@login_required
+def sheet(panel):
+    if current_user.role == "child":
+        abort(403)
+    if panel not in SHEETS:
+        abort(404)
+    ctx = _page_ctx()
+    ctx["sheet_panel"] = panel
+    return render_template("members/sheet.html", **ctx)
 
 
 @members_bp.route("/add", methods=["POST"])
@@ -143,27 +178,27 @@ def add_person():
         role = "member"
     if not person_name:
         flash("Name them.", "danger")
-        return redirect(url_for("members.index"))
+        return _after()
     if not username or not valid_username(username):
         flash("Username: start with a letter, then letters, numbers, underscore.", "danger")
-        return redirect(url_for("members.index"))
+        return _after()
     if username_taken(hid, username):
         flash("Someone in this household already uses that username.", "danger")
-        return redirect(url_for("members.index"))
+        return _after()
     if email:
         taken = User.query.filter(User.email == email).first()
         if taken:
             flash("That email is already used.", "danger")
-            return redirect(url_for("members.index"))
+            return _after()
     password = (request.form.get("password") or "").strip() or random_login_password()
     if len(password) < 8:
         flash("Password needs at least 8 characters, or leave it blank and we make one.", "danger")
-        return redirect(url_for("members.index"))
+        return _after()
 
     cal_email = (request.form.get("calendar_email") or "").strip().lower() or email
     if cal_email and "@" not in cal_email:
         flash("Calendar email doesn't look like an email.", "danger")
-        return redirect(url_for("members.index"))
+        return _after()
     provider = normalize_provider(request.form.get("calendar_provider"), cal_email or "")
     if not (request.form.get("calendar_provider") or "").strip() and cal_email:
         provider = guess_provider(cal_email)
@@ -221,7 +256,7 @@ def add_person():
         extra={"username": username, "password": password, "handle": household.handle or ""},
     )
     flash("They're in. Copy the login from the window." if not mailed else f"They're in. {mail_msg}", "success")
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/invite", methods=["POST"])
@@ -264,17 +299,17 @@ def invite():
         if not username or not valid_username(username):
             db.session.rollback()
             flash("To make a login, pick a username: start with a letter.", "danger")
-            return redirect(url_for("members.index"))
+            return _after()
         if username_taken(hid, username):
             db.session.rollback()
             flash("Someone in this household already uses that username.", "danger")
-            return redirect(url_for("members.index"))
+            return _after()
         if email:
             taken = User.query.filter(User.email == email).first()
             if taken:
                 db.session.rollback()
                 flash("That email is already used.", "danger")
-                return redirect(url_for("members.index"))
+                return _after()
         password = (request.form.get("password") or "").strip() or random_login_password()
         user = User(
             household_id=hid,
@@ -295,7 +330,7 @@ def invite():
             if not ok_lock:
                 db.session.rollback()
                 flash(lock_msg, "danger")
-                return redirect(url_for("members.index"))
+                return _after()
             lock_to_send = send_lock
         else:
             flash("This household has no family lock yet, so none was emailed.", "warning")
@@ -339,7 +374,7 @@ def invite():
         flash(f"Family key ready. {msg}", "success")
     else:
         flash("Family key ready — copy it from the window.", "success")
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/service-key", methods=["POST"])
@@ -365,7 +400,7 @@ def mint_service_key():
         hint = f"Your note: {note}. {hint}"
     stash_issued_key(row.code, "Service key", hint)
     flash("Service key ready — copy it from the window.", "success")
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/revoke-code", methods=["POST"])
@@ -380,23 +415,23 @@ def revoke_code():
     if fam is not None and int(fam.household_id or 0) == hid:
         if fam.used_at:
             flash(f"{fam.code} was already used. Revoke does not undo a signup.", "warning")
-            return redirect(url_for("members.index"))
+            return _after()
         if fam.revoked_at:
             flash(f"{fam.code} was already revoked.", "info")
-            return redirect(url_for("members.index"))
+            return _after()
         revoke_family_invite(fam)
         flash(f"{fam.code} revoked.", "info")
-        return redirect(url_for("members.index"))
+        return _after()
     srv = find_service_pass(code)
     if srv is not None and int(srv.household_id or 0) == hid:
         if srv.revoked_at:
             flash(f"{srv.code} was already revoked.", "info")
-            return redirect(url_for("members.index"))
+            return _after()
         revoke_service_pass(srv)
         flash(f"{srv.code} revoked.", "info")
-        return redirect(url_for("members.index"))
+        return _after()
     flash("No open key in this household matches that code.", "danger")
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/invite/<int:iid>/revoke", methods=["POST"])
@@ -408,10 +443,10 @@ def revoke_invite(iid):
     row = Invite.query.filter_by(id=iid, household_id=household_id()).first_or_404()
     if row.used_at:
         flash("That Family key was already used.", "warning")
-        return redirect(url_for("members.index"))
+        return _after()
     revoke_family_invite(row)
     flash(f"{row.code} revoked.", "info")
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/service-key/<int:kid>/revoke", methods=["POST"])
@@ -425,7 +460,7 @@ def revoke_service_key(kid):
     row = ServicePass.query.filter_by(id=kid, household_id=household_id()).first_or_404()
     revoke_service_pass(row)
     flash(f"{row.code} revoked.", "info")
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/trusted", methods=["POST"])
@@ -441,7 +476,7 @@ def add_trusted():
         note=request.form.get("note") or "",
     )
     flash(msg, "success" if ok else "danger")
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/trusted/<int:tid>/remove", methods=["POST"])
@@ -455,7 +490,7 @@ def remove_trusted(tid):
     db.session.delete(row)
     db.session.commit()
     flash(f"{addr} is no longer on the trusted list.", "info")
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/<int:user_id>/role", methods=["POST"])
@@ -466,22 +501,22 @@ def set_role(user_id):
     user = User.query.filter_by(id=user_id, household_id=hid).first_or_404()
     if user.id == current_user.id:
         flash("You cannot change your own role here.", "warning")
-        return redirect(url_for("members.index"))
+        return _after()
     role = (request.form.get("role") or "").strip().lower()
     if role not in ROLES:
         flash("Invalid role.", "danger")
-        return redirect(url_for("members.index"))
+        return _after()
     if role == "child" and user.is_leader:
         from app.utils.leaders import leader_count
 
         if leader_count(hid) <= 1:
             flash("Promote another leader before making this person a child.", "warning")
-            return redirect(url_for("members.index"))
+            return _after()
         user.is_leader = False
     user.role = role
     db.session.commit()
     flash(f"{user.name} is now {role}.", "success")
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/<int:user_id>/leader", methods=["POST"])
@@ -491,14 +526,14 @@ def set_leader_flag(user_id):
     hid = household_id()
     if not current_user.is_leader:
         flash("Only household leaders can change who the leaders are.", "warning")
-        return redirect(url_for("members.index"))
+        return _after()
     user = User.query.filter_by(id=user_id, household_id=hid).first_or_404()
     make = (request.form.get("leader") or "").strip() in ("1", "true", "on", "yes")
     from app.utils.leaders import set_leader
 
     ok, msg = set_leader(user, make)
     flash(msg, "success" if ok else "danger")
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/<int:user_id>/reset", methods=["POST"])
@@ -508,17 +543,17 @@ def send_member_reset(user_id):
     hid = household_id()
     if not current_user.is_leader:
         flash("Only household leaders can send a reset for someone here.", "warning")
-        return redirect(url_for("members.index"))
+        return _after()
     user = User.query.filter_by(id=user_id, household_id=hid, is_active=True).first_or_404()
     from app.utils.passwords import issue_reset, send_reset_email
 
     token = issue_reset(user, requested_by=current_user.id)
     if not token:
         flash(f"{user.name} needs an email on this household first.", "warning")
-        return redirect(url_for("members.index"))
+        return _after()
     ok, msg = send_reset_email(user, token)
     flash(msg if not ok else f"Reset link handed to the mail server for {user.email}. {msg}", "success" if ok else "danger")
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/reminders-via", methods=["POST"])
@@ -533,7 +568,7 @@ def set_reminders_via():
     nxt = (request.form.get("next") or "").strip()
     if nxt == "reminders":
         return redirect(url_for("reminders.index"))
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/<int:user_id>/email", methods=["POST"])
@@ -547,13 +582,13 @@ def set_email(user_id):
         taken = User.query.filter(User.email == email, User.id != user.id).first()
         if taken:
             flash("That email is already used.", "danger")
-            return redirect(url_for("members.index"))
+            return _after()
     user.email = email
     if email and not (user.calendar_email or "").strip():
         user.calendar_email = email
     db.session.commit()
     flash("Email updated.", "success")
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/<int:user_id>/calendar", methods=["POST"])
@@ -569,11 +604,11 @@ def set_member_calendar(user_id):
         user.calendar_mode = "manual"
         db.session.commit()
         flash(f"Calendar removed for {user.name}.", "success")
-        return redirect(url_for("members.index"))
+        return _after()
     cal_email = (request.form.get("calendar_email") or "").strip().lower() or None
     if cal_email and "@" not in cal_email:
         flash("Calendar email doesn't look like an email.", "danger")
-        return redirect(url_for("members.index"))
+        return _after()
     provider = normalize_provider(request.form.get("calendar_provider"), cal_email or "")
     if not (request.form.get("calendar_provider") or "").strip() and cal_email:
         provider = guess_provider(cal_email)
@@ -594,7 +629,7 @@ def set_member_calendar(user_id):
         else f"Calendar for {user.name} saved. Name an email to auto-add.",
         "success",
     )
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/ai", methods=["POST"])
@@ -615,7 +650,7 @@ def save_ai():
         clear_key=(request.form.get("ai_clear_key") or "") == "1",
     )
     flash("Household AI key saved. Yours only — Family OS never uses the owner's key.", "success")
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/ai/test", methods=["POST"])
@@ -627,7 +662,7 @@ def test_ai():
     h = Household.query.get(household_id())
     ok, msg = ping_ai(h, household_only=True)
     flash(msg, "success" if ok else "danger")
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/rename", methods=["POST"])
@@ -638,11 +673,11 @@ def rename_household():
     h = Household.query.get(household_id())
     if not name:
         flash("Name your household. We will not name it for you.", "danger")
-        return redirect(url_for("members.index"))
+        return _after()
     h.name = name
     db.session.commit()
     flash("Household name saved.", "success")
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/handle", methods=["POST"])
@@ -655,15 +690,15 @@ def save_handle():
     raw = norm_handle(request.form.get("handle") or "")
     if not valid_handle(raw):
         flash("Handle: start with a letter, letters and numbers only. This is how you sign in.", "danger")
-        return redirect(url_for("members.index"))
+        return _after()
     taken = Household.query.filter(Household.handle == raw, Household.id != h.id).first()
     if taken:
         flash("That household handle is taken. Try another.", "danger")
-        return redirect(url_for("members.index"))
+        return _after()
     h.handle = raw
     db.session.commit()
     flash(f"Household handle is {raw}. Sign in with that plus your username.", "success")
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/delete", methods=["POST"])
@@ -678,7 +713,7 @@ def delete_household():
     typed = request.form.get("confirm") or ""
     if not confirm_matches(h, typed):
         flash(f'Type "{confirm_phrase(h)}" to delete this household.', "danger")
-        return redirect(url_for("members.index"))
+        return _after()
     name = wipe(h)
     logout_user()
     flash(f"{name} is gone. That cannot be undone.", "info")
@@ -696,14 +731,14 @@ def set_username(user_id):
     raw = norm_username(request.form.get("username") or "")
     if not valid_username(raw):
         flash("Username: start with a letter, then letters, numbers, underscore.", "danger")
-        return redirect(url_for("members.index"))
+        return _after()
     if username_taken(hid, raw, exclude_id=user.id):
         flash("Someone in this household already uses that username.", "danger")
-        return redirect(url_for("members.index"))
+        return _after()
     user.username = raw
     db.session.commit()
     flash(f"{user.name} signs in as {raw}.", "success")
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/places", methods=["POST"])
@@ -716,7 +751,7 @@ def save_places():
     names = _save(h, request.form.get("places") or "")
     db.session.commit()
     flash(f"Saved {len(names)} places.", "success")
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/vault", methods=["POST"])
@@ -731,7 +766,7 @@ def save_vault():
     if ok:
         unlock_vault(h, lock)
     flash(msg, "success" if ok else "danger")
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/mail", methods=["POST"])
@@ -757,7 +792,7 @@ def save_mail():
     flash("Household email saved. Invites and reminders from this house use it when it is on.", "success")
     if saved.get("smtp_fix"):
         flash(saved["smtp_fix"], "info")
-    return redirect(url_for("members.index"))
+    return _after()
 
 
 @members_bp.route("/mail/test", methods=["POST"])
@@ -775,4 +810,4 @@ def test_mail():
         household=h,
     )
     flash(msg, "success" if ok else "danger")
-    return redirect(url_for("members.index"))
+    return _after()

@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Household</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
+  {% include "partials/theme_head.html" %}
+</head>
+<body class="sheet-body">
+{% include "partials/key_issued.html" %}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+{% if sheet_panel == 'people' %}
+<h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">People</h1>
+{% for m in members %}
+<div class="card" style="margin:.55rem 0">
+  <strong>{{ m.name }}</strong>
+  {% if m.is_leader %}<span class="badge">Leader</span>{% endif %}
+  <div class="muted">{{ m.username }} · {{ m.role }}{% if household.handle %} · {{ household.handle }}{% endif %}</div>
+  {% if can('members') %}
+  <form method="post" action="{{ url_for('members.set_username', user_id=m.id) }}" class="btn-row" style="margin:.35rem 0 0">
+    {% include "members/_next.html" %}
+    <input name="username" value="{{ m.username }}" placeholder="username" autocapitalize="none">
+    <button class="btn sm secondary" type="submit">Save username</button>
+  </form>
+  <form method="post" action="{{ url_for('members.set_email', user_id=m.id) }}" class="btn-row" style="margin:.35rem 0 0">
+    {% include "members/_next.html" %}
+    <input type="email" name="email" value="{{ m.email or '' }}" placeholder="login email">
+    <button class="btn sm secondary" type="submit">Save email</button>
+  </form>
+  <form method="post" action="{{ url_for('members.set_member_calendar', user_id=m.id) }}" style="margin:.35rem 0 0">
+    {% include "members/_next.html" %}
+    <input type="email" name="calendar_email" value="{{ m.calendar_email or m.email or '' }}" placeholder="their calendar inbox">
+    <div class="btn-row" style="margin:.35rem 0 0">
+      <select name="calendar_provider">
+        <option value="google" {% if (m.calendar_provider or 'google')=='google' %}selected{% endif %}>Google</option>
+        <option value="apple" {% if m.calendar_provider=='apple' %}selected{% endif %}>Apple</option>
+        <option value="outlook" {% if m.calendar_provider=='outlook' %}selected{% endif %}>Outlook</option>
+        <option value="other" {% if m.calendar_provider=='other' %}selected{% endif %}>Other</option>
+      </select>
+      <select name="calendar_mode">
+        <option value="auto" {% if (m.calendar_mode or 'auto')=='auto' %}selected{% endif %}>Auto-add</option>
+        <option value="manual" {% if m.calendar_mode=='manual' %}selected{% endif %}>They add</option>
+      </select>
+      <button class="btn sm" type="submit">Save calendar</button>
+      <button class="btn sm secondary" type="submit" name="clear_calendar" value="1">Remove</button>
+    </div>
+  </form>
+  {% elif m.email %}
+  <div class="muted">{{ m.email }}</div>
+  {% endif %}
+  <div class="btn-row">
+    {% if can('members') and m.id != current_user.id %}
+    <form method="post" action="{{ url_for('members.set_role', user_id=m.id) }}">
+      {% include "members/_next.html" %}
+      <select name="role" onchange="this.form.submit()">
+        {% for r in roles %}
+          <option value="{{ r }}" {% if m.role==r %}selected{% endif %}>{{ r }}</option>
+        {% endfor %}
+      </select>
+    </form>
+    {% endif %}
+    {% if is_leader and m.role != 'child' %}
+    <form method="post" action="{{ url_for('members.set_leader_flag', user_id=m.id) }}">
+      {% include "members/_next.html" %}
+      <input type="hidden" name="leader" value="{{ '0' if m.is_leader else '1' }}">
+      <button class="btn sm secondary" type="submit">{% if m.is_leader %}Remove leader{% else %}Make leader{% endif %}</button>
+    </form>
+    {% endif %}
+    {% if is_leader and m.email %}
+    <form method="post" action="{{ url_for('members.send_member_reset', user_id=m.id) }}">
+      {% include "members/_next.html" %}
+      <button class="btn sm secondary" type="submit">Send password reset</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+
+{% elif sheet_panel == 'add' %}
+<h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">Add someone</h1>
+<p class="muted">No Family key. You make their login.</p>
+<form class="card" method="post" action="{{ url_for('members.add_person') }}">
+  {% include "members/_next.html" %}
+  <label>Their name</label>
+  <input name="person_name" required placeholder="Maya">
+  <label>Username</label>
+  <input name="username" required placeholder="maya" autocapitalize="none">
+  <label>Email (optional)</label>
+  <input type="email" name="email" placeholder="maya@gmail.com">
+  <label>Password (blank = we make one)</label>
+  <input name="password" autocomplete="new-password">
+  <label>Role</label>
+  <select name="role">
+    <option value="member">member</option>
+    <option value="child">child</option>
+    <option value="admin">admin</option>
+  </select>
+  <label>Their calendar email</label>
+  <input type="email" name="calendar_email" placeholder="same as above, or another inbox">
+  <div class="cal-row">
+    <select name="calendar_provider">
+      <option value="google">Google</option>
+      <option value="apple">Apple</option>
+      <option value="outlook">Outlook</option>
+      <option value="other">Other</option>
+    </select>
+    <select name="calendar_mode">
+      <option value="auto">Auto-add</option>
+      <option value="manual">They add them</option>
+    </select>
+  </div>
+  <div class="btn-row"><button class="btn" type="submit">Add them</button></div>
+</form>
+
+{% elif sheet_panel == 'house' %}
+<h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">This house</h1>
+<form class="card" method="post" action="{{ url_for('members.rename_household') }}">
+  {% include "members/_next.html" %}
+  <label>Household name</label>
+  <input name="name" value="{{ household.name }}">
+  <div class="btn-row"><button class="btn" type="submit">Save name</button></div>
+</form>
+<form class="card" method="post" action="{{ url_for('members.save_handle') }}">
+  {% include "members/_next.html" %}
+  <label>Household handle</label>
+  <input name="handle" value="{{ household.handle or '' }}" placeholder="fuentes" autocapitalize="none">
+  <p class="muted">Sign in with this + username.</p>
+  <div class="btn-row"><button class="btn" type="submit">Save handle</button></div>
+</form>
+<form class="card" method="post" action="{{ url_for('members.save_places') }}">
+  {% include "members/_next.html" %}
+  <h2>Where things live</h2>
+  <p class="muted">One place per line.</p>
+  <textarea name="places" rows="8">{{ places_text }}</textarea>
+  <div class="btn-row"><button class="btn" type="submit">Save places</button></div>
+</form>
+
+{% elif sheet_panel == 'keys' %}
+<h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">Keys</h1>
+<form class="card" method="post" action="{{ url_for('members.invite') }}">
+  {% include "members/_next.html" %}
+  <span class="key-tag fam">FAM-</span>
+  <h2>Family key</h2>
+  <p class="muted">They join themselves. Prefer Add someone when you already know them.</p>
+  <label>Note (for you)</label>
+  <input name="label" placeholder="Maya, cousin Mike">
+  <label>Email them (optional)</label>
+  <input type="email" name="email">
+  <label>Role</label>
+  <select name="role">
+    <option value="member">member</option>
+    <option value="child">child</option>
+    <option value="admin">admin</option>
+  </select>
+  <div class="btn-row"><button class="btn" type="submit">Make a Family key</button></div>
+</form>
+{% for inv in invites %}
+<div class="row key-line">
+  <div>
+    <strong class="key-code">{{ inv.code }}</strong>
+    <div class="muted">{{ inv.role }} · expires {{ inv.expires_at }}{% if inv.label %} · {{ inv.label }}{% endif %}</div>
+  </div>
+  <div class="btn-row" style="margin:0">
+    <button type="button" class="btn sm secondary" data-copy="{{ inv.code }}">Copy</button>
+    {% if can('members') %}
+    <form method="post" action="{{ url_for('members.revoke_invite', iid=inv.id) }}">
+      {% include "members/_next.html" %}
+      <button class="btn sm danger" type="submit">Revoke</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% else %}
+<p class="muted">No open Family keys.</p>
+{% endfor %}
+{% if can_mint_service %}
+<form class="card" method="post" action="{{ url_for('members.mint_service_key') }}" style="margin-top:1rem">
+  {% include "members/_next.html" %}
+  <span class="key-tag srv">SRV-</span>
+  <h2>Service key</h2>
+  <p class="muted">Gets them onto Family OS. Does not put them in this household.</p>
+  <label>Note</label>
+  <input name="label" placeholder="Tyler F">
+  <label>How many people</label>
+  <input name="max_uses" value="1" inputmode="numeric">
+  <label>Expires in days</label>
+  <input name="days" value="14" inputmode="numeric">
+  <div class="btn-row"><button class="btn" type="submit">Make a Service key</button></div>
+</form>
+{% for k in service_keys %}
+<div class="row key-line">
+  <div>
+    <strong class="key-code">{{ k.code }}</strong>
+    <div class="muted">{% if k.revoked_at %}revoked{% elif k.expires_at %}expires {{ k.expires_at }}{% endif %} · {{ k.use_count }}/{{ k.max_uses }}{% if k.label %} · {{ k.label }}{% endif %}</div>
+  </div>
+  {% if not k.revoked_at %}
+  <div class="btn-row" style="margin:0">
+    <button type="button" class="btn sm secondary" data-copy="{{ k.code }}">Copy</button>
+    <form method="post" action="{{ url_for('members.revoke_service_key', kid=k.id) }}">
+      {% include "members/_next.html" %}
+      <button class="btn sm danger" type="submit">Revoke</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+{% endif %}
+<form class="card" method="post" action="{{ url_for('members.revoke_code') }}">
+  {% include "members/_next.html" %}
+  <h2>Revoke a key</h2>
+  <div class="btn-row">
+    <input name="code" required placeholder="FAM-… or SRV-…" autocapitalize="characters">
+    <button class="btn danger" type="submit">Revoke</button>
+  </div>
+</form>
+
+{% elif sheet_panel == 'mail' %}
+<h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">Mailbox</h1>
+<form class="card" method="post" action="{{ url_for('members.save_mail') }}">
+  {% include "members/_next.html" %}
+  <label class="btn-row" style="align-items:center;gap:.5rem">
+    <input type="checkbox" name="mail_enabled" value="1" {% if mail.enabled %}checked{% endif %}>
+    Use this household’s mailbox
+  </label>
+  <label>From name</label>
+  <input name="from_name" value="{{ mail.from_name or '' }}">
+  <label>From email</label>
+  <input type="email" name="from_email" value="{{ mail.from_email or '' }}">
+  <label>SMTP host</label>
+  <input name="smtp_host" value="{{ mail.smtp_host or '' }}">
+  <label>Port</label>
+  <input name="smtp_port" inputmode="numeric" value="{{ mail.smtp_port or 587 }}">
+  <p class="muted">465 + SSL, or 587 + STARTTLS. Not 995.</p>
+  <label>Encryption</label>
+  <select name="smtp_encryption">
+    <option value="tls" {% if mail.smtp_encryption=='tls' %}selected{% endif %}>STARTTLS (587)</option>
+    <option value="ssl" {% if mail.smtp_encryption=='ssl' %}selected{% endif %}>SSL (465)</option>
+    <option value="none" {% if mail.smtp_encryption=='none' %}selected{% endif %}>None</option>
+  </select>
+  <label>SMTP username</label>
+  <input name="smtp_username" value="{{ mail.smtp_username or '' }}" autocomplete="off">
+  <label>SMTP password</label>
+  <input type="password" name="smtp_password" autocomplete="new-password" placeholder="{% if mail.smtp_password_hint %}unchanged · {{ mail.smtp_password_hint }}{% else %}leave blank{% endif %}">
+  <div class="btn-row"><button class="btn" type="submit">Save mailbox</button></div>
+</form>
+{% if mail.ready or mail.from_email %}
+<form class="card" method="post" action="{{ url_for('members.test_mail') }}">
+  {% include "members/_next.html" %}
+  <label>Send a test to</label>
+  <input type="email" name="to" value="{{ current_user.email or '' }}" required>
+  <div class="btn-row"><button class="btn secondary" type="submit">Send test</button></div>
+</form>
+{% endif %}
+
+{% elif sheet_panel == 'lock' %}
+<h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">Family lock</h1>
+<div class="card">
+  {% if vault_on %}
+  <p class="muted">Hint: <strong>{{ vault_hint }}</strong>. {% if vault_unlocked %}Unlocked on this device.{% else %}This device still needs the lock.{% endif %} We cannot recover it.</p>
+  {% else %}
+  <p class="muted">Optional. Example <strong>FAMOS-ourphrase</strong>. Write it down.</p>
+  <form method="post" action="{{ url_for('members.save_vault') }}">
+    {% include "members/_next.html" %}
+    <label>Family lock</label>
+    <input name="family_lock" autocomplete="off" autocapitalize="off" placeholder="FAMOS-ourphrase" required>
+    <p class="muted">{{ vault_format }}</p>
+    <div class="btn-row"><button class="btn" type="submit">Turn lock on</button></div>
+  </form>
+  {% endif %}
+</div>
+
+{% elif sheet_panel == 'ai' %}
+<h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">AI key</h1>
+<form class="card" method="post" action="{{ url_for('members.save_ai') }}" id="ai-form">
+  {% include "members/_next.html" %}
+  <p class="muted">Yours. Family OS never uses the owner’s key. Gemini free key at aistudio.google.com/apikey.</p>
+  <label>Provider</label>
+  <select name="ai_provider" id="ai-provider">
+    {% for p in ai.providers %}
+      <option value="{{ p.id }}" {% if ai.provider==p.id %}selected{% endif %}>{{ p.label }}</option>
+    {% endfor %}
+  </select>
+  <p class="muted" id="ai-hint">{{ ai.hint }}</p>
+  <label>Model</label>
+  <input name="ai_model" id="ai-model" list="ai-models" value="{{ ai.model or '' }}">
+  <datalist id="ai-models">{% for m in ai.models %}<option value="{{ m }}">{% endfor %}</datalist>
+  <label>API key</label>
+  <input type="password" name="ai_api_key" autocomplete="off" placeholder="{% if ai.has_key %}unchanged · {{ ai.key_hint }}{% else %}paste a key{% endif %}">
+  <div class="btn-row">
+    <button class="btn" type="submit">Save key</button>
+    {% if ai.has_key %}
+    <button class="btn secondary" type="submit" name="ai_clear_key" value="1">Remove key</button>
+    {% endif %}
+  </div>
+</form>
+{% if ai.has_key %}
+<form method="post" action="{{ url_for('members.test_ai') }}">
+  {% include "members/_next.html" %}
+  <button class="btn secondary" type="submit">Test this key</button>
+</form>
+{% endif %}
+
+{% elif sheet_panel == 'trusted' %}
+<h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">Trusted emails</h1>
+<p class="muted">Join Family OS without a Service key. Still need a Family key for this house.</p>
+<form class="card" method="post" action="{{ url_for('members.add_trusted') }}">
+  {% include "members/_next.html" %}
+  <label>Email</label>
+  <input type="email" name="email" required>
+  <label>Note</label>
+  <input name="note">
+  <div class="btn-row"><button class="btn" type="submit">Trust this email</button></div>
+</form>
+{% for t in trusted %}
+<div class="row">
+  <div><strong>{{ t.email }}</strong>{% if t.note %}<div class="muted">{{ t.note }}</div>{% endif %}</div>
+  <form method="post" action="{{ url_for('members.remove_trusted', tid=t.id) }}">
+    {% include "members/_next.html" %}
+    <button class="btn sm secondary" type="submit">Remove</button>
+  </form>
+</div>
+{% else %}
+<p class="muted">Nobody extra on the list.</p>
+{% endfor %}
+
+{% elif sheet_panel == 'remind' %}
+<h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">Reminders</h1>
+<form class="card" method="post" action="{{ url_for('members.set_reminders_via') }}">
+  {% include "members/_next.html" %}
+  <p class="muted">Household default. Each person can still have their own calendar.</p>
+  <label>Send by</label>
+  <select name="reminders_via">
+    <option value="email" {% if reminders_via=='email' %}selected{% endif %}>Email</option>
+    <option value="calendar" {% if reminders_via=='calendar' %}selected{% endif %}>Calendar</option>
+    <option value="both" {% if reminders_via=='both' %}selected{% endif %}>Email and calendar</option>
+  </select>
+  <div class="btn-row"><button class="btn" type="submit">Save</button></div>
+</form>
+
+{% elif sheet_panel == 'danger' %}
+<h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">Delete this household</h1>
+<div class="card danger-card">
+  <p class="muted">Removes everyone, the pantry, tools, notes, photos, and keys. There is no undo.</p>
+  <form method="post" action="{{ url_for('members.delete_household') }}">
+    {% include "members/_next.html" %}
+    <label>Type <strong>{{ delete_confirm }}</strong> to confirm</label>
+    <input name="confirm" autocomplete="off" autocapitalize="none" required>
+    <div class="btn-row"><button class="btn danger" type="submit">Delete household</button></div>
+  </form>
+</div>
+{% endif %}
+
+<script src="{{ url_for('static', filename='js/app.js') }}?v=os10"></script>
+</body>
+</html>

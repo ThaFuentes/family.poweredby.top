@@ -21,8 +21,11 @@
   {% endfor %}
 </div>
 {% set dash_next = "look" %}
+{% set dash_compact = true %}
 {% include "partials/dashboard_edit.html" %}
-{% include "partials/calendar_connect.html" %}
+<button type="button" class="btn secondary home-cal-btn" data-sheet="{{ url_for('appearance.calendar_sheet') }}" data-sheet-title="Your calendar">
+  {% if cal_links.cal_ready %}Calendar · {{ cal_links.cal_provider_label }}{% else %}Your calendar{% endif %}
+</button>
 <form class="card" method="post" action="{{ url_for('auth.change_own_password') }}">
   <h2>Your password</h2>
   <p class="muted">Reset yours here, or use Forgot password on sign-in. Leaders can email a reset to someone in this household.</p>
