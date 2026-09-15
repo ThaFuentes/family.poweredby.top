@@ -22,10 +22,10 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "kind": "gemini",
         "base_url": "https://generativelanguage.googleapis.com/v1beta",
         "models": (
-            "gemini-2.5-flash",
-            "gemini-2.0-flash",
-            "gemini-2.5-pro",
-            "gemini-2.0-flash-lite",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-3.8-flash",
         ),
         "hint": "aistudio.google.com/apikey — free Gemini key. Family OS never uses the owner's.",
         "env": "GEMINI_API_KEY",
@@ -113,7 +113,22 @@ PROVIDERS: dict[str, dict[str, Any]] = {
 }
 
 DEFAULT_PROVIDER = "gemini"
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.6-flash"
+# Google retires Flash ids. Map old household/platform picks so Test this key works.
+_RETIRED_MODELS = {
+    "gemini-2.5-flash": "gemini-3.6-flash",
+    "gemini-2.5-pro": "gemini-3.6-flash",
+    "gemini-2.5-flash-lite": "gemini-3.5-flash-lite",
+    "gemini-2.0-flash": "gemini-3.6-flash",
+    "gemini-2.0-flash-lite": "gemini-3.5-flash-lite",
+    "gemini-1.5-flash": "gemini-3.6-flash",
+    "gemini-1.5-pro": "gemini-3.6-flash",
+    "gemini-pro": "gemini-3.6-flash",
+}
+_SUGGESTED_MODEL = re.compile(
+    r"use models?/([a-z0-9._-]+)|update your code to use models?/([a-z0-9._-]+)",
+    re.I,
+)
 # Back-compat for the old platform page.
 MODELS = PROVIDERS["gemini"]["models"]
 BASE_URL = PROVIDERS["gemini"]["base_url"]
@@ -178,6 +193,54 @@ def _spec(provider: str) -> dict:
     return PROVIDERS.get(provider) or PROVIDERS[DEFAULT_PROVIDER]
 
 
+def _live_model(provider: str, model: str) -> str:
+    spec = _spec(provider)
+    raw = (model or "").strip()
+    if raw.startswith("models/"):
+        raw = raw[len("models/") :]
+    raw = _RETIRED_MODELS.get(raw, raw)
+    if not raw:
+        return spec["models"][0] if spec["models"] else DEFAULT_MODEL
+    return raw
+
+
+def _suggested_model(err: str) -> str | None:
+    m = _SUGGESTED_MODEL.search(err or "")
+    if not m:
+        return None
+    name = (m.group(1) or m.group(2) or "").strip()
+    if name.startswith("models/"):
+        name = name[len("models/") :]
+    return name or None
+
+
+def persist_model(model: str, household=None) -> None:
+    """Write a working model id so Test this key and the next scan stay on it."""
+    model = (model or "").strip()[:120]
+    if not model:
+        return
+    try:
+        if household is not None:
+            from app.utils.household_ai import household_config, save_household_ai
+
+            cur = household_config(household)
+            save_household_ai(
+                household,
+                provider=cur.get("provider") or DEFAULT_PROVIDER,
+                model=model,
+                api_key="",
+                base_url=cur.get("base_url") or "",
+                enabled=cur.get("enabled", True),
+                clear_key=False,
+            )
+            return
+        from app.utils.platform_settings import set_setting
+
+        set_setting("ai_model", model)
+    except Exception:
+        pass
+
+
 def _pack(
     provider: str,
     key: str,
@@ -188,7 +251,7 @@ def _pack(
     from_env: bool = False,
 ) -> dict:
     spec = _spec(provider)
-    model = (model or "").strip() or (spec["models"][0] if spec["models"] else DEFAULT_MODEL)
+    model = _live_model(provider, model)
     base = (base_url or "").strip().rstrip("/") or spec["base_url"]
     return {
         "provider": provider,
@@ -281,7 +344,9 @@ def complete(
     kind = cfg.get("kind") or "openai"
     try:
         if kind == "gemini":
-            text = _gemini(cfg, prompt, system, max_tokens, timeout, image_bytes, image_mime)
+            text = _gemini(
+                cfg, prompt, system, max_tokens, timeout, image_bytes, image_mime, household=household
+            )
         elif kind == "anthropic":
             text = _anthropic(cfg, prompt, system, max_tokens, timeout, image_bytes, image_mime)
         else:
@@ -289,6 +354,25 @@ def complete(
     except requests.Timeout:
         return False, "AI timed out."
     except Exception as exc:
+        err = str(exc)
+        suggested = _suggested_model(err)
+        if suggested and suggested != cfg.get("model"):
+            cfg = dict(cfg)
+            cfg["model"] = suggested
+            persist_model(suggested, household=household)
+            try:
+                if kind == "gemini":
+                    text = _gemini(
+                        cfg, prompt, system, max_tokens, timeout, image_bytes, image_mime, household=household
+                    )
+                else:
+                    raise
+            except Exception as exc2:
+                return False, f"AI request failed: {exc2}"
+            else:
+                if text:
+                    return True, text
+                return False, f"AI request failed: {err}"
         return False, f"AI request failed: {exc}"
     if text is None:
         return False, "AI returned nothing. Check the key, model, and base URL."
@@ -331,7 +415,7 @@ def ping_ai(household=None, *, household_only: bool = False) -> tuple[bool, str]
         return False, "No owner-console AI key. Families never use this page."
     ok, text = complete(
         "Reply with the single word pong.",
-        max_tokens=16,
+        max_tokens=256,
         timeout=30,
         household=household,
         household_only=household_only,
@@ -390,10 +474,8 @@ def _openai_compat(cfg, prompt, system, max_tokens, timeout, image_bytes, image_
     ).strip() or None
 
 
-def _gemini(cfg, prompt, system, max_tokens, timeout, image_bytes, image_mime) -> str | None:
-    model = cfg["model"]
-    if model.startswith("models/"):
-        model = model[len("models/") :]
+def _gemini(cfg, prompt, system, max_tokens, timeout, image_bytes, image_mime, household=None) -> str | None:
+    model = _live_model("gemini", cfg.get("model") or DEFAULT_MODEL)
     url = f"{cfg['base_url']}/models/{model}:generateContent"
     parts: list[dict] = []
     text = prompt if not system else f"{system}\n\n{prompt}"
@@ -407,21 +489,38 @@ def _gemini(cfg, prompt, system, max_tokens, timeout, image_bytes, image_mime) -
                 }
             }
         )
+    # Gemini 3 thinking eats maxOutputTokens. MINIMAL leaves room for the actual answer.
+    out_cap = max(int(max_tokens or 256), 512)
+    body = {
+        "contents": [{"role": "user", "parts": parts}],
+        "generationConfig": {
+            "maxOutputTokens": out_cap,
+            "temperature": 0.1,
+            "thinkingConfig": {"thinkingLevel": "MINIMAL"},
+        },
+    }
     resp = requests.post(
         url,
         params={"key": cfg["api_key"]},
-        json={
-            "contents": [{"role": "user", "parts": parts}],
-            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.1},
-        },
+        headers={"x-goog-api-key": cfg["api_key"], "Content-Type": "application/json"},
+        json=body,
         timeout=timeout,
     )
     if resp.status_code >= 400:
-        raise RuntimeError(_err_body(resp))
+        err = _err_body(resp)
+        suggested = _suggested_model(err)
+        if suggested and suggested != model:
+            persist_model(suggested, household=household)
+            cfg = dict(cfg)
+            cfg["model"] = suggested
+            return _gemini(cfg, prompt, system, max_tokens, timeout, image_bytes, image_mime, household=household)
+        raise RuntimeError(err)
     data = resp.json() if resp.content else {}
     cands = data.get("candidates") or []
     bits = []
     for p in ((cands[0].get("content") or {}).get("parts") or []) if cands else []:
+        if p.get("thought"):
+            continue
         t = p.get("text")
         if t:
             bits.append(t)

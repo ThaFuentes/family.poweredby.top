@@ -557,7 +557,13 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
             stock = apply_grocery_stock(g, item, "set", amount, user_id)
         elif action == "into":
             stock = apply_grocery_stock(g, item, "restock", amount, user_id)
-            stock["message"] = f"{item.name} is in the house. {stock.get('quantity_label') or stock.get('quantity')} on hand."
+            loc = (g.default_location or "").strip()
+            qlab = stock.get("quantity_label") or stock.get("quantity")
+            stock["message"] = (
+                f"{item.name} is in the house"
+                + (f" · {loc}" if loc else "")
+                + f". {qlab} on hand."
+            )
         elif action in ("need_more", "want"):
             stock = flag_need_more(g, item, user_id)
         else:
@@ -619,7 +625,13 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
             stock_action = "restock" if action == "into" else action
             stock = apply_grocery_stock(g, item, stock_action, amount, user_id)
             if action == "into":
-                stock["message"] = f"{item.name} is in the house. {stock.get('quantity_label') or stock.get('quantity')} on hand."
+                loc = (g.default_location or "").strip()
+                qlab = stock.get("quantity_label") or stock.get("quantity")
+                stock["message"] = (
+                    f"{item.name} is in the house"
+                    + (f" · {loc}" if loc else "")
+                    + f". {qlab} on hand."
+                )
             payload.update(stock)
             payload.update(apply_place(g, item, location=location, skip_place=skip_place))
             payload["hint"] = consumption_hint(g)

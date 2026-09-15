@@ -103,10 +103,10 @@
       ? '<p class="muted">On the basket.</p>'
       : "";
     const buttons =
-      '<button type="button" class="btn" data-rescan="into">Into the house</button>' +
-      '<button type="button" class="btn secondary" data-skip-place data-rescan="into">No place — just count</button>' +
-      '<button type="button" class="btn secondary" data-rescan="set">That\'s how many we have</button>' +
-      '<button type="button" class="btn terracotta" data-rescan="just_used">Just used</button>';
+      '<button type="button" class="btn" data-rescan="set">That\'s how many we have</button>' +
+      '<button type="button" class="btn" data-rescan="into">Add that many more</button>' +
+      '<button type="button" class="btn terracotta" data-rescan="just_used">Used / out</button>' +
+      '<button type="button" class="btn secondary" data-skip-place data-rescan="set">No room — just the count</button>';
     const places = Array.isArray(data.places) ? data.places : [];
     const here = data.location || (data.ai_report && data.ai_report.location) || "";
     const placeHtml =
@@ -179,7 +179,7 @@
       '<button type="button" class="chip" data-qty-chip="6">6</button>' +
       '<input type="number" min="0" step="1" value="1" inputmode="numeric" data-scan-qty aria-label="Count">' +
       "</div>" +
-      '<p class="muted">How many to put in. Room is remembered next time.</p>' +
+      '<p class="muted">Already in the house. Extra rolls, bottles, boxes — set the count. Room is optional.</p>' +
       placeHtml +
       '<div class="scan-kid-actions">' +
       buttons +
@@ -433,8 +433,8 @@
         },
         body: JSON.stringify({
           barcode: barcode,
-          action: forcedAction || (scanKind === "basket" ? "got_more" : "check"),
-          amount: amount != null ? amount : 1,
+          action: forcedAction || (window.FAMILY_SCAN_INTO ? "into" : scanKind === "basket" ? "got_more" : "check"),
+          amount: amount != null ? amount : window.FAMILY_SCAN_INTO ? 1 : 1,
           location: extra && extra.location != null ? extra.location : placeFromCard(),
           skip_place: extra && extra.skip_place ? true : false,
         }),
