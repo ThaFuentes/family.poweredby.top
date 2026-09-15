@@ -51,8 +51,17 @@ def read_theme() -> str:
 
         if getattr(current_user, "is_authenticated", False):
             extra = getattr(current_user, "extra_data", None)
-            if isinstance(extra, dict):
+            if isinstance(extra, dict) and extra.get("theme"):
                 return normalize(extra.get("theme"))
+    except Exception:
+        pass
+    try:
+        from app.utils.platform_auth import current_owner
+
+        owner = current_owner()
+        extra = getattr(owner, "extra_data", None) if owner is not None else None
+        if isinstance(extra, dict) and extra.get("theme"):
+            return normalize(extra.get("theme"))
     except Exception:
         pass
     return "default"
@@ -84,6 +93,25 @@ def save_user_theme(user, theme_id: str) -> str:
 
         flag_modified(user, "extra_data")
         db.session.add(user)
+        db.session.commit()
+    except Exception:
+        pass
+    return theme_id
+
+
+def save_owner_theme(owner, theme_id: str) -> str:
+    theme_id = normalize(theme_id)
+    if owner is None:
+        return theme_id
+    extra = dict(owner.extra_data) if isinstance(getattr(owner, "extra_data", None), dict) else {}
+    extra["theme"] = theme_id
+    owner.extra_data = extra
+    try:
+        from sqlalchemy.orm.attributes import flag_modified
+        from app.builddb.builddb import db
+
+        flag_modified(owner, "extra_data")
+        db.session.add(owner)
         db.session.commit()
     except Exception:
         pass

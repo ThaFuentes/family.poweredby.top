@@ -144,6 +144,7 @@ def create_app():
     from app.routes.house import house_bp
     from app.routes.legal import legal_bp
     from app.routes.sort import sort_bp
+    from app.routes.security import security_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(home_bp)
@@ -162,6 +163,7 @@ def create_app():
     app.register_blueprint(house_bp)
     app.register_blueprint(legal_bp)
     app.register_blueprint(sort_bp)
+    app.register_blueprint(security_bp)
 
     @app.before_request
     def _block_paused_household():
@@ -171,7 +173,7 @@ def create_app():
         if not getattr(current_user, "is_authenticated", False):
             return None
         path = request.path or ""
-        if path.startswith("/platform") or path.startswith("/static") or path.startswith("/auth/"):
+        if path.startswith("/platform") or path.startswith("/security") or path.startswith("/static") or path.startswith("/auth/"):
             return None
         if path.startswith("/healthz") or path.startswith("/offline") or path.startswith("/sw.js"):
             return None

@@ -1,0 +1,26 @@
+{% extends "platform/base.html" %}
+{% block title %}Look · Platform{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Look</h1>
+    <p>Yours on this owner desk. Households pick their own on Look — this does not change theirs.</p>
+  </div>
+</div>
+<div class="theme-grid" id="theme-grid">
+  {% for t in themes %}
+  <button type="button" class="theme-card {% if current==t.id %}on{% endif %}" data-theme-id="{{ t.id }}">
+    <div class="theme-phone" data-theme="{{ t.id }}">
+      <div class="ph-bar"></div>
+      <div class="ph-card">Owner desk</div>
+      <div class="ph-btn"></div>
+    </div>
+    <strong>{{ t.label }}</strong>
+    <div class="blurb">{{ t.blurb }}</div>
+  </button>
+  {% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/theme.js') }}?v=os7"></script>
+{% endblock %}

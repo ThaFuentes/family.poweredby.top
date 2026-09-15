@@ -22,7 +22,8 @@
     if (!card) return;
     const id = card.getAttribute("data-theme-id");
     paint(id);
-    fetch("/appearance/theme", {
+    var url = location.pathname.indexOf("/platform") === 0 ? "/platform/theme" : "/appearance/theme";
+    fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

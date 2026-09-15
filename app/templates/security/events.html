@@ -1,0 +1,47 @@
+{% extends "security/base.html" %}
+{% block security_content %}
+<div class="page-head">
+  <div>
+    <h1>Events</h1>
+    <p>Pipeline hits. Search an IP, fingerprint, or type.</p>
+  </div>
+</div>
+<form class="card" method="get">
+  <label>Search</label>
+  <input name="search" value="{{ search }}" placeholder="IP, path, type">
+  <label>IP</label>
+  <input name="ip" value="{{ filter_ip }}" placeholder="1.2.3.4">
+  <label>Device</label>
+  <input name="device_fp" value="{{ filter_device_fp }}">
+  <label>Type</label>
+  <select name="type">
+    <option value="">All</option>
+    {% for t in event_types %}
+    <option value="{{ t }}" {% if event_type==t %}selected{% endif %}>{{ t }}</option>
+    {% endfor %}
+  </select>
+  <label class="btn-row" style="align-items:center;gap:.5rem">
+    <input type="checkbox" name="honeypot" value="1" {% if honeypot_only %}checked{% endif %}>
+    Honeypot only
+  </label>
+  <div class="btn-row"><button class="btn" type="submit">Filter</button></div>
+</form>
+<div class="card list">
+  {% for e in events %}
+  <div class="row">
+    <div>
+      <strong>{{ e.event_type or 'event' }}</strong>
+      <div class="muted">{{ e.ip }} · {{ e.created_at or e.timestamp }}{% if e.path %} · {{ e.path }}{% endif %}{% if e.notes %} · {{ e.notes }}{% endif %}</div>
+    </div>
+  </div>
+  {% else %}
+  <p class="muted">Nothing matched.</p>
+  {% endfor %}
+</div>
+{% if total_pages > 1 %}
+<p class="muted">Page {{ page }} of {{ total_pages }} · {{ total }} rows
+  {% if page > 1 %}<a href="?page={{ page-1 }}&search={{ search }}&ip={{ filter_ip }}&type={{ event_type }}">Prev</a>{% endif %}
+  {% if page < total_pages %}<a href="?page={{ page+1 }}&search={{ search }}&ip={{ filter_ip }}&type={{ event_type }}">Next</a>{% endif %}
+</p>
+{% endif %}
+{% endblock %}

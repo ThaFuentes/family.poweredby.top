@@ -1,0 +1,46 @@
+{% extends "security/base.html" %}
+{% block security_content %}
+<div class="page-head">
+  <div>
+    <h1>Bans</h1>
+    <p>IP reputation. Trust an office/home IP if Family OS is too strict.</p>
+  </div>
+</div>
+<form class="card" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label>IP</label>
+  <input name="ip" required placeholder="1.2.3.4">
+  <label>Reason</label>
+  <input name="reason" placeholder="scanner, abuse, …">
+  <label>Hours (temp)</label>
+  <input name="hours" value="6" inputmode="numeric">
+  <div class="btn-row">
+    <button class="btn" type="submit" name="action" value="temp_ban">Temp ban</button>
+    <button class="btn danger" type="submit" name="action" value="perm_ban">Perm ban</button>
+    <button class="btn secondary" type="submit" name="action" value="unban">Unban</button>
+    <button class="btn secondary" type="submit" name="action" value="trust">Trust</button>
+  </div>
+</form>
+<p class="muted">
+  <a href="{{ url_for('security.bans') }}">Bans</a> ·
+  <a href="{{ url_for('security.bans', filter='low') }}">Low score</a> ·
+  <a href="{{ url_for('security.bans', filter='all') }}">All</a>
+</p>
+<div class="card list">
+  {% for b in rows %}
+  <div class="row key-line">
+    <div>
+      <strong>{{ b.ip }}</strong>
+      <div class="muted">{{ b.grade }} · score {{ b.score }} · {{ b.ban_reason or '—' }}</div>
+    </div>
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="ip" value="{{ b.ip }}">
+      <button class="btn sm" type="submit" name="action" value="unban">Unban</button>
+    </form>
+  </div>
+  {% else %}
+  <p class="muted">Empty.</p>
+  {% endfor %}
+</div>
+{% endblock %}

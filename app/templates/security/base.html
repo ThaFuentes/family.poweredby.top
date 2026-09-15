@@ -1,0 +1,13 @@
+{% extends "platform/base.html" %}
+{% block title %}{{ page_title or 'Security' }} · Family OS{% endblock %}
+{% block content %}
+<nav class="plat-nav" aria-label="Security">
+  <a href="{{ url_for('security.dashboard') }}" class="{% if request.endpoint == 'security.dashboard' %}on{% endif %}">Overview</a>
+  <a href="{{ url_for('security.threat_map') }}" class="{% if request.endpoint and 'threat_map' in request.endpoint %}on{% endif %}">Threat map</a>
+  <a href="{{ url_for('security.events') }}" class="{% if request.endpoint == 'security.events' %}on{% endif %}">Events</a>
+  <a href="{{ url_for('security.attacks') }}" class="{% if request.endpoint == 'security.attacks' %}on{% endif %}">Attacks</a>
+  <a href="{{ url_for('security.bans') }}" class="{% if request.endpoint == 'security.bans' %}on{% endif %}">Bans</a>
+  <a href="{{ url_for('security.devices') }}" class="{% if request.endpoint == 'security.devices' %}on{% endif %}">Devices</a>
+</nav>
+{% block security_content %}{% endblock %}
+{% endblock %}

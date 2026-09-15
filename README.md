@@ -34,3 +34,11 @@ Owner / platform console: http://127.0.0.1:8060/platform/ — first person there
 ## HostM
 
 See `docs/HOST_DEPLOY.md`. Path: `/home/ua882038/public_html/family.poweredby.top`
+
+## License
+
+**Family OS** (this repo). Source is public. Households, churches, schools, and other noncommercial use are allowed. **Selling it, wrapping it as a paid product, or otherwise profiting from it is not.**
+
+PolyForm Noncommercial 1.0.0 — see `LICENSE`.
+
+Required Notice: Copyright 2026 ThaFuentes / PoweredBy.Top (https://poweredby.top)

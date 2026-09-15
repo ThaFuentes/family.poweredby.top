@@ -192,7 +192,7 @@ def invite():
         hint += f" Copy this — the email to {email} did not send."
     stash_issued_key(code, f"Family key {code}", hint, extra=extra or None)
     if mailed:
-        flash(f"Family key ready and emailed to {email}.", "success")
+        flash(f"Family key ready. {msg}", "success")
     else:
         flash("Family key ready — copy it from the window.", "success")
     return redirect(url_for("members.index"))
@@ -373,7 +373,7 @@ def send_member_reset(user_id):
         flash(f"{user.name} needs an email on this household first.", "warning")
         return redirect(url_for("members.index"))
     ok, msg = send_reset_email(user, token)
-    flash(msg if not ok else f"Reset link sent to {user.email}.", "success" if ok else "danger")
+    flash(msg if not ok else f"Reset link handed to the mail server for {user.email}. {msg}", "success" if ok else "danger")
     return redirect(url_for("members.index"))
 
 
@@ -554,7 +554,7 @@ def save_mail():
     from app.utils.household_mail import save_household_mail
 
     h = Household.query.get(household_id())
-    save_household_mail(
+    saved = save_household_mail(
         h,
         enabled=(request.form.get("mail_enabled") or "") in ("1", "true", "on", "yes"),
         from_name=request.form.get("from_name") or "",
@@ -568,6 +568,8 @@ def save_mail():
         clear_password=(request.form.get("mail_clear_password") or "") == "1",
     )
     flash("Household email saved. Invites and reminders from this house use it when it is on.", "success")
+    if saved.get("smtp_fix"):
+        flash(saved["smtp_fix"], "info")
     return redirect(url_for("members.index"))
 
 

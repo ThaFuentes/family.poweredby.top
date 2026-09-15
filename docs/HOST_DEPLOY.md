@@ -46,6 +46,7 @@ git fetch "https://x-access-token:YOUR_PAT@github.com/ThaFuentes/family.poweredb
 git checkout FETCH_HEAD -- \
   AGENTS.md \
   README.md \
+  LICENSE \
   main.py \
   dbconnector.py \
   requirements.txt \

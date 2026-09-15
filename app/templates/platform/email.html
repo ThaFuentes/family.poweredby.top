@@ -20,13 +20,15 @@
   <label>Reply-To (optional)</label>
   <input type="email" name="mail_reply_to" value="{{ mail.reply_to or '' }}">
   <label>SMTP host</label>
-  <input name="smtp_host" value="{{ mail.smtp_host or '' }}" placeholder="smtp.example.com">
+  <input name="smtp_host" value="{{ mail.smtp_host or '' }}" placeholder="mail.family.poweredby.top">
   <label>Port</label>
-  <input name="smtp_port" inputmode="numeric" value="{{ mail.smtp_port or 587 }}">
+  <input name="smtp_port" inputmode="numeric" value="{{ mail.smtp_port or 587 }}" placeholder="465">
+  <p class="muted">Outgoing only: <strong>465 + SSL</strong>, or <strong>587 + STARTTLS</strong>. 995 and 993 are receive ports — they answer “Dovecot ready” and never send.</p>
+  <p class="muted">A green “accepted” from SMTP is not Gmail. The From domain needs an MX and an SPF TXT at Cloudflare pointing at this host’s mail server, or Gmail often drops the message with no bounce.</p>
   <label>Encryption</label>
   <select name="smtp_encryption">
-    <option value="tls" {% if mail.smtp_encryption=='tls' %}selected{% endif %}>STARTTLS</option>
-    <option value="ssl" {% if mail.smtp_encryption=='ssl' %}selected{% endif %}>SSL</option>
+    <option value="tls" {% if mail.smtp_encryption=='tls' %}selected{% endif %}>STARTTLS (587)</option>
+    <option value="ssl" {% if mail.smtp_encryption=='ssl' %}selected{% endif %}>SSL (465)</option>
     <option value="none" {% if mail.smtp_encryption=='none' %}selected{% endif %}>None</option>
   </select>
   <label>SMTP username</label>

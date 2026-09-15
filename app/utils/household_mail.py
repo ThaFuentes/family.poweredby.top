@@ -4,6 +4,7 @@ from __future__ import annotations
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.utils.crypto import decrypt_text, encrypt_text, looks_encrypted
+from app.utils.mail import normalize_smtp_port_enc
 from app.utils.platform_settings import mask_secret
 
 MAIL_KEYS = (
@@ -47,13 +48,10 @@ def household_mail_config(household) -> dict | None:
     from_email = (blob.get("from_email") or "").strip()
     if not host or not from_email:
         return None
-    try:
-        port = int(blob.get("smtp_port") or 587)
-    except Exception:
-        port = 587
-    enc = (blob.get("smtp_encryption") or "tls").strip().lower()
-    if enc not in ("tls", "ssl", "none"):
-        enc = "tls"
+    port, enc, _ = normalize_smtp_port_enc(
+        blob.get("smtp_port") or 587,
+        blob.get("smtp_encryption") or "tls",
+    )
     return {
         "mode": "smtp",
         "from_name": (blob.get("from_name") or "").strip() or "Family OS",
@@ -72,13 +70,10 @@ def household_mail_config(household) -> dict | None:
 def public_mail_config(household) -> dict:
     blob = mail_blob(household)
     pwd = _decrypt_pass(blob.get("smtp_password") or "")
-    try:
-        port = int(blob.get("smtp_port") or 587)
-    except Exception:
-        port = 587
-    enc = (blob.get("smtp_encryption") or "tls").strip().lower()
-    if enc not in ("tls", "ssl", "none"):
-        enc = "tls"
+    port, enc, _ = normalize_smtp_port_enc(
+        blob.get("smtp_port") or 587,
+        blob.get("smtp_encryption") or "tls",
+    )
     enabled = bool(blob.get("enabled"))
     host = (blob.get("smtp_host") or "").strip()
     from_email = (blob.get("from_email") or "").strip()
@@ -115,13 +110,7 @@ def save_household_mail(
 
     settings = _settings(household)
     prev = dict(settings.get("mail") or {}) if isinstance(settings.get("mail"), dict) else {}
-    try:
-        port = int(smtp_port or 587)
-    except Exception:
-        port = 587
-    enc = (smtp_encryption or "tls").strip().lower()
-    if enc not in ("tls", "ssl", "none"):
-        enc = "tls"
+    port, enc, port_warning = normalize_smtp_port_enc(smtp_port, smtp_encryption)
     stored_pass = prev.get("smtp_password") or ""
     if clear_password:
         stored_pass = ""
@@ -141,7 +130,9 @@ def save_household_mail(
     household.settings_json = settings
     flag_modified(household, "settings_json")
     db.session.commit()
-    return public_mail_config(household)
+    out = public_mail_config(household)
+    out["smtp_fix"] = port_warning
+    return out
 
 
 def random_login_password() -> str:

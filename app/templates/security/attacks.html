@@ -1,0 +1,21 @@
+{% extends "security/base.html" %}
+{% block security_content %}
+<div class="page-head">
+  <div>
+    <h1>Attack totals</h1>
+    <p>Merged from events, honeypot bans, and attack stats.</p>
+  </div>
+</div>
+<div class="card list">
+  {% for a in attack_stats %}
+  <div class="row">
+    <div>
+      <strong>{{ a.attack_type }}</strong>
+      <div class="muted">{{ a.total_attempts or 0 }} attempts · {{ a.blocked_count or 0 }} blocked{% if a.last_attack_ip %} · last {{ a.last_attack_ip }}{% endif %}</div>
+    </div>
+  </div>
+  {% else %}
+  <p class="muted">No attack totals yet.</p>
+  {% endfor %}
+</div>
+{% endblock %}

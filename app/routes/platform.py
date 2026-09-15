@@ -4,6 +4,8 @@ from __future__ import annotations
 from flask import (
     Blueprint,
     flash,
+    jsonify,
+    make_response,
     redirect,
     render_template,
     request,
@@ -58,6 +60,18 @@ def _safe_next():
 def _owner_id():
     row = current_owner()
     return None if row is None else row.id
+
+
+def _owner_home_redirect(owner):
+    resp = make_response(redirect(_safe_next()))
+    try:
+        from app.utils.themes import normalize, stamp_theme_cookie
+
+        extra = owner.extra_data if isinstance(getattr(owner, "extra_data", None), dict) else {}
+        stamp_theme_cookie(resp, normalize((extra or {}).get("theme")))
+    except Exception:
+        pass
+    return resp
 
 
 def _create_owner_form_error(username, email, password, confirm):
@@ -135,7 +149,7 @@ def login():
             detail={"username": username, "key": (invite_row.code if invite_row else None)},
         )
         flash("You're on the owner desk. This is not a household login.", "success")
-        return redirect(_safe_next())
+        return _owner_home_redirect(owner)
 
     ident = (request.form.get("username") or "").strip()
     password = request.form.get("password") or ""
@@ -152,7 +166,7 @@ def login():
         mark_login_success(owner)
         login_owner(owner)
         audit("owner.login", owner_id=owner.id, ip=_ip())
-        return redirect(_safe_next())
+        return _owner_home_redirect(owner)
     mark_login_failure(owner)
     audit("owner.login_fail", owner_id=getattr(owner, "id", None), ip=_ip())
     return render_template(
@@ -246,7 +260,7 @@ def access():
                     ),
                 )
                 hint += f" Emailed to {to}." if ok else f" Email failed: {msg}"
-                flash(msg if not ok else f"Service key emailed to {to}.", "success" if ok else "danger")
+                flash(msg if not ok else f"Service key issued. {msg}", "success" if ok else "danger")
             stash_issued_key(row.code, "Service key", hint)
             if not to:
                 flash("Service key ready — copy it from the window.", "success")
@@ -335,7 +349,7 @@ def access():
                     ),
                 )
                 hint += f" Emailed to {to}." if ok else f" Email failed: {msg}"
-                flash(msg if not ok else f"Owner key emailed to {to}.", "success" if ok else "danger")
+                flash(msg if not ok else f"Owner key issued. {msg}", "success" if ok else "danger")
             stash_issued_key(row.code, "Owner key", hint)
             if not to:
                 flash("Owner key ready — copy it from the window.", "success")
@@ -464,15 +478,18 @@ def email_settings():
         mode = (request.form.get("mail_mode") or "console").strip().lower()
         if mode not in ("console", "smtp"):
             mode = "console"
-        enc = (request.form.get("smtp_encryption") or "tls").strip().lower()
-        if enc not in ("tls", "ssl", "none"):
-            enc = "tls"
+        from app.utils.mail import normalize_smtp_port_enc
+
+        port, enc, port_fix = normalize_smtp_port_enc(
+            request.form.get("smtp_port") or "587",
+            request.form.get("smtp_encryption") or "tls",
+        )
         set_setting("mail_mode", mode)
         set_setting("mail_from_name", (request.form.get("mail_from_name") or "").strip())
         set_setting("mail_from_email", (request.form.get("mail_from_email") or "").strip())
         set_setting("mail_reply_to", (request.form.get("mail_reply_to") or "").strip())
         set_setting("smtp_host", (request.form.get("smtp_host") or "").strip())
-        set_setting("smtp_port", (request.form.get("smtp_port") or "587").strip())
+        set_setting("smtp_port", str(port))
         set_setting("smtp_encryption", enc)
         set_setting("smtp_username", (request.form.get("smtp_username") or "").strip())
         new_pass = request.form.get("smtp_password") or ""
@@ -480,6 +497,8 @@ def email_settings():
             set_setting("smtp_password", new_pass, secret=True)
         audit("email.save", owner_id=_owner_id(), ip=_ip(), detail={"mode": mode})
         flash("Email settings saved.", "success")
+        if port_fix:
+            flash(port_fix, "info")
         return redirect(url_for("platform.email_settings"))
     cfg = mail_config()
     cfg["smtp_password_hint"] = mask_secret(cfg.get("smtp_password") or "")
@@ -564,6 +583,36 @@ def change_password():
     audit("owner.password", owner_id=owner.id, ip=_ip())
     flash("Platform password updated.", "success")
     return redirect(url_for("platform.home"))
+
+
+@platform_bp.route("/look")
+@require_owner
+def look():
+    from app.utils.themes import THEMES, read_theme
+
+    return render_template(
+        "platform/look.html",
+        owner=current_owner(),
+        themes=list(THEMES.values()),
+        current=read_theme(),
+    )
+
+
+@platform_bp.route("/theme", methods=["POST"])
+@require_owner
+def set_theme():
+    from app.utils.themes import THEMES, normalize, save_owner_theme, stamp_theme_cookie
+
+    data = request.get_json(silent=True) or request.form
+    theme_id = save_owner_theme(current_owner(), normalize(data.get("theme")))
+    if request.is_json or request.headers.get("X-Requested-With") == "fetch":
+        resp = jsonify({"ok": True, "theme": theme_id, "color": THEMES[theme_id]["color"]})
+        stamp_theme_cookie(resp, theme_id)
+        return resp
+    resp = make_response(redirect(url_for("platform.look")))
+    stamp_theme_cookie(resp, theme_id)
+    flash("Look saved for this owner desk.", "success")
+    return resp
 
 
 @platform_bp.route("/audit")

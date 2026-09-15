@@ -29,6 +29,8 @@
       <a href="{{ url_for('platform.email_settings') }}" class="{% if request.endpoint == 'platform.email_settings' %}on{% endif %}">Email</a>
       <a href="{{ url_for('platform.ai_settings') }}" class="{% if request.endpoint == 'platform.ai_settings' %}on{% endif %}">AI</a>
       <a href="{{ url_for('platform.audit_log') }}" class="{% if request.endpoint == 'platform.audit_log' %}on{% endif %}">Audit</a>
+      <a href="{{ url_for('security.dashboard') }}" class="{% if request.endpoint and request.endpoint.startswith('security.') %}on{% endif %}">Security</a>
+      <a href="{{ url_for('platform.look') }}" class="{% if request.endpoint == 'platform.look' %}on{% endif %}">Look</a>
     </nav>
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
@@ -40,5 +42,6 @@
     {% block content %}{% endblock %}
   </main>
   <script src="{{ url_for('static', filename='js/app.js') }}?v=os8"></script>
+  {% block scripts %}{% endblock %}
 </body>
 </html>

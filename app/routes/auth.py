@@ -317,7 +317,9 @@ def forgot():
         if user is not None:
             token = issue_reset(user, requested_by=user.id)
             if token:
-                send_reset_email(user, token)
+                ok, err = send_reset_email(user, token)
+                if not ok:
+                    print(f"Family OS reset mail failed: {err}", flush=True)
         flash(SAME_MSG, "info")
         return redirect(url_for("auth.forgot"))
     return render_template("auth/forgot.html")

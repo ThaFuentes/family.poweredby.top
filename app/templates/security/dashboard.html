@@ -1,0 +1,82 @@
+{% extends "security/base.html" %}
+{% block security_content %}
+<div class="page-head">
+  <div>
+    <h1>Security</h1>
+    <p>Same PoweredByTop pipeline as Aegis / AX — events, reputation, bans, devices, live threat map. This desk only. Households never see it.</p>
+  </div>
+</div>
+<div class="stat-grid">
+  <div class="tile"><span class="kicker">24h</span><span class="label">{{ stats.events_24h }}</span><span class="count">Events</span></div>
+  <div class="tile"><span class="kicker">All time</span><span class="label">{{ stats.events_total }}</span><span class="count">Events</span></div>
+  <div class="tile"><span class="kicker">Blocked</span><span class="label">{{ stats.blocked_total }}</span><span class="count">Hits stopped</span></div>
+  <div class="tile"><span class="kicker">Temp</span><span class="label">{{ stats.active_temp_bans }}</span><span class="count">IP bans</span></div>
+  <div class="tile"><span class="kicker">Perm</span><span class="label">{{ stats.perm_bans }}</span><span class="count">IP bans</span></div>
+  <div class="tile"><span class="kicker">Low score</span><span class="label">{{ stats.low_reputation }}</span><span class="count">IPs</span></div>
+  <div class="tile"><span class="kicker">Locks</span><span class="label">{{ stats.account_login_locks }}</span><span class="count">Household logins</span></div>
+  <div class="tile"><span class="kicker">Devices</span><span class="label">{{ stats.device_prints }}</span><span class="count">{{ stats.device_bans_active }} banned</span></div>
+</div>
+<div class="card">
+  <h2>Recent events</h2>
+  {% for e in recent_events %}
+  <div class="row">
+    <div>
+      <strong>{{ e.event_type or 'event' }}</strong>
+      <div class="muted">{{ e.ip }} · {{ e.created_at or e.timestamp }}{% if e.path %} · {{ e.path }}{% endif %}</div>
+    </div>
+    <span class="badge {% if e.behavior_grade in ('temp_ban','perm_ban','suspicious') %}out{% endif %}">{{ e.behavior_grade or e.reputation_score or '' }}</span>
+  </div>
+  {% else %}
+  <p class="muted">No events yet. They show up when the pipeline flags a request.</p>
+  {% endfor %}
+  <div class="btn-row"><a class="btn secondary" href="{{ url_for('security.events') }}">All events</a></div>
+</div>
+<div class="card">
+  <h2>Active bans</h2>
+  {% for b in bans %}
+  <div class="row key-line">
+    <div>
+      <strong>{{ b.ip }}</strong>
+      <div class="muted">{{ b.grade }} · {{ b.ban_reason or '—' }}</div>
+    </div>
+    <form method="post" action="{{ url_for('security.bans') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="action" value="unban">
+      <input type="hidden" name="ip" value="{{ b.ip }}">
+      <button class="btn sm" type="submit">Unban</button>
+    </form>
+  </div>
+  {% else %}
+  <p class="muted">Nobody banned right now.</p>
+  {% endfor %}
+</div>
+{% if locks %}
+<div class="card">
+  <h2>Household login locks</h2>
+  {% for u in locks %}
+  <div class="row key-line">
+    <div>
+      <strong>{{ u.username }}</strong>
+      <div class="muted">until {{ u.account_locked_until }}</div>
+    </div>
+    <form method="post" action="{{ url_for('security.unlock_account') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="user_id" value="{{ u.id }}">
+      <button class="btn sm" type="submit">Unlock</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% if attack_stats %}
+<div class="card">
+  <h2>Attack types</h2>
+  {% for a in attack_stats %}
+  <div class="row">
+    <div><strong>{{ a.attack_type }}</strong><div class="muted">{{ a.blocked_count or a.total_attempts or 0 }} blocked</div></div>
+  </div>
+  {% endfor %}
+  <div class="btn-row"><a class="btn secondary" href="{{ url_for('security.attacks') }}">Full totals</a></div>
+</div>
+{% endif %}
+{% endblock %}

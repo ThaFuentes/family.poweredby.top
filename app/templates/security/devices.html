@@ -1,0 +1,53 @@
+{% extends "security/base.html" %}
+{% block security_content %}
+<div class="page-head">
+  <div>
+    <h1>Devices</h1>
+    <p>Browser fingerprints. Ban a phone without banning the whole house IP.</p>
+  </div>
+</div>
+{% if active_bans %}
+<div class="card">
+  <h2>Active device bans</h2>
+  {% for b in active_bans %}
+  <div class="row key-line">
+    <div>
+      <strong>{{ (b.device_fp or '')[:16] }}…</strong>
+      <div class="muted">{% if b.permanent %}permanent{% else %}{{ b.ban_until }}{% endif %} · {{ b.ban_reason or '—' }}</div>
+    </div>
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="action" value="unban_device">
+      <input type="hidden" name="device_fp" value="{{ b.device_fp }}">
+      <button class="btn sm" type="submit">Unban</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+<form class="card" method="get">
+  <label>Search fingerprint</label>
+  <div class="btn-row">
+    <input name="search" value="{{ search }}">
+    <button class="btn" type="submit">Find</button>
+  </div>
+</form>
+<div class="card list">
+  {% for r in rows %}
+  <div class="row key-line">
+    <div>
+      <strong>{{ (r.device_fp or '')[:18] }}…</strong>
+      <div class="muted">{{ r.ip or r.last_ip or '' }} · {{ r.last_seen or r.updated_at or '' }}</div>
+    </div>
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="action" value="ban_device">
+      <input type="hidden" name="device_fp" value="{{ r.device_fp }}">
+      <button class="btn sm danger" type="submit">Ban</button>
+    </form>
+  </div>
+  {% else %}
+  <p class="muted">No device prints yet.</p>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -5,22 +5,55 @@ import os
 import smtplib
 import ssl
 from email.message import EmailMessage
+from email.utils import formatdate, make_msgid
 
 from app.utils.platform_settings import get_setting
+
+# cPanel lists these next to SMTP. They talk to Dovecot (receive), not send.
+INBOUND_MAIL_PORTS = frozenset({110, 143, 993, 995})
+
+
+def normalize_smtp_port_enc(port, enc: str) -> tuple[int, str, str | None]:
+    """Return (port, enc, warning). Fixes the usual 995/993 mixup."""
+    try:
+        port = int(port or 587)
+    except Exception:
+        port = 587
+    enc = (enc or "tls").strip().lower()
+    if enc not in ("tls", "ssl", "none"):
+        enc = "tls"
+    if port in INBOUND_MAIL_PORTS:
+        return (
+            465,
+            "ssl",
+            f"Port {port} is for receiving mail (IMAP/POP3), not sending. Switched to 465 SSL.",
+        )
+    if port == 465 and enc != "ssl":
+        return 465, "ssl", "Port 465 uses SSL, not STARTTLS."
+    if port == 587 and enc == "ssl":
+        return 587, "tls", "Port 587 uses STARTTLS. Use 465 if you want SSL."
+    return port, enc, None
+
+
+def explain_smtp_failure(exc, port: int) -> str:
+    text = str(exc or "")
+    lowered = text.lower()
+    if port in INBOUND_MAIL_PORTS or "dovecot" in lowered:
+        return (
+            "That host answered as a mailbox (IMAP/POP3), not SMTP. "
+            "Use port 465 with SSL, or 587 with STARTTLS."
+        )
+    return f"SMTP failed: {exc}"
 
 
 def mail_config() -> dict:
     mode = (get_setting("mail_mode") or os.getenv("MAIL_MODE") or "console").strip().lower()
     if mode not in ("console", "smtp"):
         mode = "console"
-    port_raw = get_setting("smtp_port") or "587"
-    try:
-        port = int(port_raw)
-    except Exception:
-        port = 587
-    enc = (get_setting("smtp_encryption") or "tls").strip().lower()
-    if enc not in ("tls", "ssl", "none"):
-        enc = "tls"
+    port, enc, _ = normalize_smtp_port_enc(
+        get_setting("smtp_port") or "587",
+        get_setting("smtp_encryption") or "tls",
+    )
     from_email = get_setting("mail_from_email")
     return {
         "mode": mode,
@@ -61,7 +94,7 @@ def send_mail(
     if not cfg["from_email"] and cfg["mode"] == "smtp":
         return False, "Set a From email first."
     msg = EmailMessage()
-    sender = cfg["from_email"] or "family@localhost"
+    sender = (cfg["from_email"] or "family@localhost").strip()
     if cfg["from_name"]:
         msg["From"] = f"{cfg['from_name']} <{sender}>"
     else:
@@ -70,6 +103,9 @@ def send_mail(
     msg["Subject"] = subject or "(no subject)"
     if cfg["reply_to"]:
         msg["Reply-To"] = cfg["reply_to"]
+    domain = sender.rsplit("@", 1)[-1] if "@" in sender else None
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid(domain=domain)
     msg.set_content(body or "")
     if ics:
         raw = ics if isinstance(ics, (bytes, bytearray)) else str(ics).encode("utf-8")
@@ -99,7 +135,11 @@ def send_mail(
         print(f"Subject: {msg['Subject']}", flush=True)
         print(body or "", flush=True)
         print("----- end mail -----", flush=True)
-        return True, "Logged to console (laptop mode)."
+        return (
+            False,
+            "Not sent to the inbox. Email mode is Console (server log only). "
+            "Switch to SMTP (real send) and use port 465 SSL or 587 STARTTLS.",
+        )
 
     host = cfg["smtp_host"]
     if not host:
@@ -118,12 +158,20 @@ def send_mail(
                 server.ehlo()
             if cfg["smtp_username"]:
                 server.login(cfg["smtp_username"], cfg["smtp_password"] or "")
-            server.send_message(msg)
+            refused = server.send_message(msg, from_addr=sender, to_addrs=[to_email])
         finally:
             try:
                 server.quit()
             except Exception:
                 pass
-        return True, f"Sent to {to_email}."
+        if refused:
+            why = refused.get(to_email) or next(iter(refused.values()), refused)
+            return False, f"SMTP accepted the connection but refused {to_email}: {why}"
+        return (
+            True,
+            f"Mail server accepted the message for {to_email}. "
+            "That is not the inbox — check spam. If nothing arrives, the From domain "
+            "needs SPF (and MX) in DNS.",
+        )
     except Exception as exc:
-        return False, f"SMTP failed: {exc}"
+        return False, explain_smtp_failure(exc, cfg["smtp_port"])

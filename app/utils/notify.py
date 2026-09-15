@@ -144,7 +144,7 @@ def email_reminder(row: Reminder) -> None:
         )
         ok, _msg = send_mail(person.email, subject, body, household=household)
         any_ok = any_ok or ok
-    if any_ok or people:
+    if any_ok:
         row.email_sent_at = _utcnow()
         db.session.commit()
 

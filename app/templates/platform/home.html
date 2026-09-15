@@ -23,6 +23,16 @@
     <span class="label">{{ ai.label if ai.ready else 'Not used by families' }}</span>
     <span class="count">BYOK — households paste their own</span>
   </a>
+  <a class="tile" href="{{ url_for('security.threat_map') }}">
+    <span class="kicker">Security</span>
+    <span class="label">Threat map</span>
+    <span class="count">Live hits, bans, devices</span>
+  </a>
+  <a class="tile" href="{{ url_for('platform.look') }}">
+    <span class="kicker">Look</span>
+    <span class="label">Your theme</span>
+    <span class="count">Owner desk only</span>
+  </a>
 </div>
 
 <div class="card">
