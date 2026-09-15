@@ -90,6 +90,16 @@ def create_app():
         except Exception:
             pass
     login_manager.init_app(app)
+    from datetime import timedelta
+
+    # Phone PWA: stay signed in. Wrapper default is 1 day and does not slide.
+    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+    app.config["SESSION_REFRESH_EACH_REQUEST"] = True
+    app.config["REMEMBER_COOKIE_DURATION"] = timedelta(days=30)
+    app.config["REMEMBER_COOKIE_HTTPONLY"] = True
+    app.config["REMEMBER_COOKIE_SECURE"] = bool(app.config.get("SESSION_COOKIE_SECURE"))
+    app.config["REMEMBER_COOKIE_SAMESITE"] = "Lax"
+    app.config["REMEMBER_COOKIE_NAME"] = "pbt_family_remember"
 
     from werkzeug.middleware.proxy_fix import ProxyFix
 

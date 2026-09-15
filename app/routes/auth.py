@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from flask import Blueprint, render_template, request, flash, redirect, url_for
+from flask import Blueprint, render_template, request, flash, redirect, url_for, session
 from flask_login import login_user, logout_user, login_required, current_user
 
 from app.builddb.builddb import db
@@ -14,6 +14,13 @@ from app.utils.access import (
 )
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
+
+
+def _stay_signed_in(user):
+    """PWA / phone: keep this device signed in unless they uncheck it."""
+    remember = (request.form.get("remember") or "1").strip() not in ("0", "false", "off")
+    session.permanent = True
+    login_user(user, remember=remember)
 
 
 def _utcnow():
@@ -73,7 +80,7 @@ def login():
                 update_reputation_on_login_attempt(get_real_ip(), user.username, success=True)
             except Exception:
                 pass
-            login_user(user)
+            _stay_signed_in(user)
             from app.utils.dashboard import start_url
 
             resp = redirect(start_url(user))
@@ -237,7 +244,7 @@ def register():
     if bits.get("pass") is not None:
         consume_service_pass(bits["pass"])
     db.session.commit()
-    login_user(user)
+    _stay_signed_in(user)
     family_lock = (request.form.get("family_lock") or "").strip()
     if family_lock:
         from app.utils.household_vault import unlock_vault, vault_enabled
