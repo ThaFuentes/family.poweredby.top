@@ -104,7 +104,8 @@
               <option value="auto" {% if (m.calendar_mode or 'auto')=='auto' %}selected{% endif %}>Auto-add</option>
               <option value="manual" {% if m.calendar_mode=='manual' %}selected{% endif %}>They add</option>
             </select>
-            <button class="btn sm secondary" type="submit">Save calendar</button>
+            <button class="btn sm" type="submit">Save calendar</button>
+            <button class="btn sm secondary" type="submit" name="clear_calendar" value="1">Remove</button>
           </div>
         </form>
         {% elif m.email %}

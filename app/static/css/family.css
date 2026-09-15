@@ -229,7 +229,14 @@ h2 { font-size: 1.02rem; margin: 1.15rem 0 .55rem; letter-spacing: -0.02em; }
   color: var(--muted);
 }
 .home-fold[open] > summary::after { content: "Hide"; }
-.home-cal-btn { width: 100%; margin: 0 0 1rem; }
+.home-cal-btn {
+  width: 100%;
+  margin: 0 0 1rem;
+  background: var(--card);
+  color: var(--ink);
+  border: 1.5px solid var(--ink);
+  font-weight: 800;
+}
 .sheet-overlay {
   position: fixed;
   inset: 0;
@@ -820,12 +827,13 @@ html.family-intro-out #family-intro{opacity:0;transition:opacity .4s ease}
   justify-content: center;
   margin: 0;
   padding: .62rem .45rem;
-  border: 1px solid var(--edge);
+  border: 1.5px solid var(--ink);
   border-radius: .9rem;
-  background: #fafaf7;
+  background: var(--card);
   text-transform: none;
   letter-spacing: 0;
   font-size: .88rem;
+  font-weight: 750;
   color: var(--ink);
   cursor: pointer;
 }

@@ -111,6 +111,12 @@ def set_calendar():
         normalize_provider,
     )
 
+    if (request.form.get("clear_calendar") or "") == "1":
+        current_user.calendar_email = None
+        current_user.calendar_mode = "manual"
+        db.session.commit()
+        flash("Calendar removed. Due dates stay on Family OS until you name an inbox again.", "success")
+        return _calendar_next()
     email = (request.form.get("calendar_email") or "").strip().lower()
     if email and "@" not in email:
         flash("That doesn't look like an email for a calendar.", "danger")

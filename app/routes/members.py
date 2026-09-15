@@ -527,6 +527,12 @@ def set_member_calendar(user_id):
 
     hid = household_id()
     user = User.query.filter_by(id=user_id, household_id=hid).first_or_404()
+    if (request.form.get("clear_calendar") or "") == "1":
+        user.calendar_email = None
+        user.calendar_mode = "manual"
+        db.session.commit()
+        flash(f"Calendar removed for {user.name}.", "success")
+        return redirect(url_for("members.index"))
     cal_email = (request.form.get("calendar_email") or "").strip().lower() or None
     if cal_email and "@" not in cal_email:
         flash("Calendar email doesn't look like an email.", "danger")

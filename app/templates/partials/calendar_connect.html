@@ -5,6 +5,7 @@
   {% else %}
   <p class="muted">Which inbox should get due dates?</p>
   {% endif %}
+  <p class="muted">Not a Google login. Family OS never opens their inbox. You name an email; due dates go there. They sign in here with household handle, username, and password.</p>
 
   <form method="post" action="{{ url_for('appearance.set_calendar') }}">
     {% if cal_next %}<input type="hidden" name="next" value="{{ cal_next }}">{% endif %}
@@ -35,7 +36,12 @@
       <input type="checkbox" name="email_due" value="1" {% if current_user.notify_via in ('email', 'both') %}checked{% endif %}>
       <span>Email me when due</span>
     </label>
-    <div class="btn-row"><button class="btn" type="submit">Save</button></div>
+    <div class="btn-row">
+      <button class="btn" type="submit">Save</button>
+      {% if cal_links.cal_ready %}
+      <button class="btn secondary" type="submit" name="clear_calendar" value="1">Remove calendar</button>
+      {% endif %}
+    </div>
   </form>
 
   {% if not cal_links.cal_auto %}
