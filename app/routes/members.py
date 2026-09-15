@@ -80,6 +80,113 @@ def index():
     )
 
 
+@members_bp.route("/add", methods=["POST"])
+@login_required
+@require_perm("members")
+def add_person():
+    """Leader makes a seat. No Family key. Optional email + calendar."""
+    from app.utils.calendar import (
+        calendar_target,
+        guess_provider,
+        normalize_cal_mode,
+        normalize_provider,
+    )
+    from app.utils.household_mail import added_person_email_body, random_login_password
+    from app.utils.identity import norm_username, username_taken, valid_username
+    from app.utils.keys_ui import stash_issued_key
+    from app.utils.mail import send_mail
+
+    hid = household_id()
+    household = Household.query.get(hid)
+    person_name = (request.form.get("person_name") or "").strip()[:150]
+    username = norm_username(request.form.get("username") or "")
+    email = (request.form.get("email") or "").strip().lower() or None
+    role = (request.form.get("role") or "member").strip().lower()
+    if role not in ROLES:
+        role = "member"
+    if not person_name:
+        flash("Name them.", "danger")
+        return redirect(url_for("members.index"))
+    if not username or not valid_username(username):
+        flash("Username: start with a letter, then letters, numbers, underscore.", "danger")
+        return redirect(url_for("members.index"))
+    if username_taken(hid, username):
+        flash("Someone in this household already uses that username.", "danger")
+        return redirect(url_for("members.index"))
+    if email:
+        taken = User.query.filter(User.email == email).first()
+        if taken:
+            flash("That email is already used.", "danger")
+            return redirect(url_for("members.index"))
+    password = (request.form.get("password") or "").strip() or random_login_password()
+    if len(password) < 8:
+        flash("Password needs at least 8 characters, or leave it blank and we make one.", "danger")
+        return redirect(url_for("members.index"))
+
+    cal_email = (request.form.get("calendar_email") or "").strip().lower() or email
+    if cal_email and "@" not in cal_email:
+        flash("Calendar email doesn't look like an email.", "danger")
+        return redirect(url_for("members.index"))
+    provider = normalize_provider(request.form.get("calendar_provider"), cal_email or "")
+    if not (request.form.get("calendar_provider") or "").strip() and cal_email:
+        provider = guess_provider(cal_email)
+    mode = normalize_cal_mode(request.form.get("calendar_mode"), "auto")
+
+    user = User(
+        household_id=hid,
+        username=username,
+        name=person_name,
+        email=email,
+        role=role,
+        is_leader=False,
+        calendar_email=cal_email or None,
+        calendar_provider=provider,
+        calendar_mode=mode,
+        notify_via="both" if mode == "auto" and cal_email else ("calendar" if mode == "auto" else "email"),
+    )
+    user.set_password(password)
+    db.session.add(user)
+    db.session.commit()
+
+    target = calendar_target(user)
+    mailed = False
+    mail_msg = ""
+    if email and "@" in email:
+        body = added_person_email_body(
+            household=household,
+            login_url=url_for("auth.login", _external=True),
+            username=username,
+            password=password,
+            person_name=person_name,
+            calendar_label=target["cal_label"] if target.get("cal_ready") else "",
+        )
+        ok, mail_msg = send_mail(
+            email,
+            f"You're on {household.name} — Family OS",
+            body,
+            household=household,
+        )
+        mailed = ok
+        if not ok:
+            flash(mail_msg, "danger")
+
+    hint = f"{person_name} is in as {role}. No Family key — they sign in with the household handle."
+    if target.get("cal_ready"):
+        hint += f" Calendar: {target['cal_label']}."
+    if mailed:
+        hint += f" Emailed to {email}."
+    elif email:
+        hint += f" Copy this — the email to {email} did not send."
+    stash_issued_key(
+        username,
+        f"{person_name} is in",
+        hint,
+        extra={"username": username, "password": password, "handle": household.handle or ""},
+    )
+    flash("They're in. Copy the login from the window." if not mailed else f"They're in. {mail_msg}", "success")
+    return redirect(url_for("members.index"))
+
+
 @members_bp.route("/invite", methods=["POST"])
 @login_required
 @require_perm("members")
@@ -405,8 +512,45 @@ def set_email(user_id):
             flash("That email is already used.", "danger")
             return redirect(url_for("members.index"))
     user.email = email
+    if email and not (user.calendar_email or "").strip():
+        user.calendar_email = email
     db.session.commit()
     flash("Email updated.", "success")
+    return redirect(url_for("members.index"))
+
+
+@members_bp.route("/<int:user_id>/calendar", methods=["POST"])
+@login_required
+@require_perm("members")
+def set_member_calendar(user_id):
+    from app.utils.calendar import calendar_target, guess_provider, normalize_cal_mode, normalize_provider
+
+    hid = household_id()
+    user = User.query.filter_by(id=user_id, household_id=hid).first_or_404()
+    cal_email = (request.form.get("calendar_email") or "").strip().lower() or None
+    if cal_email and "@" not in cal_email:
+        flash("Calendar email doesn't look like an email.", "danger")
+        return redirect(url_for("members.index"))
+    provider = normalize_provider(request.form.get("calendar_provider"), cal_email or "")
+    if not (request.form.get("calendar_provider") or "").strip() and cal_email:
+        provider = guess_provider(cal_email)
+    mode = normalize_cal_mode(request.form.get("calendar_mode"), "auto")
+    user.calendar_email = cal_email
+    user.calendar_provider = provider
+    user.calendar_mode = mode
+    if mode == "auto" and cal_email:
+        if (user.notify_via or "") == "email":
+            user.notify_via = "both"
+        elif (user.notify_via or "") not in ("email", "calendar", "both"):
+            user.notify_via = "calendar"
+    db.session.commit()
+    target = calendar_target(user)
+    flash(
+        f"Calendar for {user.name}: {target['cal_label']}."
+        if target.get("cal_ready")
+        else f"Calendar for {user.name} saved. Name an email to auto-add.",
+        "success",
+    )
     return redirect(url_for("members.index"))
 
 

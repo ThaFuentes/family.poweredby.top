@@ -190,3 +190,37 @@ def invite_email_body(
         ]
     lines.append("If you did not expect this, ignore the email.")
     return "\n".join(lines)
+
+
+def added_person_email_body(
+    *,
+    household,
+    login_url: str,
+    username: str,
+    password: str,
+    person_name: str = "",
+    calendar_label: str = "",
+) -> str:
+    handle = (getattr(household, "handle", None) or "").strip()
+    house = (getattr(household, "name", None) or "your household").strip()
+    who = (person_name or "").strip() or "there"
+    lines = [
+        f"Hi {who},",
+        "",
+        f"You're on {house} in Family OS. No key to type — a login was made for you.",
+        "",
+        f"  Household handle: {handle or '(ask whoever added you)'}",
+        f"  Username: {username}",
+        f"  Password: {password}",
+        "",
+        f"Sign in: {login_url}",
+        "Change the password after you get in (Look).",
+        "",
+    ]
+    if calendar_label:
+        lines += [
+            f"Due dates go to {calendar_label}.",
+            "",
+        ]
+    lines.append("If you did not expect this, ignore the email.")
+    return "\n".join(lines)

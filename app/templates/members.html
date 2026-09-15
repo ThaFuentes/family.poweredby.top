@@ -38,6 +38,42 @@
   <div class="btn-row"><button class="btn" type="submit">Save places</button></div>
 </form>
 {% endif %}
+{% if can('members') %}
+<form class="card" method="post" action="{{ url_for('members.add_person') }}">
+  <h2>Add someone</h2>
+  <p class="muted">No Family key. You make their login, email it if you want, and set whose calendar gets due dates — kids, spouse, whoever.</p>
+  <label>Their name</label>
+  <input name="person_name" required placeholder="Maya">
+  <label>Username</label>
+  <input name="username" required placeholder="maya" autocapitalize="none">
+  <label>Email (optional — we send the login here)</label>
+  <input type="email" name="email" placeholder="maya@gmail.com">
+  <label>Password (blank = we make one)</label>
+  <input name="password" autocomplete="new-password" placeholder="leave blank to generate">
+  <label>Role</label>
+  <select name="role">
+    <option value="member">member</option>
+    <option value="child">child</option>
+    <option value="admin">admin</option>
+  </select>
+  <label>Their calendar email</label>
+  <input type="email" name="calendar_email" placeholder="same as above, or another inbox">
+  <p class="muted">Google, Apple, Outlook — the inbox that should receive oil/filter due dates. Blank uses the login email.</p>
+  <div class="cal-row">
+    <select name="calendar_provider">
+      <option value="google">Google</option>
+      <option value="apple">Apple</option>
+      <option value="outlook">Outlook</option>
+      <option value="other">Other</option>
+    </select>
+    <select name="calendar_mode">
+      <option value="auto">Auto-add</option>
+      <option value="manual">They add them</option>
+    </select>
+  </div>
+  <div class="btn-row"><button class="btn" type="submit">Add them</button></div>
+</form>
+{% endif %}
 <div class="card list">
   <h2>People</h2>
   {% for m in members %}
@@ -52,8 +88,24 @@
           <button class="btn sm secondary" type="submit">Save username</button>
         </form>
         <form method="post" action="{{ url_for('members.set_email', user_id=m.id) }}" class="btn-row" style="margin:.35rem 0 0">
-          <input type="email" name="email" value="{{ m.email or '' }}" placeholder="optional email" style="width:auto;min-width:12rem;flex:1">
+          <input type="email" name="email" value="{{ m.email or '' }}" placeholder="login email" style="width:auto;min-width:12rem;flex:1">
           <button class="btn sm secondary" type="submit">Save email</button>
+        </form>
+        <form method="post" action="{{ url_for('members.set_member_calendar', user_id=m.id) }}" style="margin:.35rem 0 0">
+          <input type="email" name="calendar_email" value="{{ m.calendar_email or m.email or '' }}" placeholder="their calendar inbox">
+          <div class="btn-row" style="margin:.35rem 0 0">
+            <select name="calendar_provider">
+              <option value="google" {% if (m.calendar_provider or 'google')=='google' %}selected{% endif %}>Google</option>
+              <option value="apple" {% if m.calendar_provider=='apple' %}selected{% endif %}>Apple</option>
+              <option value="outlook" {% if m.calendar_provider=='outlook' %}selected{% endif %}>Outlook</option>
+              <option value="other" {% if m.calendar_provider=='other' %}selected{% endif %}>Other</option>
+            </select>
+            <select name="calendar_mode">
+              <option value="auto" {% if (m.calendar_mode or 'auto')=='auto' %}selected{% endif %}>Auto-add</option>
+              <option value="manual" {% if m.calendar_mode=='manual' %}selected{% endif %}>They add</option>
+            </select>
+            <button class="btn sm secondary" type="submit">Save calendar</button>
+          </div>
         </form>
         {% elif m.email %}
         <div class="muted">{{ m.email }}</div>
@@ -224,7 +276,7 @@
 {% if is_leader %}
 <form class="card" method="post" action="{{ url_for('members.set_reminders_via') }}">
   <h2>Maintenance reminders</h2>
-  <p class="muted">Household default for oil, blades, filters. Each person names <em>which</em> email calendar on Look, and whether we auto-add or they add it themselves. Email From: Family OS.</p>
+  <p class="muted">Household default for oil, blades, filters. You can set each person’s calendar on this page. They can still change it on Look.</p>
   <label>Send by</label>
   <select name="reminders_via">
     <option value="email" {% if reminders_via=='email' %}selected{% endif %}>Email</option>
@@ -237,7 +289,7 @@
 <div class="card key-card">
   <span class="key-tag fam">1 · Family key · FAM-</span>
   <h2>Enter this household</h2>
-  <p class="muted">Gives someone a seat here. They type <strong>their own name</strong> when they join. The key does not need a family name. A note below is only so <em>you</em> remember who you made it for.</p>
+  <p class="muted">Only if they should join themselves. Prefer <strong>Add someone</strong> above when you already know their email and calendar. A Family key is for a cousin who isn’t in the house yet.</p>
   <p class="muted">Child = scan only. Member = groceries + maintenance. Admin = full.</p>
   {% if can('members') %}
   <form method="post" action="{{ url_for('members.invite') }}">
