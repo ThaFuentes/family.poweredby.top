@@ -199,6 +199,7 @@ def _attach_type_row(item, form):
         g.serving_size = (form.get("serving_size") or "").strip() or None
         g.packaging = (form.get("packaging") or "").strip() or None
         g.image_url = (form.get("image_url") or "").strip() or None
+        g.auto_basket = str(form.get("auto_basket") or "").strip() in ("1", "true", "on", "yes")
         g.is_in_stock = g.quantity > 0
         g.needs_restock = g.quantity <= g.restock_threshold
         extra = dict(g.extra_data or {}) if isinstance(g.extra_data, dict) else {}

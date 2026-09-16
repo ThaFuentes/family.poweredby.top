@@ -119,6 +119,7 @@ def create_app():
         except Exception:
             household_name = None
         from app.utils.scan import qty_label as _qty_label
+        from app.utils.thumbs import item_thumb_url as _item_thumb
         from app.utils.themes import read_theme, THEMES
         from app.utils.places import list_places as _list_places
         from app.utils.permissions import role_of as _role_of
@@ -137,6 +138,7 @@ def create_app():
             "household_name": household_name,
             "can": _can,
             "qty_label": _qty_label,
+            "item_thumb": _item_thumb,
             "current_theme": theme_id,
             "theme_color": THEMES[theme_id]["color"],
             "places": places,

@@ -146,6 +146,8 @@ def reverse_row(row, *, by_id: int | None) -> tuple[bool, str]:
             ok, msg = _undo_part_off(row)
         elif action == "part.add":
             ok, msg = _undo_part_add(row)
+        elif action == "scan.host_attach":
+            ok, msg = _undo_host_attach(row)
         else:
             return False, "Don't know how to undo that."
         if not ok:
@@ -213,6 +215,29 @@ def _undo_part_add(row) -> tuple[bool, str]:
     part.is_current = False
     part.status = "retired"
     return True, f"{part.name} taken off again (wasn't supposed to be added)."
+
+
+def _undo_host_attach(row) -> tuple[bool, str]:
+    from app.builddb.table_items import Item
+    from app.builddb.table_vehicle_parts import VehiclePart
+
+    item = Item.query.get(row.item_id)
+    if item is None:
+        return False, "Can't find that scan."
+    old = row.old_json if isinstance(row.old_json, dict) else {}
+    new = row.new_json if isinstance(row.new_json, dict) else {}
+    item.linked_item_id = old.get("linked_item_id")
+    part_id = new.get("part_id") or row.target_id
+    if part_id and new.get("part_id"):
+        part = VehiclePart.query.get(part_id)
+        if part is not None:
+            part.is_current = False
+            part.status = "retired"
+    if new.get("consumed") and item.grocery is not None:
+        from app.utils.scan import set_quantity, clamp_qty
+
+        set_quantity(item.grocery, clamp_qty(item.grocery.quantity) + 1)
+    return True, f"Undid {item.name} on that equipment."
 
 
 def set_item_qty(item, qty, *, user_id=None) -> tuple[bool, str]:

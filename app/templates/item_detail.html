@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ item.name }} · Family OS{% endblock %}
 {% block content %}
+{% if item.item_type in ('vehicle', 'tool', 'house') %}
+<script>window.FAMILY_SCAN_HOST = {{ {'id': item.id, 'name': item.name, 'item_type': item.item_type}|tojson }};</script>
+<p class="scan-host-notice">Scan for this {% if item.item_type == 'vehicle' %}vehicle{% elif item.item_type == 'house' %}house{% else %}equipment{% endif %} — camera at the bottom. Undo if it’s the wrong thing.</p>
+{% endif %}
 <div class="page-head">
   <div>
     <h1>{{ item.name }}</h1>
@@ -213,6 +217,7 @@
       <label>Serving size</label><input name="serving_size" value="{{ item.grocery.serving_size or '' }}">
       <label>Packaging</label><input name="packaging" value="{{ item.grocery.packaging or '' }}">
       <label>Image URL</label><input name="image_url" value="{{ item.grocery.image_url or '' }}">
+      <label class="cal-check"><input type="checkbox" name="auto_basket" value="1" {% if item.grocery.auto_basket %}checked{% endif %}> When this is low, put it on the basket</label>
     {% endif %}
     {% if item.tool %}
       <label>Kind</label><input name="tool_type" value="{{ item.tool.type or '' }}">

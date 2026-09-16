@@ -21,7 +21,7 @@ vehicles_bp = Blueprint("vehicles", __name__, url_prefix="/vehicles")
 def index():
     hid = household_id()
     items = (
-        Item.query.options(joinedload(Item.vehicle))
+        Item.query.options(joinedload(Item.vehicle), joinedload(Item.photos))
         .filter_by(household_id=hid, item_type="vehicle")
         .filter(Item.removed_at.is_(None))
         .order_by(Item.name.asc())

@@ -184,10 +184,12 @@ def put_on_list(g: GroceryItem, item: Item, user_id, reason="buy", amount=None) 
 
 
 def _sync_grocery_list(g: GroceryItem, item: Item, user_id) -> bool:
-    """Keep the shopping list in sync with stock. Returns whether it is on the list."""
+    """Basket stays a shopping list. Auto-add only when this item is opted in."""
     open_row = _open_list_row(g, item)
     status = stock_status(g)
-    if g.needs_restock or status != STATUS_OK:
+    needs = bool(g.needs_restock) or status != STATUS_OK
+    auto = bool(getattr(g, "auto_basket", False))
+    if auto and needs:
         if status == STATUS_WANT:
             reason = "want"
         elif status == STATUS_OUT:
@@ -210,10 +212,11 @@ def _sync_grocery_list(g: GroceryItem, item: Item, user_id) -> bool:
             open_row.added_reason = reason
             open_row.name = item.name
         return True
-    if open_row:
+    if open_row and not needs:
         open_row.status = "done"
         open_row.completed_at = datetime.utcnow()
-    return False
+        return False
+    return bool(open_row)
 
 
 def _household_of(item):
@@ -365,6 +368,7 @@ def grocery_payload(g: GroceryItem, item: Item, action="check", on_list=False, a
         "needs_place": not bool(loc),
         "ai_ready": _ai_ready(item),
         "ask_list": False,
+        "auto_basket": bool(getattr(g, "auto_basket", False)),
     }
 
 
@@ -403,15 +407,15 @@ def flag_need_more(g: GroceryItem, item: Item, user_id):
     set_quantity(g, g.quantity)
     g.needs_restock = True
     prev = clamp_qty(g.quantity)
-    on_list = _sync_grocery_list(g, item, user_id)
     action = "want" if stock_status(g) == STATUS_WANT else "need_more"
+    put_on_list(g, item, user_id, action)
     try:
         from app.utils.activity import log_grocery
 
         log_grocery(item, g, action, prev, prev, 0, user_id=user_id)
     except Exception:
         pass
-    return grocery_payload(g, item, action=action, on_list=on_list)
+    return grocery_payload(g, item, action=action, on_list=True)
 
 
 def _lookup_name(code: str) -> tuple[str, dict]:
@@ -545,30 +549,120 @@ def _normalize_action(action: str) -> str:
     return _ACTION_ALIASES.get(action, action)
 
 
-def ingest_vin(household_id: int, user_id: int, vin: str) -> dict:
-    """Door-sticker VIN barcode → vehicle in this house."""
+def _resolve_host(household_id: int, host_item_id):
+    if not host_item_id:
+        return None
+    try:
+        hid = int(host_item_id)
+    except (TypeError, ValueError):
+        return None
+    item = (
+        Item.query.filter_by(id=hid, household_id=household_id)
+        .filter(Item.removed_at.is_(None))
+        .first()
+    )
+    if item and item.item_type in ("vehicle", "tool", "house"):
+        return item
+    return None
+
+
+def _vin_result(item, v, decoded, diffs, *, created=False, asked=False) -> dict:
+    name = item.name if item else (decoded.get("name") or "Vehicle")
+    msg = f"Added {name} from the VIN sticker."
+    if asked and diffs:
+        msg = f"NHTSA has different info for {name}. Here's what would change."
+    elif asked:
+        msg = f"{name} already matches the sticker."
+    elif not created:
+        msg = f"{name} is already in the house."
+    return {
+        "found": True,
+        "create": False,
+        "created": created,
+        "barcode": (decoded or {}).get("vin") or (v.vin if v else ""),
+        "item_id": item.id if item else None,
+        "item_type": "vehicle",
+        "name": name,
+        "vin": (decoded or {}).get("vin") or (v.vin if v else ""),
+        "ask_update": bool(asked and diffs),
+        "diffs": diffs or [],
+        "facts": (decoded or {}).get("facts") or {},
+        "message": msg,
+    }
+
+
+def ingest_vin(
+    household_id: int,
+    user_id: int,
+    vin: str,
+    *,
+    host_item=None,
+    apply: bool = False,
+    fields=None,
+    force_new: bool = False,
+) -> dict:
+    """Door-sticker VIN. Open vehicle gets it. Add-vehicle creates a new one."""
     from app.builddb.table_items import Item
     from app.builddb.table_vehicles import Vehicle
-    from app.utils.vehicle_lookup import lookup_vehicle, apply_vehicle_lookup, looks_like_vin
+    from app.utils.vehicle_lookup import (
+        lookup_vehicle,
+        apply_vehicle_lookup,
+        looks_like_vin,
+        diff_vehicle,
+    )
     from app.utils.qr_labels import item_payload
 
     code = (vin or "").replace(" ", "").upper()
     if not looks_like_vin(code):
         return {"found": False, "create": False, "error": "Not a VIN."}
-    row = Vehicle.query.filter_by(household_id=household_id, vin=code).first()
-    if row:
-        item = Item.query.get(row.item_id)
-        return {
-            "found": True,
-            "create": False,
-            "barcode": code,
-            "item_id": item.id if item else row.item_id,
-            "item_type": "vehicle",
-            "name": item.name if item else "Vehicle",
-            "vin": code,
-            "message": f"{item.name if item else 'That car'} is already in the house.",
-        }
     decoded = lookup_vehicle(vin=code)
+    target = None
+    if not force_new and host_item is not None and host_item.item_type == "vehicle":
+        target = host_item
+    row = Vehicle.query.filter_by(household_id=household_id, vin=code).first()
+    if target is None and row:
+        target = Item.query.get(row.item_id)
+    if target is None and not force_new:
+        blanks = (
+            Vehicle.query.filter_by(household_id=household_id)
+            .filter((Vehicle.vin.is_(None)) | (Vehicle.vin == ""))
+            .all()
+        )
+        live = []
+        for vrow in blanks:
+            it = Item.query.filter_by(id=vrow.item_id, household_id=household_id).filter(Item.removed_at.is_(None)).first()
+            if it is not None:
+                live.append(it)
+        if len(live) == 1:
+            target = live[0]
+
+    if target is not None and target.item_type == "vehicle":
+        v = target.vehicle or Vehicle.query.filter_by(item_id=target.id, household_id=household_id).first()
+        if v is None:
+            v = Vehicle(item_id=target.id, household_id=household_id, vin=code)
+            db.session.add(v)
+            db.session.flush()
+        diffs = diff_vehicle(v, target, decoded)
+        our_vin = (v.vin or "").replace(" ", "").upper()
+        same_or_empty = (not our_vin) or our_vin == code
+        if apply or (same_or_empty and not force_new):
+            apply_vehicle_lookup(v, target, decoded, fields=fields, overwrite=bool(apply))
+            v.vin = code
+            filled = [d for d in diffs if d.get("kind") == "fill" or apply]
+            msg = f"Posted the VIN to {target.name}."
+            if filled and not apply:
+                bits = ", ".join(d["label"] for d in filled[:6])
+                msg = f"Posted the VIN to {target.name}. Filled {bits}."
+            elif apply:
+                msg = f"Updated {target.name} from the VIN sticker."
+            return _vin_result(target, v, decoded, [], created=False, asked=False) | {
+                "message": msg,
+                "ask_update": False,
+            }
+        if diffs:
+            return _vin_result(target, v, decoded, diffs, asked=True)
+        return _vin_result(target, v, decoded, [], asked=True)
+
     name = decoded.get("name") or f"VIN {code[:8]}"
     item = Item(
         household_id=household_id,
@@ -583,21 +677,168 @@ def ingest_vin(household_id: int, user_id: int, vin: str) -> dict:
     db.session.add(v)
     apply_vehicle_lookup(v, item, decoded)
     v.vin = code
-    return {
-        "found": True,
-        "create": True,
-        "barcode": code,
-        "item_id": item.id,
-        "item_type": "vehicle",
+    return _vin_result(item, v, decoded, [], created=True)
+
+
+def _host_wants_scan(host, item, g) -> bool:
+    """Any UPC on an open vehicle/tool/house belongs to that host. Undo if it was a miss."""
+    if host is None or item is None:
+        return False
+    if item.id == host.id:
+        return False
+    return host.item_type in ("vehicle", "tool", "house")
+
+
+def _install_prompt(item, g, host) -> dict:
+    from app.utils.vehicle_systems import guess_slot, system_label, slot_label
+
+    extra = g.extra_data if g is not None and isinstance(g.extra_data, dict) else {}
+    kind = extra.get("kind") or item.category or ""
+    system, slot = guess_slot(kind, name=item.name or "", category=item.category or "")
+    if host.item_type == "house" and ("filter" in (item.name or "").lower() or kind in ("filter", "hvac_filter")):
+        system, slot = "hvac", "filter"
+    payload = grocery_payload(g, item, action="check") if g is not None else {
+        "message": f"{item.name} — add to {host.name}?",
         "name": item.name,
-        "vin": code,
-        "message": f"Added {item.name} from the VIN sticker.",
+        "image_url": None,
     }
+    payload.update(
+        {
+            "found": True,
+            "create": False,
+            "barcode": item.barcode,
+            "item_id": item.id,
+            "item_type": item.item_type,
+            "name": item.name,
+            "ask_install": True,
+            "host": {"id": host.id, "name": host.name, "item_type": host.item_type},
+            "kind": kind,
+            "system": system,
+            "slot": slot,
+            "system_label": system_label(system),
+            "slot_label": slot_label(system, slot),
+            "message": f"{item.name} — did you install it on {host.name}?",
+        }
+    )
+    return payload
 
 
-def process_scan(household_id: int, user_id: int, barcode: str, action: str, amount=1, location=None, skip_place=False):
+def _do_host_attach(household_id, user_id, item, g, host, *, installed: bool) -> dict:
+    linked_was = item.linked_item_id
+    item.linked_item_id = host.id
+    part_row = None
+    extra = g.extra_data if g is not None and isinstance(g.extra_data, dict) else {}
+    if host.item_type in ("vehicle", "house", "tool"):
+        try:
+            from app.utils.vehicle_systems import attach_scanned_part
+
+            part_row = attach_scanned_part(
+                hid=household_id,
+                user_id=user_id,
+                vehicle_item_id=host.id,
+                catalog_item=item,
+                kind=extra.get("kind"),
+                name=item.name,
+                brand=(g.brand if g is not None else None),
+                status="installed" if installed else "spare",
+            )
+        except Exception:
+            part_row = None
+        if installed and g is not None and clamp_qty(g.quantity) > 0:
+            apply_grocery_stock(g, item, "consume", 1, user_id, sync_list=False)
+    undo_id = None
+    try:
+        from app.utils.activity import record
+
+        kind = "vehicle" if host.item_type == "vehicle" else "equipment"
+        act = record(
+            action="scan.host_attach",
+            summary=f"{item.name} on {host.name}",
+            target_table="vehicle_parts" if part_row is not None else "items",
+            target_id=part_row.id if part_row is not None else item.id,
+            item_id=item.id,
+            old_json={"linked_item_id": linked_was},
+            new_json={
+                "linked_item_id": host.id,
+                "part_id": part_row.id if part_row is not None else None,
+                "host_id": host.id,
+                "consumed": bool(installed),
+            },
+            user_id=user_id,
+        )
+        undo_id = act.id if act is not None else None
+    except Exception:
+        undo_id = None
+    payload = grocery_payload(g, item, action="check") if g is not None else {"name": item.name}
+    kind_word = "vehicle" if host.item_type == "vehicle" else "equipment"
+    payload.update(
+        {
+            "found": True,
+            "create": False,
+            "barcode": item.barcode,
+            "item_id": item.id,
+            "item_type": item.item_type,
+            "name": item.name,
+            "ask_install": False,
+            "attached": True,
+            "ask_installed": not installed,
+            "undo_id": undo_id,
+            "host": {"id": host.id, "name": host.name, "item_type": host.item_type},
+            "message": (
+                f"Installed {item.name} on {host.name}."
+                if installed
+                else f"{item.name} is on {host.name} ({kind_word})."
+            ),
+        }
+    )
+    return payload
+
+
+def process_scan(
+    household_id: int,
+    user_id: int,
+    barcode: str,
+    action: str,
+    amount=1,
+    location=None,
+    skip_place=False,
+    host_item_id=None,
+    fields=None,
+    skip_host=False,
+    force_new=False,
+):
     code = (barcode or "").strip()
     action = _normalize_action(action)
+    host = None if skip_host or force_new else _resolve_host(household_id, host_item_id)
+    try:
+        from app.utils.vehicle_lookup import looks_like_vin
+
+        vin_scan = looks_like_vin(code)
+    except Exception:
+        vin_scan = False
+    if vin_scan and action in ("check", "into", "apply_vin", "restock"):
+        payload = ingest_vin(
+            household_id,
+            user_id,
+            code,
+            host_item=host if host and host.item_type == "vehicle" else None,
+            apply=action == "apply_vin",
+            fields=fields,
+            force_new=bool(force_new),
+        )
+        event = ScanEvent(
+            household_id=household_id,
+            user_id=user_id,
+            barcode=code,
+            action="apply_vin" if action == "apply_vin" else "check",
+            amount=clamp_qty(amount, "1"),
+            item_id=payload.get("item_id"),
+        )
+        db.session.add(event)
+        event.result_json = {"name": payload.get("name"), "type": "vehicle"}
+        db.session.commit()
+        payload["action"] = event.action
+        return payload
     item = find_item(household_id, code)
     if action == "check":
         recent = (
@@ -608,7 +849,7 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
             .first()
         )
         if recent and recent.created_at and (datetime.utcnow() - recent.created_at).total_seconds() < 12:
-            if item and item.item_type == "grocery":
+            if item and item.item_type == "grocery" and host is None:
                 g = GroceryItem.query.filter_by(household_id=household_id, item_id=item.id).first()
                 if g:
                     payload = grocery_payload(g, item, action="check")
@@ -625,18 +866,29 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
     )
     db.session.add(event)
 
-    if item is None:
-        try:
-            from app.utils.vehicle_lookup import looks_like_vin
+    if action in ("install", "stash"):
+        g = None
+        if item is None:
+            item, g, _created = ensure_wanted_item(household_id, user_id, code)
+        elif item.item_type == "grocery":
+            g = GroceryItem.query.filter_by(household_id=household_id, item_id=item.id).first()
+        event.item_id = item.id if item else None
+        if host is None or item is None:
+            payload = {
+                "found": bool(item),
+                "error": "Scan this from the vehicle or tool page.",
+                "message": "Open the vehicle or tool first, then scan the part.",
+            }
+        else:
+            payload = _do_host_attach(
+                household_id, user_id, item, g, host, installed=action == "install"
+            )
+        event.result_json = {"name": payload.get("name"), "type": payload.get("item_type")}
+        db.session.commit()
+        payload["action"] = action
+        return payload
 
-            if looks_like_vin(code):
-                payload = ingest_vin(household_id, user_id, code)
-                event.item_id = payload.get("item_id")
-                event.result_json = {"name": payload.get("name"), "type": "vehicle"}
-                db.session.commit()
-                return payload
-        except Exception:
-            pass
+    if item is None:
         item, g, created = ensure_wanted_item(household_id, user_id, code)
         event.item_id = item.id
         payload = {
@@ -688,6 +940,8 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
             payload.update(apply_place(g, item, location=location, skip_place=skip_place))
         payload.update(stock)
         payload["hint"] = consumption_hint(g) if g is not None else None
+        if host and action in ("check", "into", "restock") and _host_wants_scan(host, item, g):
+            payload = _do_host_attach(household_id, user_id, item, g, host, installed=False)
         event.action = action if action in ("restock", "consume", "need_more", "want", "set", "into") else "check"
         event.result_json = {
             "name": item.name,
@@ -720,7 +974,7 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
             db.session.flush()
         set_quantity(g, g.quantity)
         extra_g = g.extra_data if isinstance(g.extra_data, dict) else {}
-        if item.barcode and not extra_g.get("product"):
+        if item.barcode and (not extra_g.get("product") or not (g.image_url or "").strip()):
             try:
                 from app.utils.barcode_lookup import lookup_product, apply_product_lookup
 
@@ -813,6 +1067,10 @@ def process_scan(household_id: int, user_id: int, barcode: str, action: str, amo
                         action = "mileage"
         if item.item_type in ("vehicle", "tool", "house"):
             payload["stay"] = True
+
+    if item.item_type == "grocery" and host and action in ("check", "into", "restock"):
+        if _host_wants_scan(host, item, g):
+            payload = _do_host_attach(household_id, user_id, item, g, host, installed=False)
 
     event.item_id = item.id
     event.action = action

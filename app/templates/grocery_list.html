@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "partials/row_pic.html" import row_pic %}
 {% block title %}Basket · Family OS{% endblock %}
 
 {% macro basket_row(row) %}
@@ -6,6 +7,7 @@
     {% if can_check %}
     <input type="checkbox" class="basket-check" data-toggle="{{ row.id }}" {% if row.status == 'done' %}checked{% endif %}>
     {% endif %}
+    {{ row_pic(src=row.image_url, name=row.name) }}
     <span>
       <strong>{{ row.name }}</strong>
       <span class="muted">
@@ -36,6 +38,7 @@
 </div>
 {% set compact = true %}
 <p class="muted">Use the camera button to scan. Set it to <strong>Buy</strong> or <strong>In</strong> once.</p>
+<script>window.FAMILY_SCAN_KIND = "basket";</script>
 <div id="basket-live">
 {% if want_rows %}
 <h2>Want</h2>

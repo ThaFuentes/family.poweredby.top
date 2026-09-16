@@ -18,7 +18,7 @@ tools_bp = Blueprint("tools", __name__, url_prefix="/tools")
 def index():
     hid = household_id()
     items = (
-        Item.query.options(joinedload(Item.tool))
+        Item.query.options(joinedload(Item.tool), joinedload(Item.photos))
         .filter_by(household_id=hid, item_type="tool")
         .filter(Item.removed_at.is_(None))
         .order_by(Item.name.asc())

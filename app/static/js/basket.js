@@ -14,6 +14,26 @@
     if (reason === "need_more" || reason === "low" || reason === "auto_threshold") return "Need more";
     return reason || "Added";
   }
+  function encode(s) {
+    const d = document.createElement("div");
+    d.textContent = s == null ? "" : String(s);
+    return d.innerHTML;
+  }
+  function picHtml(r) {
+    const letter = encode((r.name || "?").charAt(0).toUpperCase());
+    const src = r.image_url || "";
+    return (
+      '<span class="row-pic">' +
+      (src
+        ? '<img src="' +
+          encodeURI(src) +
+          '" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">'
+        : "") +
+      "<span>" +
+      letter +
+      "</span></span>"
+    );
+  }
 
   function render(rows) {
     const want = rows.filter(function (r) { return r.reason === "want"; });
@@ -28,8 +48,10 @@
           r.id +
           '"><input type="checkbox" class="basket-check" data-toggle="' +
           r.id +
-          '"><span><strong>' +
-          (r.name || "") +
+          '">' +
+          picHtml(r) +
+          "<span><strong>" +
+          encode(r.name || "") +
           '</strong><span class="muted">' +
           reasonText(r.reason) +
           (r.quantity_needed ? " · get " + r.quantity_needed : "") +

@@ -252,11 +252,18 @@ def _off_family(code: str, host: str, source: str) -> dict:
         return {}
     n = product.get("nutriments") or {}
     img = (
-        product.get("image_front_url")
-        or product.get("image_url")
+        product.get("image_front_small_url")
+        or product.get("image_front_thumb_url")
         or product.get("image_small_url")
+        or product.get("image_thumb_url")
+        or product.get("image_front_url")
+        or product.get("image_url")
         or ""
     )
+    if isinstance(img, str) and img.startswith("//"):
+        img = "https:" + img
+    elif isinstance(img, str) and img.startswith("http://"):
+        img = "https://" + img[7:]
     nova = product.get("nova_group")
     name = _s(product.get("product_name") or product.get("generic_name"))
     if not name:
@@ -330,7 +337,11 @@ def _upcitemdb(code: str) -> dict:
         "category": _s(it.get("category")).split(">")[-1].strip(),
         "quantity": _s(it.get("size")),
         "ingredients": _s(it.get("description"))[:2000],
-        "image_url": images[0] if images else "",
+        "image_url": (
+            ("https://" + images[0][7:] if str(images[0]).startswith("http://") else images[0])
+            if images
+            else ""
+        ),
     }
 
 
@@ -352,7 +363,9 @@ def apply_product_lookup(g, item, lookup: dict) -> None:
     if lookup.get("packaging"):
         g.packaging = str(lookup["packaging"])[:200]
     if lookup.get("image_url"):
-        g.image_url = str(lookup["image_url"])[:500]
+        from app.utils.thumbs import https_url
+
+        g.image_url = https_url(str(lookup["image_url"])) or str(lookup["image_url"])[:500]
     extra = dict(g.extra_data or {})
     facts = lookup.get("facts") or {}
     if facts:

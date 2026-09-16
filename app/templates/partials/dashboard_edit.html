@@ -14,7 +14,7 @@
     <option value="{{ key }}" {% if dash.start==key %}selected{% endif %}>{{ label }}</option>
     {% endfor %}
   </select>
-  <p class="muted">Home is this dashboard. Scan is the camera. Pantry, basket, and the rest jump straight there after sign-in or when you tap the app icon.</p>
+  <p class="muted">Home is this dashboard. Scan is the camera. Inventory is what’s in the house. Basket is the store list.</p>
   {% if not is_child %}
   <label class="btn-row" style="align-items:center;gap:.5rem">
     <input type="checkbox" name="show_needs" value="1" {% if dash.show_needs %}checked{% endif %}>

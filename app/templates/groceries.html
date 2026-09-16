@@ -1,8 +1,10 @@
 {% extends "base.html" %}
-{% block title %}{% if place %}{{ place }} · {% endif %}On hand · Family OS{% endblock %}
+{% from "partials/row_pic.html" import row_pic %}
+{% block title %}{% if place %}{{ place }} · {% endif %}Inventory · Family OS{% endblock %}
 
 {% macro pantry_row(item, onhand=false) %}
   <a class="row {% if onhand %}onhand-row{% endif %}" href="{{ url_for('items.detail', item_id=item.id) }}">
+    {{ row_pic(item) }}
     {% if onhand and item.grocery %}
     <span class="onhand-qty">{{ qty_label(item.grocery.quantity) }}</span>
     {% endif %}
@@ -43,10 +45,11 @@
 {%- endmacro %}
 
 {% block content %}
+<script>window.FAMILY_SCAN_KIND = "inventory";</script>
 <div class="page-head">
   <div>
-    <h1>{% if place %}{{ place }}{% else %}Pantry{% endif %}</h1>
-    <p>{% if place %}What’s in this room.{% else %}What’s in the house, by room. Tap Fridge or Pantry for that section.{% endif %}</p>
+    <h1>{% if place %}{{ place }}{% else %}Inventory{% endif %}</h1>
+    <p>{% if place %}What’s in this room.{% else %}What’s in the house, by room. Basket is the store list. This is what you already have.{% endif %}</p>
   </div>
   <div class="btn-row" style="margin:0">
     <a class="btn sm secondary" href="{{ url_for('groceries.grocery_list') }}">Basket</a>

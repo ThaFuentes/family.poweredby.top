@@ -174,10 +174,15 @@ def _basket_payload(rows):
     out = []
     for r in rows:
         place = ""
+        image_url = ""
         if r.item_id:
             item = items.get(r.item_id)
             if item and item.grocery:
                 place = (item.grocery.default_location or "").strip()
+            if item:
+                from app.utils.thumbs import item_thumb_url
+
+                image_url = item_thumb_url(item) or ""
         out.append(
             {
                 "id": r.id,
@@ -187,6 +192,7 @@ def _basket_payload(rows):
                 "item_id": r.item_id,
                 "place": place,
                 "status": r.status,
+                "image_url": image_url,
             }
         )
     return out
@@ -203,6 +209,9 @@ def grocery_list():
     )
     want_rows = [r for r in rows if (r.added_reason or "") == "want"]
     need_rows = [r for r in rows if (r.added_reason or "") != "want"]
+    packed = {p["id"]: p for p in _basket_payload(rows)}
+    for r in rows:
+        r.image_url = (packed.get(r.id) or {}).get("image_url") or ""
     return render_template(
         "grocery_list.html",
         rows=rows,

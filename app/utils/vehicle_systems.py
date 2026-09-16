@@ -375,11 +375,12 @@ def attach_scanned_part(
     kind: str | None,
     name: str,
     brand: str | None = None,
+    status: str = "installed",
 ):
     from app.builddb.table_items import Item
 
     vehicle = Item.query.filter_by(id=vehicle_item_id, household_id=hid).first()
-    if vehicle is None or vehicle.item_type not in ("vehicle", "house"):
+    if vehicle is None or vehicle.item_type not in ("vehicle", "house", "tool"):
         return None
     system, slot = guess_slot(kind, name=name, category=getattr(catalog_item, "category", "") or "")
     catalog_slots = None
@@ -402,8 +403,9 @@ def attach_scanned_part(
         brand=brand,
         spec=spec,
         catalog_item_id=getattr(catalog_item, "id", None),
-        status="installed",
+        status=status or "installed",
         catalog_slots=catalog_slots,
+        replace_current=(status or "installed") == "installed",
     )
 
 

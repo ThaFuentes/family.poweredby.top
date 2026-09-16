@@ -197,13 +197,85 @@ def lookup_vehicle(plate: str = "", vin: str = "") -> dict:
     return {"ok": False, "error": "Enter a plate or a 17-character VIN.", "facts": {}, "recalls": []}
 
 
-def apply_vehicle_lookup(v, item, decoded: dict) -> None:
+DIFF_FIELDS = (
+    ("name", "Name"),
+    ("vin", "VIN"),
+    ("year", "Year"),
+    ("make", "Make"),
+    ("model", "Model"),
+    ("trim", "Trim"),
+    ("body_class", "Body"),
+    ("drive_type", "Drive"),
+    ("fuel_type", "Fuel"),
+    ("engine", "Engine"),
+    ("transmission", "Transmission"),
+    ("doors", "Doors"),
+    ("manufacturer", "Built by"),
+    ("color", "Color"),
+    ("plate", "Plate"),
+)
+
+
+def vehicle_ours(v, item) -> dict:
+    return {
+        "name": (item.name if item is not None else None) or None,
+        "vin": getattr(v, "vin", None),
+        "year": str(v.year) if getattr(v, "year", None) else None,
+        "make": getattr(v, "make", None),
+        "model": getattr(v, "model", None),
+        "trim": getattr(v, "trim", None),
+        "body_class": getattr(v, "body_class", None),
+        "drive_type": getattr(v, "drive_type", None),
+        "fuel_type": getattr(v, "fuel_type", None),
+        "engine": getattr(v, "engine", None),
+        "transmission": getattr(v, "transmission", None),
+        "doors": getattr(v, "doors", None),
+        "manufacturer": getattr(v, "manufacturer", None),
+        "color": getattr(v, "color", None),
+        "plate": getattr(v, "plate", None),
+    }
+
+
+def vehicle_theirs(decoded: dict) -> dict:
+    facts = dict((decoded or {}).get("facts") or {})
+    if (decoded or {}).get("vin"):
+        facts["vin"] = decoded["vin"]
+    if (decoded or {}).get("name"):
+        facts["name"] = decoded["name"]
+    if (decoded or {}).get("plate"):
+        facts["plate"] = decoded["plate"]
+    return facts
+
+
+def diff_vehicle(v, item, decoded: dict) -> list[dict]:
+    """Fields NHTSA would change. Empty ours = fill-in. Different ours = overwrite candidate."""
+    ours = vehicle_ours(v, item)
+    theirs = vehicle_theirs(decoded)
+    diffs = []
+    for key, label in DIFF_FIELDS:
+        a = _clean_val(ours.get(key))
+        b = _clean_val(theirs.get(key))
+        if not b:
+            continue
+        if not a:
+            diffs.append({"field": key, "label": label, "ours": "", "theirs": b, "kind": "fill"})
+        elif a.lower() != b.lower():
+            diffs.append({"field": key, "label": label, "ours": a, "theirs": b, "kind": "change"})
+    return diffs
+
+
+def apply_vehicle_lookup(v, item, decoded: dict, *, fields=None, overwrite=False) -> None:
     facts = (decoded or {}).get("facts") or {}
+    allow = {str(x) for x in fields} if fields else None
+
+    def take(key: str) -> bool:
+        return allow is None or key in allow
+
     vin = (decoded or {}).get("vin") or facts.get("vin")
-    if vin:
+    if vin and take("vin") and (overwrite or not getattr(v, "vin", None)):
         v.vin = str(vin)[:32]
     plate = (decoded or {}).get("plate") or facts.get("plate")
-    if plate:
+    if plate and take("plate") and (overwrite or not getattr(v, "plate", None)):
         v.plate = str(plate)[:20]
     mapping = (
         ("make", "make"),
@@ -220,10 +292,10 @@ def apply_vehicle_lookup(v, item, decoded: dict) -> None:
     )
     for fact_key, col in mapping:
         val = facts.get(fact_key)
-        if val and not getattr(v, col, None):
+        if val and take(fact_key) and (overwrite or not getattr(v, col, None)):
             setattr(v, col, str(val)[:160])
     year = facts.get("year")
-    if year and not v.year:
+    if year and take("year") and (overwrite or not v.year):
         try:
             v.year = int(str(year)[:4])
         except ValueError:
@@ -233,6 +305,6 @@ def apply_vehicle_lookup(v, item, decoded: dict) -> None:
     extra["nhtsa_raw"] = (decoded or {}).get("raw") or {}
     extra["recalls"] = (decoded or {}).get("recalls") or []
     v.extra_data = extra
-    if item is not None and decoded.get("name"):
-        if not item.name or item.name.lower() in ("vehicle", "car", "truck"):
+    if item is not None and decoded.get("name") and take("name"):
+        if overwrite or not item.name or item.name.lower() in ("vehicle", "car", "truck"):
             item.name = str(decoded["name"])[:200]

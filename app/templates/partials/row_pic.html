@@ -1,0 +1,9 @@
+{# Product picture for inventory rows. Catalog photo, else the first letter — never a blank white box. #}
+{% macro row_pic(item=None, src=None, name=None) %}
+{% set label = name or (item.name if item else '?') %}
+{% set pic = src if src else (item_thumb(item) if item else none) %}
+<span class="row-pic" aria-hidden="true">
+  {% if pic %}<img src="{{ pic }}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">{% endif %}
+  <span>{{ (label or '?')[0]|upper }}</span>
+</span>
+{% endmacro %}

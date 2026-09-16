@@ -18,6 +18,46 @@
   let settleTimer = null;
   let pending = null;
   const JOB_KEY = "family_scan_job";
+  let lastUndoId = null;
+
+  function hostKindWord(host) {
+    const t = (host && host.item_type) || "";
+    if (t === "vehicle") return "VEHICLE";
+    if (t === "house") return "HOUSE";
+    return "EQUIPMENT";
+  }
+  function addFormOpen() {
+    const d = document.getElementById("add-vehicle");
+    return !!(d && d.open);
+  }
+  function paintHostBanner() {
+    const banner = document.getElementById("scan-host-banner");
+    const jobs = document.querySelector(".scan-jobs");
+    const label = document.getElementById("scan-host-label");
+    const undoBtn = document.getElementById("scan-host-undo");
+    const host = window.FAMILY_SCAN_HOST;
+    if (!banner) return;
+    if (addFormOpen()) {
+      banner.hidden = false;
+      if (jobs) jobs.hidden = true;
+      if (label) label.textContent = "SCAN TO CREATE A VEHICLE";
+      if (undoBtn) undoBtn.hidden = !lastUndoId;
+      return;
+    }
+    if (host && host.id) {
+      banner.hidden = false;
+      if (jobs) jobs.hidden = true;
+      if (label) {
+        label.textContent =
+          "SCAN FOR " + String(host.name || "").toUpperCase() + " · " + hostKindWord(host);
+      }
+      if (undoBtn) undoBtn.hidden = !lastUndoId;
+      return;
+    }
+    banner.hidden = true;
+    if (jobs) jobs.hidden = false;
+    if (undoBtn) undoBtn.hidden = true;
+  }
 
   function getScanJob() {
     try {
@@ -36,15 +76,23 @@
     });
     const st = document.getElementById("scan-live-status");
     if (st) {
-      st.textContent =
-        job === "out"
-          ? "Used — every scan takes one off."
-          : job === "buy"
-            ? "Needed — every scan goes on the list."
-            : job === "mix"
-              ? "Mix — pick Incoming, Used, or Needed after each scan."
-              : "Incoming — every scan adds one.";
+      const host = window.FAMILY_SCAN_HOST;
+      if (addFormOpen()) {
+        st.textContent = "VIN sticker creates a new vehicle.";
+      } else if (host && host.id) {
+        st.textContent = "Scan for " + (host.name || "this") + ".";
+      } else {
+        st.textContent =
+          job === "out"
+            ? "Used — every scan takes one off."
+            : job === "buy"
+              ? "Needed — every scan goes on the list."
+              : job === "mix"
+                ? "Mix — pick Incoming, Used, or Needed after each scan."
+                : "Incoming — every scan adds one.";
+      }
     }
+    paintHostBanner();
   }
   function actionForJob() {
     const j = getScanJob();
@@ -129,12 +177,29 @@
     );
   }
 
+  function productPic(data) {
+    const src = (data && (data.image_url || data.thumb_url)) || "";
+    const letter = encode(((data && data.name) || "?").charAt(0).toUpperCase());
+    return (
+      '<span class="row-pic">' +
+      (src
+        ? '<img src="' +
+          encodeURI(src) +
+          '" alt="" referrerpolicy="no-referrer" onerror="this.remove()">'
+        : "") +
+      "<span>" +
+      letter +
+      "</span></span>"
+    );
+  }
+
   function flashToast(data) {
     const live = document.getElementById("scan-live");
     if (!resultEl || !live || live.hidden) return false;
     const qty = data.quantity_label != null ? data.quantity_label : data.quantity;
     const job = getScanJob();
     let html =
+      productPic(data) +
       "<strong>" +
       encode(data.name || "Item") +
       "</strong> " +
@@ -273,9 +338,7 @@
     if (data.brand) meta.push(data.brand);
     if (data.location) meta.push(data.location);
     if (data.allergens) meta.push("Allergens: " + data.allergens);
-    const img = data.image_url
-      ? '<img class="detail-photo" src="' + encodeURI(data.image_url) + '" alt="">'
-      : "";
+    const img = productPic(data);
     let factsHtml = "";
     if (data.facts && typeof data.facts === "object") {
       const bits = ["ingredients", "serving_size", "energy_kcal", "nutriscore"];
@@ -381,9 +444,7 @@
     const kind = data.kind || "";
     const kindLabel = data.kind_label || "New code";
     const suggested = data.suggested_type || (scanKind === "any" ? "grocery" : scanKind);
-    const img = data.image_url
-      ? '<img class="detail-photo" src="' + encodeURI(data.image_url) + '" alt="">'
-      : "";
+    const img = productPic(data);
     const kindBtns = [];
     const vehicles = data.vehicles || [];
     const tools = data.tools || [];
@@ -484,6 +545,82 @@
       kindBtns.join("") +
       "</div>" +
       "</div>"
+    );
+  }
+
+  function hostToast(data) {
+    const host = data.host || window.FAMILY_SCAN_HOST || {};
+    let html = productPic(data) + "<strong>" + encode(data.message || "Saved on this.") + "</strong>";
+    if (data.undo_id) {
+      html +=
+        ' <button type="button" class="btn sm" data-scan-undo="' +
+        encode(String(data.undo_id)) +
+        '">Undo</button>';
+    }
+    if (data.ask_installed) {
+      html += ' <button type="button" class="btn sm" data-rescan="install">Installed it</button>';
+    }
+    return html;
+  }
+
+  function installCard(data) {
+    const host = data.host || window.FAMILY_SCAN_HOST || {};
+    const hostLabel = host.name || "this";
+    return (
+      '<div class="scan-status-card">' +
+      productPic(data) +
+      "<h2>" +
+      encode(data.name || "Item") +
+      "</h2>" +
+      "<p><strong>" +
+      encode(data.message || "Did you install this on " + hostLabel + "?") +
+      "</strong></p>" +
+      (data.slot_label
+        ? '<p class="muted">' + encode((data.system_label || "") + " · " + data.slot_label) + "</p>"
+        : "") +
+      '<div class="scan-kid-actions">' +
+      '<button type="button" class="btn" data-rescan="install">Installed it</button>' +
+      '<button type="button" class="btn secondary" data-rescan="stash">Just save on ' +
+      encode(hostLabel) +
+      "</button>" +
+      '<button type="button" class="btn secondary" data-skip-host data-rescan="into">Not this one</button>' +
+      "</div></div>"
+    );
+  }
+
+  function vinDiffCard(data) {
+    const diffs = data.diffs || [];
+    const rows = diffs
+      .map(function (d) {
+        return (
+          '<label class="vin-diff-row"><input type="checkbox" data-vin-field="' +
+          encode(d.field) +
+          '" checked><span><strong>' +
+          encode(d.label) +
+          '</strong><span class="muted">' +
+          encode(d.ours || "—") +
+          " → " +
+          encode(d.theirs) +
+          "</span></span></label>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="scan-status-card">' +
+      "<h2>" +
+      encode(data.name || "Vehicle") +
+      "</h2>" +
+      "<p><strong>" +
+      encode(data.message || "NHTSA has different info. Update ours?") +
+      "</strong></p>" +
+      rows +
+      '<div class="scan-kid-actions">' +
+      '<button type="button" class="btn" data-apply-vin>Update these</button>' +
+      '<button type="button" class="btn secondary" data-skip-vin>Keep ours</button>' +
+      (data.item_id
+        ? '<a class="btn secondary" href="/items/' + data.item_id + '">Open</a>'
+        : "") +
+      "</div></div>"
     );
   }
 
@@ -638,6 +775,10 @@
           amount: amount != null ? amount : window.FAMILY_SCAN_INTO ? 1 : 1,
           location: extra && extra.location != null ? extra.location : placeFromCard(),
           skip_place: extra && extra.skip_place ? true : false,
+          skip_host: extra && extra.skip_host ? true : false,
+          create_new: addFormOpen() || (extra && extra.create_new) ? true : false,
+          host_item_id: extra && extra.skip_host ? null : (window.FAMILY_SCAN_HOST && window.FAMILY_SCAN_HOST.id) || null,
+          fields: extra && extra.fields ? extra.fields : undefined,
         }),
       });
       if (!res.ok) {
@@ -654,6 +795,27 @@
       if (data.create) {
         showResult(unknownCard(data), "want");
         statusEl.textContent = "Not in the house yet.";
+        return;
+      }
+      if (data.ask_update) {
+        showResult(vinDiffCard(data), "ok");
+        statusEl.textContent = "Review what would change.";
+        pauseDecode = true;
+        return;
+      }
+      if (data.attached) {
+        lastUndoId = data.undo_id || lastUndoId;
+        paintHostBanner();
+        showResult(hostToast(data), statusClass(data));
+        statusEl.textContent = data.message || "On this equipment. Undo if that’s wrong.";
+        pauseDecode = false;
+        unfreezeScan();
+        return;
+      }
+      if (data.ask_install) {
+        showResult(installCard(data), statusClass(data));
+        statusEl.textContent = "Installed, or just save it here?";
+        pauseDecode = true;
         return;
       }
       if (scanKind === "basket") {
@@ -693,13 +855,17 @@
         return;
       }
       if (data.item_type === "vehicle") {
-        if (flashToast({ name: data.name, quantity: "car", barcode: data.barcode, message: data.message })) {
-          statusEl.textContent = data.message || "Vehicle in the house.";
-          pauseDecode = false;
-          unfreezeScan();
-          return;
-        }
+        const open =
+          data.item_id
+            ? ' <a class="btn sm" href="/items/' + data.item_id + '">Open</a>'
+            : "";
+        showResult(
+          "<strong>" + encode(data.message || "Vehicle saved.") + "</strong>" + open,
+          "ok"
+        );
         statusEl.textContent = data.message || "Vehicle saved.";
+        pauseDecode = false;
+        unfreezeScan();
         return;
       }
       if (data.item_type === "tool") {
@@ -776,6 +942,27 @@
         if (code) applyBarcode(code, "need_more", false, 1);
         return;
       }
+      const applyVin = e.target.closest("[data-apply-vin]");
+      if (applyVin) {
+        const code = el.dataset.barcode;
+        const fields = [];
+        el.querySelectorAll("[data-vin-field]:checked").forEach(function (box) {
+          fields.push(box.getAttribute("data-vin-field"));
+        });
+        if (code) applyBarcode(code, "apply_vin", false, 1, { fields: fields });
+        return;
+      }
+      const skipVin = e.target.closest("[data-skip-vin]");
+      if (skipVin) {
+        statusEl.textContent = "Kept ours.";
+        readyNextScan("Kept ours. Next.");
+        return;
+      }
+      const undoBtn = e.target.closest("[data-scan-undo]");
+      if (undoBtn) {
+        undoScan(undoBtn.getAttribute("data-scan-undo"));
+        return;
+      }
       resultEl = el;
       const quick = e.target.closest("[data-quick]");
       if (quick) {
@@ -801,6 +988,7 @@
       applyBarcode(code, btn.getAttribute("data-rescan"), false, qtyFromCard(), {
         location: placeFromCard(),
         skip_place: !!btn.hasAttribute("data-skip-place"),
+        skip_host: !!btn.hasAttribute("data-skip-host"),
       }).then(function () {
         readyNextScan("Saved. Next.");
       });
@@ -997,6 +1185,7 @@
     statusEl = document.getElementById("scan-live-status") || statusEl;
     resultEl = document.getElementById("scan-live-result") || resultEl;
     setScanJob(getScanJob());
+    paintHostBanner();
     if (statusEl) statusEl.textContent = "Opening camera…";
     startOn(
       "scan-live-reader",
@@ -1039,5 +1228,58 @@
   });
   const liveClose = document.getElementById("scan-live-close");
   if (liveClose) liveClose.addEventListener("click", closeLiveScan);
+
+  async function undoScan(aid) {
+    if (!aid) return;
+    try {
+      const res = await fetch("/scan/undo", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken(),
+        },
+        body: JSON.stringify({ undo_id: aid }),
+      });
+      const data = await res.json().catch(function () {
+        return {};
+      });
+      if (String(lastUndoId) === String(aid)) lastUndoId = null;
+      paintHostBanner();
+      if (statusEl) statusEl.textContent = data.message || (data.ok ? "Undone." : "Could not undo.");
+      if (resultEl) {
+        resultEl.hidden = false;
+        resultEl.className = "scan-toast";
+        resultEl.innerHTML = "<strong>" + encode(data.message || "Undone.") + "</strong>";
+      }
+      readyNextScan(data.message || "Undone. Next.");
+    } catch (e) {
+      if (statusEl) statusEl.textContent = "Could not undo.";
+    }
+  }
+
+  const hostUndo = document.getElementById("scan-host-undo");
+  if (hostUndo) {
+    hostUndo.addEventListener("click", function () {
+      undoScan(lastUndoId);
+    });
+  }
+  const hostClear = document.getElementById("scan-host-clear");
+  if (hostClear) {
+    hostClear.addEventListener("click", function () {
+      window.FAMILY_SCAN_HOST = null;
+      lastUndoId = null;
+      paintHostBanner();
+      setScanJob(getScanJob());
+      if (statusEl) statusEl.textContent = "Scanning anything.";
+    });
+  }
+  const addFold = document.getElementById("add-vehicle");
+  if (addFold) {
+    addFold.addEventListener("toggle", function () {
+      paintHostBanner();
+      setScanJob(getScanJob());
+    });
+  }
+  paintHostBanner();
   flushQueue();
 })();

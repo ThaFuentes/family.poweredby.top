@@ -11,6 +11,21 @@
       menu.classList.remove("open");
     });
   }
+  const moreBtn = document.getElementById("nav-more");
+  const moreSheet = document.getElementById("more-sheet");
+  if (moreBtn && moreSheet) {
+    moreBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      const on = moreSheet.hidden;
+      moreSheet.hidden = !on;
+      moreBtn.setAttribute("aria-expanded", on ? "true" : "false");
+    });
+    document.addEventListener("click", function (e) {
+      if (e.target.closest("#more-sheet, #nav-more")) return;
+      moreSheet.hidden = true;
+      moreBtn.setAttribute("aria-expanded", "false");
+    });
+  }
 
   function copyText(text, btn) {
     function done() {

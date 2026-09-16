@@ -1,6 +1,9 @@
 {% extends "base.html" %}
+{% from "partials/row_pic.html" import row_pic %}
 {% block title %}Vehicles · Family OS{% endblock %}
 {% block content %}
+<script>window.FAMILY_SCAN_KIND = "vehicle";</script>
+<p class="muted">Scan a VIN sticker with the camera. Open a vehicle first to post the VIN on that one. Open <strong>Add a vehicle</strong> to create a new one from the sticker.</p>
 <div class="page-head">
   <div>
     <h1>Vehicles</h1>
@@ -17,6 +20,7 @@
 <div class="card list" id="garage">
   {% for item in items %}
     <a class="row" href="{{ url_for('items.detail', item_id=item.id, tab='systems') }}">
+      {{ row_pic(item) }}
       <div>
         <strong>{{ item.name }}</strong>
         <div class="muted">

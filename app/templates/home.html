@@ -23,7 +23,7 @@
   {% endfor %}
   {% if needs.out %}
   <a class="need-card is-out" href="{{ url_for('groceries.index') }}">
-    <span class="kicker">Pantry</span>
+    <span class="kicker">Inventory</span>
     <strong>{{ needs.out }} out</strong>
     <span class="muted">Tap to see what ran out</span>
   </a>
@@ -64,8 +64,8 @@
   {% if 'groceries' in dash.tile_set %}
   <a class="tile" href="{{ url_for('groceries.index') }}">
     <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg></span>
-    <span class="kicker">Pantry</span>
-    <span class="label">Groceries</span>
+    <span class="kicker">Inventory</span>
+    <span class="label">On hand</span>
     <span class="count">{% if counts.out or counts.low %}{% if counts.out %}{{ counts.out }} out{% endif %}{% if counts.out and counts.low %} · {% endif %}{% if counts.low %}{{ counts.low }} need more{% endif %}{% else %}{{ counts.groceries }} tracked{% endif %}</span>
   </a>
   {% endif %}

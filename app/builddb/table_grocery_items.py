@@ -23,6 +23,7 @@ class GroceryItem(db.Model):
     serving_size = db.Column(db.String(80), nullable=True)
     packaging = db.Column(db.String(200), nullable=True)
     image_url = db.Column(db.String(500), nullable=True)
+    auto_basket = db.Column(db.Boolean, default=False, nullable=False)
     last_consumed_at = db.Column(db.DateTime, nullable=True)
     last_restocked_at = db.Column(db.DateTime, nullable=True)
     consume_count = db.Column(db.Integer, default=0, nullable=False)
@@ -49,6 +50,7 @@ def create_table():
             ("serving_size", "VARCHAR(80) NULL"),
             ("packaging", "VARCHAR(200) NULL"),
             ("image_url", "VARCHAR(500) NULL"),
+            ("auto_basket", "TINYINT(1) NOT NULL DEFAULT 0"),
             ("last_consumed_at", "TIMESTAMP NULL"),
             ("last_restocked_at", "TIMESTAMP NULL"),
             ("consume_count", "INT NOT NULL DEFAULT 0"),

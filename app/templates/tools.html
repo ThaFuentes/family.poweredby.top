@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "partials/row_pic.html" import row_pic %}
 {% block title %}Tools · Family OS{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -35,10 +36,12 @@
 </form>
 {% endif %}
 <div class="and-or">optional</div>
-<p class="muted">Scan with the camera button at the bottom.</p>
+<p class="muted">Open a tool or generator first, then scan a UPC — it attaches as equipment for that one, with Undo.</p>
+<script>window.FAMILY_SCAN_KIND = "tool";</script>
 <div class="card list">
   {% for item in items %}
     <a class="row" href="{{ url_for('items.detail', item_id=item.id) }}">
+      {{ row_pic(item) }}
       <div>
         <strong>{{ item.name }}</strong>
         <div class="muted">{{ item.tool.type or item.category or 'tool' }}

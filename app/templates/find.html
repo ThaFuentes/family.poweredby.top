@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "partials/row_pic.html" import row_pic %}
 {% block title %}Find · Family OS{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -22,6 +23,7 @@
 <div class="card list">
   {% for item in hits.item_rows %}
     <a class="row" href="{{ url_for('items.detail', item_id=item.id) }}">
+      {{ row_pic(item) }}
       <div>
         <strong>{{ item.name }}</strong>
         <div class="muted">{{ item.item_type }}{% if item.grocery and item.grocery.default_location %} · {{ item.grocery.default_location }}{% endif %}{% if item.grocery and item.grocery.brand %} · {{ item.grocery.brand }}{% endif %}</div>

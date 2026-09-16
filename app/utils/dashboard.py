@@ -7,7 +7,7 @@ from sqlalchemy.orm.attributes import flag_modified
 STARTS = (
     ("home", "Home"),
     ("scan", "Scan"),
-    ("groceries", "Pantry"),
+    ("groceries", "Inventory"),
     ("basket", "Basket"),
     ("house", "House"),
     ("tools", "Tools"),
@@ -19,7 +19,7 @@ STARTS = (
 
 TILES = (
     ("scan", "Scan"),
-    ("groceries", "Pantry"),
+    ("groceries", "Inventory"),
     ("basket", "Basket"),
     ("house", "House"),
     ("tools", "Tools"),
