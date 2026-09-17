@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "partials/row_pic.html" import row_pic %}
+{% from "partials/row_pic.html" import row_pic with context %}
 {% block title %}{% if place %}{{ place }} · {% endif %}Inventory · Family OS{% endblock %}
 
 {% macro pantry_row(item, onhand=false) %}

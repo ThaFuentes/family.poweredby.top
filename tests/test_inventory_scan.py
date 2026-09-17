@@ -12,6 +12,25 @@ from app.utils.vehicle_lookup import diff_vehicle, vehicle_ours, vehicle_theirs
 from app.utils.scan import _host_wants_scan, _sync_grocery_list
 
 
+class RowPicMacroTests(unittest.TestCase):
+    def test_imported_macro_does_not_need_context_name(self):
+        from jinja2 import Environment, FileSystemLoader
+        import os
+
+        env = Environment(
+            loader=FileSystemLoader(os.path.join(ROOT, "app", "templates")),
+            autoescape=True,
+        )
+        env.filters["item_thumb"] = item_thumb_url
+        src = '{% from "partials/row_pic.html" import row_pic %}\n{{ row_pic(item) }}'
+        tmpl = env.from_string(src)
+        item = SimpleNamespace(name="Cheerios", grocery=SimpleNamespace(image_url="http://off.example/c.jpg"))
+        html = tmpl.render(item=item)
+        self.assertIn("row-pic", html)
+        self.assertIn("https://off.example/c.jpg", html)
+        self.assertIn(">C</span>", html)
+
+
 class ThumbTests(unittest.TestCase):
     def test_https_upgrade(self):
         self.assertEqual(https_url("http://images.example/x.jpg"), "https://images.example/x.jpg")
