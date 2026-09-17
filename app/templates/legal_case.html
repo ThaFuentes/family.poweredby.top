@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}{{ case_label }} · {{ case.title }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted" style="margin:0 0 .25rem"><a href="{{ url_for('legal.index', view='cases') }}">Cases</a> · <a href="{{ url_for('legal.index') }}">Records</a></p>
+    <h1>{{ case_label }}</h1>
+    <p>{{ case.title }}{% if author %} · opened by {{ author.name or author.username }}{% endif %}</p>
+  </div>
+  <span class="badge {% if case.status=='open' %}low{% endif %}">{{ case_status_labels.get(case.status, case.status) }}</span>
+</div>
+
+{% if case.summary %}
+<div class="card">
+  <p style="white-space:pre-wrap;margin:0">{{ case.summary }}</p>
+</div>
+{% endif %}
+
+<h2>Paper in this case</h2>
+<p class="muted">Each one still shows up if you filter Records by notice, ticket, letter… with {{ case_label }} on it.</p>
+{% if case.records %}
+<div class="card list">
+  {% for r in case.records %}
+  <a class="row" href="{{ url_for('legal.detail', record_id=r.id) }}">
+    <div>
+      <strong>{{ r.title }}</strong>
+      <div class="muted">{{ kind_labels.get(r.kind, r.kind) }}{% if r.agency %} · {{ r.agency }}{% endif %}{% if r.issued_on %} · {{ r.issued_on }}{% endif %}</div>
+    </div>
+    <span class="badge {% if r.status=='open' %}low{% endif %}">{{ status_labels.get(r.status, r.status) }}</span>
+  </a>
+  {% set files = paper_files(r) %}
+  {% if files %}
+  <div class="photo-grid rec-files" style="padding:0 .15rem .7rem">
+    {% for f in files %}
+      {% set ext = (f.original_name or f.stored_path or '')|lower %}
+      {% if '.pdf' in ext or f.mime == 'application/pdf' %}
+      <a class="rec-pdf" href="{{ url_for('legal.serve_file', file_id=f.id) }}" target="_blank" rel="noopener">
+        <strong>{{ f.original_name or 'PDF' }}</strong>
+      </a>
+      {% else %}
+      <a href="{{ url_for('legal.serve_file', file_id=f.id) }}" target="_blank" rel="noopener">
+        <img src="{{ url_for('legal.serve_file', file_id=f.id) }}" alt="{{ f.caption or f.original_name or 'Scan' }}">
+      </a>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+{% else %}
+<div class="card"><div class="empty"><strong>No paper tied yet</strong>Attach a notice or ticket from Records.</div></div>
+{% endif %}
+
+{% if can_edit and loose_records %}
+<details class="card add-fold" id="attach-record">
+<summary>Add a record to {{ case_label }}</summary>
+<form method="post" action="{{ url_for('legal.attach_record', case_id=case.id) }}">
+  <label>From Records</label>
+  <select name="record_id" required>
+    {% for r in loose_records %}
+    <option value="{{ r.id }}">{{ kind_labels.get(r.kind, r.kind) }} · {{ r.title }}</option>
+    {% endfor %}
+  </select>
+  <div class="btn-row"><button class="btn" type="submit">Add to case</button></div>
+</form>
+</details>
+{% endif %}
+
+<h2>Follow-up</h2>
+{% if case.followups %}
+<div class="card">
+  {% for fu in case.followups %}
+  {% set who = authors.get(fu.created_by) %}
+  <div class="followup">
+    <div class="muted">{{ followup_labels.get(fu.kind, fu.kind) }}{% if fu.created_at %} · {{ fu.created_at }}{% endif %}{% if who %} · {{ who.name or who.username }}{% endif %}</div>
+    {% if fu.title %}<strong>{{ fu.title }}</strong>{% endif %}
+    {% if fu.extra_data and fu.extra_data.get('email_from') %}
+    <div class="muted">From {{ fu.extra_data.get('email_from') }}</div>
+    {% endif %}
+    {% if fu.body %}<p style="white-space:pre-wrap;margin:.35rem 0 0">{{ fu.body }}</p>{% endif %}
+    {% if fu.url %}
+    <p style="margin:.35rem 0 0"><a href="{{ fu.url }}" target="_blank" rel="noopener">{{ fu.url }}</a></p>
+    {% endif %}
+    {% if fu.files %}
+    <div class="photo-grid rec-files" style="margin-top:.55rem">
+      {% for f in fu.files %}
+        {% set ext = (f.original_name or f.stored_path or '')|lower %}
+        {% if '.pdf' in ext or f.mime == 'application/pdf' %}
+        <a class="rec-pdf" href="{{ url_for('legal.serve_file', file_id=f.id) }}" target="_blank" rel="noopener">
+          <strong>{{ f.original_name or 'PDF' }}</strong>
+          <span class="muted">Open</span>
+        </a>
+        {% else %}
+        <a href="{{ url_for('legal.serve_file', file_id=f.id) }}" target="_blank" rel="noopener">
+          <img src="{{ url_for('legal.serve_file', file_id=f.id) }}" alt="{{ f.caption or f.original_name or 'File' }}">
+        </a>
+        {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if can_edit %}
+    <form method="post" action="{{ url_for('legal.delete_followup', followup_id=fu.id) }}" onsubmit="return confirm('Remove this follow-up?')" style="margin-top:.4rem">
+      <button class="btn sm secondary" type="submit">Remove</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card"><div class="empty"><strong>No follow-ups yet</strong>Notes, emails, links, photos — keep them on this case.</div></div>
+{% endif %}
+
+{% if can_edit %}
+<details class="card add-fold" id="add-followup">
+<summary>Add a follow-up</summary>
+<form method="post" action="{{ url_for('legal.add_followup', case_id=case.id) }}" enctype="multipart/form-data">
+  <label>This is</label>
+  <select name="kind" id="followup-kind">
+    {% for k in followup_kinds %}
+    <option value="{{ k }}">{{ followup_labels[k] }}</option>
+    {% endfor %}
+  </select>
+  <label>Title / subject</label>
+  <input name="title" placeholder="Called the city, email from HOA, news article">
+  <label>From (email)</label>
+  <input name="email_from" placeholder="optional — who sent it">
+  <label>Link</label>
+  <input name="url" placeholder="https://… or a webmail link" inputmode="url">
+  <label>What happened / what it said</label>
+  <textarea name="body" placeholder="Keep it factual."></textarea>
+  <label>Photo, PDF, or saved email</label>
+  <input type="file" name="file" accept="image/*,.pdf,.eml,.msg" multiple>
+  <label>Caption</label>
+  <input name="caption" placeholder="Optional">
+  <div class="btn-row"><button class="btn" type="submit">Save follow-up</button></div>
+</form>
+</details>
+
+<details class="card add-fold" id="edit-case">
+<summary>Case settings</summary>
+<form method="post" action="{{ url_for('legal.edit_case', case_id=case.id) }}">
+  <label>Name</label>
+  <input name="title" value="{{ case.title }}" required>
+  <label>Status</label>
+  <select name="status">
+    {% for s in case_statuses %}
+    <option value="{{ s }}" {% if case.status==s %}selected{% endif %}>{{ case_status_labels[s] }}</option>
+    {% endfor %}
+  </select>
+  <label>Summary</label>
+  <textarea name="summary">{{ case.summary or '' }}</textarea>
+  <div class="btn-row"><button class="btn" type="submit">Save case</button></div>
+</form>
+</details>
+{% endif %}
+{% endblock %}

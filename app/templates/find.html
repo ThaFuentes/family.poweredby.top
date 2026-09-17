@@ -15,7 +15,7 @@
     <button class="btn" type="submit">Find</button>
   </div>
 </form>
-{% if q and not hits.item_rows and not hits.note_rows and not hits.part_rows and not hits.legal_rows %}
+{% if q and not hits.item_rows and not hits.note_rows and not hits.part_rows and not hits.legal_rows and not hits.case_rows %}
 <div class="card"><div class="empty"><strong>Nothing matches</strong>Try a shorter word.</div></div>
 {% endif %}
 {% if hits.item_rows %}
@@ -53,9 +53,23 @@
     <a class="row" href="{{ url_for('legal.detail', record_id=r.id) }}">
       <div>
         <strong>{{ r.title }}</strong>
-        <div class="muted">{% if r.agency %}{{ r.agency }} · {% endif %}{{ r.kind }}{% if r.case_number %} · {{ r.case_number }}{% endif %}</div>
+        <div class="muted">{% if r.agency %}{{ r.agency }} · {% endif %}{{ r.kind }}{% if r.case_number %} · {{ r.case_number }}{% endif %}{% if r.case %} · Case #{{ r.case.number }}{% endif %}</div>
       </div>
-      <span class="badge">{{ r.status }}</span>
+      <span class="badge">{% if r.case %}Case #{{ r.case.number }}{% else %}{{ r.status }}{% endif %}</span>
+    </a>
+  {% endfor %}
+</div>
+{% endif %}
+{% if hits.case_rows %}
+<h2>Cases</h2>
+<div class="card list">
+  {% for c in hits.case_rows %}
+    <a class="row" href="{{ url_for('legal.case_detail', case_id=c.id) }}">
+      <div>
+        <strong>Case #{{ c.number }} · {{ c.title }}</strong>
+        {% if c.summary %}<div class="muted">{{ c.summary[:120] }}</div>{% endif %}
+      </div>
+      <span class="badge">{{ c.status }}</span>
     </a>
   {% endfor %}
 </div>

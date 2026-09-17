@@ -4,9 +4,13 @@
 <div class="page-head">
   <div>
     <h1>Records</h1>
-    <p>Citations, notices, tickets, letters. Keep the paper so you can go back to it — or file if a city keeps stacking it on you.</p>
+    <p>Citations, notices, tickets, letters. A record is the paper. A case is the file you open if it turns into a fight — still searchable as a notice.</p>
   </div>
+  {% if view == 'cases' %}
+  <a class="btn sm" href="#add-case" data-open-fold="add-case">Add case</a>
+  {% else %}
   <a class="btn sm" href="#add-record" data-open-fold="add-record">Add</a>
+  {% endif %}
 </div>
 
 <div class="stat-grid rec-stats">
@@ -20,8 +24,19 @@
     <span class="label">{{ total_count }}</span>
     <span class="count">In this household</span>
   </div>
+  <a class="tile" href="{{ url_for('legal.index', view='cases') }}">
+    <span class="kicker">Cases</span>
+    <span class="label">{{ case_count }}</span>
+    <span class="count">Opened files</span>
+  </a>
 </div>
 
+<div class="tabs">
+  <a class="{% if view != 'cases' %}active{% endif %}" href="{{ url_for('legal.index', kind=kind, status=status, agency=agency_q) }}">Records</a>
+  <a class="{% if view == 'cases' %}active{% endif %}" href="{{ url_for('legal.index', view='cases') }}">Cases</a>
+</div>
+
+{% if view != 'cases' %}
 <div class="tabs">
   <a class="{% if not status %}active{% endif %}" href="{{ url_for('legal.index', kind=kind, agency=agency_q) }}">All status</a>
   {% for s in statuses %}
@@ -124,15 +139,49 @@
     <span class="muted">{{ r.issued_on or '—' }}</span>
     <span>
       <strong>{{ r.title }}</strong>
-      <span class="muted rec-kind">{{ kind_labels.get(r.kind, r.kind) }}{% if r.extra_data and r.extra_data.get('kind_detail') %} · {{ r.extra_data.get('kind_detail') }}{% endif %}{% if r.case_number %} · {{ r.case_number }}{% endif %}</span>
+      <span class="muted rec-kind">{{ kind_labels.get(r.kind, r.kind) }}{% if r.extra_data and r.extra_data.get('kind_detail') %} · {{ r.extra_data.get('kind_detail') }}{% endif %}{% if r.case_number %} · {{ r.case_number }}{% endif %}{% if r.case %} · {{ case_label(r.case) }}{% endif %}</span>
     </span>
     <span>{{ r.agency or '—' }}</span>
     <span>{% if r.amount %}${{ '%.2f'|format(r.amount|float) }}{% else %}—{% endif %}</span>
-    <span><span class="badge {% if r.status=='open' %}low{% elif r.status in ('dismissed','closed','paid') %}{% else %}want{% endif %}">{{ status_labels.get(r.status, r.status) }}</span></span>
+    <span>
+      {% if r.case %}<span class="badge">{{ case_label(r.case) }}</span>{% endif %}
+      <span class="badge {% if r.status=='open' %}low{% elif r.status in ('dismissed','closed','paid') %}{% else %}want{% endif %}">{{ status_labels.get(r.status, r.status) }}</span>
+    </span>
   </a>
   {% endfor %}
 </div>
 {% else %}
 <div class="card"><div class="empty"><strong>Nothing in the file yet</strong>Add the first citation or notice. Keep the paper.</div></div>
+{% endif %}
+{% else %}
+<details class="card add-fold" id="add-case" {% if not cases %}open{% endif %}>
+<summary>Open a case</summary>
+<form method="post" action="{{ url_for('legal.add_case') }}">
+  <p class="muted">A case is the file. Notices and tickets still live in Records — they just show this case number.</p>
+  <label>What is this case</label>
+  <input name="title" required placeholder="The parking tickets, the HOA, the neighbor fence">
+  <label>Notes (optional)</label>
+  <textarea name="summary" placeholder="Why you're opening a file."></textarea>
+  <div class="btn-row"><button class="btn" type="submit">Open case</button></div>
+</form>
+</details>
+{% if cases %}
+<div class="rec-table">
+  {% for c in cases %}
+  <a class="rec-row" href="{{ url_for('legal.case_detail', case_id=c.id) }}">
+    <span class="muted">{{ case_label(c) }}</span>
+    <span>
+      <strong>{{ c.title }}</strong>
+      <span class="muted rec-kind">{{ c.records|length }} record{{ 's' if c.records|length != 1 else '' }} · {{ c.followups|length }} follow-up{{ 's' if c.followups|length != 1 else '' }}</span>
+    </span>
+    <span></span>
+    <span></span>
+    <span><span class="badge {% if c.status=='open' %}low{% endif %}">{{ case_status_labels.get(c.status, c.status) }}</span></span>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card"><div class="empty"><strong>No cases yet</strong>Open one from a notice, or start a file here.</div></div>
+{% endif %}
 {% endif %}
 {% endblock %}

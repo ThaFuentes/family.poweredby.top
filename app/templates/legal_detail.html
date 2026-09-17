@@ -7,8 +7,48 @@
     <h1>{{ row.title }}</h1>
     <p>{{ kind_labels.get(row.kind, row.kind) }}{% if row.agency %} · {{ row.agency }}{% endif %}{% if author %} · added by {{ author.name or author.username }}{% endif %}</p>
   </div>
-  <span class="badge {% if row.status=='open' %}low{% endif %}">{{ status_labels.get(row.status, row.status) }}</span>
+  <div class="btn-row" style="margin:0">
+    {% if row.case %}
+    <a class="btn sm" href="{{ url_for('legal.case_detail', case_id=row.case.id) }}">{{ case_label(row.case) }}</a>
+    {% endif %}
+    <span class="badge {% if row.status=='open' %}low{% endif %}">{{ status_labels.get(row.status, row.status) }}</span>
+  </div>
 </div>
+
+{% if row.case %}
+<div class="card">
+  <p><strong>This {{ kind_labels.get(row.kind, 'record') }} is on {{ case_label(row.case) }}</strong> — {{ row.case.title }}. Search still finds it under {{ kind_labels.get(row.kind, 'Records') }}.</p>
+  <p class="btn-row">
+    <a class="btn" href="{{ url_for('legal.case_detail', case_id=row.case.id) }}">Open {{ case_label(row.case) }}</a>
+    {% if can_edit %}
+    <form method="post" action="{{ url_for('legal.detach_case', record_id=row.id) }}" style="margin:0">
+      <button class="btn secondary" type="submit">Pull off the case</button>
+    </form>
+    {% endif %}
+  </p>
+</div>
+{% elif can_edit %}
+<details class="card add-fold" id="make-case">
+<summary>Create a case</summary>
+<p class="muted">The notice stays a notice. A case is the file if this is turning into a fight — notes, emails, links, more paper.</p>
+<form method="post" action="{{ url_for('legal.open_case', record_id=row.id) }}">
+  <label>Case name</label>
+  <input name="title" value="{{ row.title }}" placeholder="The parking tickets, the HOA">
+  <div class="btn-row"><button class="btn" type="submit">Open {{ kind_labels.get(row.kind, 'this') }} as a case</button></div>
+</form>
+{% if open_cases %}
+<form method="post" action="{{ url_for('legal.attach_case', record_id=row.id) }}" style="margin-top:.85rem">
+  <label>Or add it to a case already open</label>
+  <select name="case_id">
+    {% for c in open_cases %}
+    <option value="{{ c.id }}">{{ case_label(c) }} · {{ c.title }}</option>
+    {% endfor %}
+  </select>
+  <div class="btn-row"><button class="btn secondary" type="submit">Add to that case</button></div>
+</form>
+{% endif %}
+</details>
+{% endif %}
 
 <div class="card">
   <dl class="facts">
@@ -31,11 +71,11 @@
   {% endif %}
 </div>
 
-{% if row.files %}
+{% if paper_files %}
 <div class="card">
   <h2>Paper on file</h2>
   <div class="photo-grid rec-files">
-    {% for f in row.files %}
+    {% for f in paper_files %}
       {% set ext = (f.original_name or f.stored_path or '')|lower %}
       {% if '.pdf' in ext or f.mime == 'application/pdf' %}
       <a class="rec-pdf" href="{{ url_for('legal.serve_file', file_id=f.id) }}" target="_blank" rel="noopener">
@@ -50,7 +90,7 @@
     {% endfor %}
   </div>
   {% if can_edit %}
-  {% for f in row.files %}
+  {% for f in paper_files %}
   <form class="btn-row no-print" method="post" action="{{ url_for('legal.delete_file', file_id=f.id) }}" onsubmit="return confirm('Remove this file?')">
     <span class="muted">{{ f.original_name or 'file' }}</span>
     <button class="btn sm secondary" type="submit">Remove file</button>
@@ -61,8 +101,9 @@
 {% endif %}
 
 {% if can_edit %}
-<form class="card no-print" method="post" action="{{ url_for('legal.add_file', record_id=row.id) }}" enctype="multipart/form-data">
-  <h2>Add pictures</h2>
+<details class="card add-fold no-print" id="add-pictures">
+<summary>Add pictures</summary>
+<form method="post" action="{{ url_for('legal.add_file', record_id=row.id) }}" enctype="multipart/form-data">
   <label>Take a photo</label>
   <input type="file" name="file" accept="image/*" capture="environment">
   <label>More photos or a PDF</label>
@@ -71,9 +112,11 @@
   <input name="caption" placeholder="Front of ticket, envelope, etc.">
   <div class="btn-row"><button class="btn" type="submit">Attach</button></div>
 </form>
+</details>
 
-<form class="card no-print" method="post" action="{{ url_for('legal.edit', record_id=row.id) }}">
-  <h2>Update</h2>
+<details class="card add-fold no-print" id="update-record">
+<summary>Update</summary>
+<form method="post" action="{{ url_for('legal.edit', record_id=row.id) }}">
   <div class="desk-form">
     <div>
       <label>Type of paper</label>
@@ -130,6 +173,7 @@
   <textarea name="outcome" placeholder="Paid, dismissed, still fighting, no reply…">{{ row.outcome or '' }}</textarea>
   <div class="btn-row"><button class="btn" type="submit">Save</button></div>
 </form>
+</details>
 
 <form class="card danger-card no-print" method="post" action="{{ url_for('legal.delete', record_id=row.id) }}" onsubmit="return confirm('Remove this record and its files?')">
   <h2>Remove this record</h2>

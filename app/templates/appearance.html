@@ -13,7 +13,10 @@
     <div class="theme-phone" data-theme="{{ t.id }}">
       <div class="ph-bar"></div>
       <div class="ph-card">Milk · 2 on hand</div>
-      <div class="ph-btn"></div>
+      <div class="ph-btns">
+        <span class="ph-btn"></span>
+        <span class="ph-btn secondary"></span>
+      </div>
     </div>
     <strong>{{ t.label }}</strong>
     <div class="blurb">{{ t.blurb }}</div>
@@ -26,8 +29,9 @@
 <button type="button" class="btn secondary home-cal-btn" data-sheet="{{ url_for('appearance.calendar_sheet') }}" data-sheet-title="Your calendar">
   {% if cal_links.cal_ready %}Calendar · {{ cal_links.cal_provider_label }}{% else %}Your calendar{% endif %}
 </button>
-<form class="card" method="post" action="{{ url_for('auth.change_own_password') }}">
-  <h2>Your password</h2>
+<details class="card add-fold" id="your-password">
+<summary>Your password</summary>
+<form method="post" action="{{ url_for('auth.change_own_password') }}">
   <p class="muted">Reset yours here, or use Forgot password on sign-in. Leaders can email a reset to someone in this household.</p>
   <label>Current</label>
   <input type="password" name="current_password" autocomplete="current-password" required>
@@ -37,6 +41,7 @@
   <input type="password" name="confirm_password" autocomplete="new-password" required>
   <div class="btn-row"><button class="btn" type="submit">Update password</button></div>
 </form>
+</details>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/theme.js') }}?v=os8"></script>

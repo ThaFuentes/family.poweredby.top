@@ -46,6 +46,9 @@ class LegalRecord(db.Model):
     body = db.Column(EncryptedText, nullable=True)
     outcome = db.Column(EncryptedText, nullable=True)
     extra_data = db.Column(db.JSON, nullable=True)
+    case_id = db.Column(
+        db.Integer, db.ForeignKey("legal_cases.id", ondelete="SET NULL"), nullable=True
+    )
     created_at = db.Column(db.DateTime, server_default=db.func.current_timestamp())
     updated_at = db.Column(
         db.DateTime,
@@ -59,6 +62,7 @@ class LegalRecord(db.Model):
         cascade="all, delete-orphan",
         order_by="LegalFile.id.asc()",
     )
+    case = db.relationship("LegalCase", back_populates="records")
 
 
 def create_table():
@@ -79,6 +83,7 @@ def create_table():
             ("body", "TEXT NULL"),
             ("outcome", "TEXT NULL"),
             ("extra_data", "JSON NULL"),
+            ("case_id", "INT NULL"),
             ("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
             ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
         ],
@@ -87,5 +92,6 @@ def create_table():
             ("idx_legal_kind", "kind"),
             ("idx_legal_status", "status"),
             ("idx_legal_issued_on", "issued_on"),
+            ("idx_legal_case_id", "case_id"),
         ],
     )
