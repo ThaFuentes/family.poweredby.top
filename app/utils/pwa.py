@@ -53,7 +53,7 @@ _INTRO_HEAD = """
   (function(){
     try {
       if ((location.pathname || "").indexOf("/platform") === 0) return;
-      if (sessionStorage.getItem("family.intro.v1") === "1") return;
+      if (sessionStorage.getItem("family.intro.v3") === "1") return;
       if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
       var stand = window.matchMedia("(display-mode: standalone)").matches
         || window.matchMedia("(display-mode: window-controls-overlay)").matches
@@ -62,13 +62,13 @@ _INTRO_HEAD = """
       if (!stand) return;
       document.documentElement.classList.add("family-intro-on");
       setTimeout(function(){
-        try { sessionStorage.setItem("family.intro.v1", "1"); } catch (e) {}
+        try { sessionStorage.setItem("family.intro.v3", "1"); } catch (e) {}
         document.documentElement.classList.remove("family-intro-on","family-intro-brand","family-intro-out");
       }, 4200);
     } catch (e) {}
   })();
   </script>
-  <script src="/static/js/intro.js?v=os1" defer></script>
+  <script src="/static/js/intro.js?v=os3" defer></script>
 """
 
 _INTRO_BODY = """

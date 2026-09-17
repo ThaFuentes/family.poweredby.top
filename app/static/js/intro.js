@@ -4,7 +4,7 @@
  * overlay here so browser tabs never fetch the clip.
  */
 (function () {
-  var KEY = "family.intro.v1";
+  var KEY = "family.intro.v3";
   var HOLD_MS = 3400;
   var BRAND_AT = 2100;
   var FADE_MS = 400;
