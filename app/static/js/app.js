@@ -123,8 +123,90 @@
       return;
     }
     var btn = e.target.closest("[data-copy]");
-    if (!btn) return;
-    e.preventDefault();
-    copyText(btn.getAttribute("data-copy") || "", btn);
+    if (btn) {
+      e.preventDefault();
+      copyText(btn.getAttribute("data-copy") || "", btn);
+      return;
+    }
+    var deltaBtn = e.target.closest("[data-qty-delta]");
+    if (deltaBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      bumpQty(deltaBtn);
+      return;
+    }
+    var foldBtn = e.target.closest("[data-open-fold]");
+    if (foldBtn) {
+      e.preventDefault();
+      var id = foldBtn.getAttribute("data-open-fold");
+      var fold = id ? document.getElementById(id) : null;
+      if (fold) {
+        fold.open = true;
+        try {
+          fold.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        } catch (err) {}
+      }
+    }
   });
+
+  function csrfToken() {
+    var m = document.querySelector('meta[name="csrf-token"]');
+    return m ? m.getAttribute("content") : "";
+  }
+
+  function paintQty(root, data) {
+    if (!root || !data) return;
+    var label = root.querySelector("[data-qty-label]");
+    if (label) label.textContent = data.quantity_label != null ? data.quantity_label : data.quantity;
+    var badge = root.querySelector("[data-stock-badge]");
+    if (!badge) return;
+    var status = data.status || "";
+    badge.className = "badge";
+    if (status === "low") {
+      badge.classList.add("low");
+      badge.textContent = root.classList.contains("onhand-row") ? "Low" : "Need more";
+    } else if (status === "out") {
+      badge.classList.add("out");
+      badge.textContent = "Had";
+    } else if (status === "want") {
+      badge.classList.add("want");
+      badge.textContent = "Want";
+    } else {
+      badge.textContent = "Have";
+    }
+  }
+
+  function bumpQty(btn) {
+    var stepper = btn.closest("[data-qty-item]") || btn.closest(".qty-stepper");
+    var row = btn.closest("[data-item-id]");
+    var itemId = (stepper && stepper.getAttribute("data-qty-item")) || (row && row.getAttribute("data-item-id"));
+    if (!itemId) return;
+    var delta = parseInt(btn.getAttribute("data-qty-delta") || "0", 10);
+    if (!delta) return;
+    var action = delta > 0 ? "plus" : "minus";
+    if (stepper) stepper.classList.add("busy");
+    fetch("/items/" + itemId + "/qty", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-CSRF-Token": csrfToken(),
+        "X-Requested-With": "fetch",
+      },
+      body: JSON.stringify({ action: action, amount: 1 }),
+    })
+      .then(function (res) {
+        return res.json().then(function (data) {
+          return { ok: res.ok, data: data };
+        });
+      })
+      .then(function (out) {
+        if (!out.ok || !out.data || !out.data.ok) return;
+        paintQty(row || stepper, out.data);
+      })
+      .catch(function () {})
+      .then(function () {
+        if (stepper) stepper.classList.remove("busy");
+      });
+  }
 })();

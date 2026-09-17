@@ -6,6 +6,7 @@ catalogs and pick the hit that matches the thing in your hand.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import re
 import threading
 
 import requests
@@ -96,6 +97,75 @@ def _nut(n: dict, key: str) -> str:
         return str(val)
 
 
+_PACK_COUNT = re.compile(
+    r"(?:(?:pack|pk|box)\s+of\s+)?(\d{1,3})\s*-?\s*(?:ct|count|pk|pack|pcs?|pieces|capsules|tablets|bags|bars|cans|bottles)\b",
+    re.I,
+)
+_PACK_TIMES = re.compile(r"\b(\d{1,3})\s*[x×]\s*\d", re.I)
+
+
+def upc_digits(code: str) -> str:
+    return re.sub(r"\D", "", code or "")
+
+
+def upc_forms(code: str) -> list[str]:
+    """UPC-A (12) and EAN-13 (leading 0) are the same product. Try both."""
+    raw = (code or "").strip()
+    digits = upc_digits(raw)
+    forms: list[str] = []
+
+    def add(v: str) -> None:
+        if v and v not in forms:
+            forms.append(v)
+
+    add(raw)
+    add(digits)
+    if len(digits) == 12:
+        add("0" + digits)
+    elif len(digits) == 13 and digits.startswith("0"):
+        add(digits[1:])
+    elif len(digits) == 11:
+        add("0" + digits)
+        add("00" + digits)
+    return forms
+
+
+def catalog_code(code: str, *, ean13: bool = False) -> str:
+    digits = upc_digits(code)
+    if ean13:
+        if len(digits) == 12:
+            return "0" + digits
+        if len(digits) == 11:
+            return "00" + digits
+        return digits or (code or "").strip()
+    if len(digits) == 13 and digits.startswith("0"):
+        return digits[1:]
+    return digits or (code or "").strip()
+
+
+def parse_pack_count(lookup_or_text) -> int | None:
+    """How many are in the box, if the catalog said so (30-count chips)."""
+    if isinstance(lookup_or_text, dict):
+        blob = " ".join(
+            _s(lookup_or_text.get(k)) for k in ("quantity", "size", "name", "packaging")
+        )
+    else:
+        blob = str(lookup_or_text or "")
+    if not blob.strip():
+        return None
+    for rx in (_PACK_COUNT, _PACK_TIMES):
+        m = rx.search(blob)
+        if not m:
+            continue
+        try:
+            n = int(m.group(1))
+        except (TypeError, ValueError):
+            continue
+        if 2 <= n <= 500:
+            return n
+    return None
+
+
 def lookup_upc(barcode: str) -> dict:
     """Back-compat wrapper used by create-item and scan."""
     full = lookup_product(barcode)
@@ -117,6 +187,7 @@ def lookup_upc(barcode: str) -> dict:
         "kind_label": full.get("kind_label"),
         "suggested_type": full.get("suggested_type"),
         "quantity": full.get("quantity") or "",
+        "pack_count": full.get("pack_count"),
     }
 
 
@@ -149,21 +220,28 @@ def lookup_product(barcode: str, *, force: bool = False) -> dict:
     code = (barcode or "").strip()
     out = dict(_EMPTY)
     out["barcode"] = code
-    if not code or len(code) < 8 or not code.replace("-", "").isalnum():
+    digits = upc_digits(code)
+    if not code or len(digits or code) < 8:
         return out
-    cached = cache_get(f"upc:{code}")
-    if isinstance(cached, dict) and not (force and not cached.get("ok")):
-        return cached
+    forms = upc_forms(code)
+    if not force:
+        for form in forms:
+            cached = cache_get(f"upc:{form}")
+            if isinstance(cached, dict) and cached.get("ok"):
+                return cached
+        for form in forms:
+            cached = cache_get(f"upc:{form}")
+            if isinstance(cached, dict):
+                return cached
+    off_code = catalog_code(code, ean13=True)
+    upc_code = catalog_code(code, ean13=False)
     hits = []
     futs = [
-        _executor().submit(fn, code)
-        for fn in (
-            _open_food_facts,
-            _open_products_facts,
-            _open_beauty_facts,
-            _open_pet_facts,
-            _upcitemdb,
-        )
+        _executor().submit(_open_food_facts, off_code),
+        _executor().submit(_open_products_facts, off_code),
+        _executor().submit(_open_beauty_facts, off_code),
+        _executor().submit(_open_pet_facts, off_code),
+        _executor().submit(_upcitemdb, upc_code),
     ]
     for fut in as_completed(futs):
         try:
@@ -172,6 +250,15 @@ def lookup_product(barcode: str, *, force: bool = False) -> dict:
             hit = {}
         if hit.get("ok") and (hit.get("name") or hit.get("brand")):
             hits.append(hit)
+    if not hits and off_code != upc_code:
+        for fn, alt in ((_open_food_facts, upc_code), (_upcitemdb, off_code)):
+            try:
+                extra = fn(alt)
+            except Exception:
+                extra = {}
+            if extra.get("ok") and (extra.get("name") or extra.get("brand")):
+                hits.append(extra)
+                break
     best = _pick_hit(hits)
     if best:
         out.update({k: v for k, v in best.items() if v})
@@ -183,13 +270,19 @@ def lookup_product(barcode: str, *, force: bool = False) -> dict:
             facts[key] = val
     out["facts"] = facts
     out["size"] = out.get("quantity") or out.get("size") or ""
+    pack = parse_pack_count(out)
+    if pack:
+        out["pack_count"] = pack
     guess = classify_product(out)
     out["kind"] = guess.get("kind")
     out["kind_label"] = guess.get("kind_label")
     out["suggested_type"] = guess.get("item_type") or "grocery"
     out["attach_to"] = guess.get("attach_to")
     out["location_hint"] = guess.get("location_hint")
-    cache_put(f"upc:{code}", dict(out), _UPC_TTL_HIT if out.get("ok") else _UPC_TTL_MISS)
+    ttl = _UPC_TTL_HIT if out.get("ok") else _UPC_TTL_MISS
+    stored = dict(out)
+    for form in forms:
+        cache_put(f"upc:{form}", stored, ttl)
     return out
 
 
@@ -385,6 +478,13 @@ def apply_product_lookup(g, item, lookup: dict) -> None:
     if lookup.get("kind"):
         extra["kind"] = str(lookup["kind"])[:40]
         extra["kind_label"] = str(lookup.get("kind_label") or "")[:80]
+    pack = lookup.get("pack_count") or parse_pack_count(lookup)
+    if pack:
+        usual = dict(extra.get("usual") or {})
+        if not usual.get("into"):
+            usual["into"] = int(pack)
+            usual["into_hist"] = [int(pack)]
+            extra["usual"] = usual
     loc = lookup.get("location_hint")
     if loc and not g.default_location:
         g.default_location = str(loc)[:80]

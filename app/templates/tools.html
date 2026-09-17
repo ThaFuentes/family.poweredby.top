@@ -7,11 +7,17 @@
     <h1>Tools</h1>
     <p>Type it in. Camera stays off unless you open it.</p>
   </div>
-  <a class="btn sm secondary" href="{{ url_for('vehicles.index') }}">Vehicles</a>
+  <div class="btn-row" style="margin:0">
+    {% if can_add %}
+    <a class="btn sm" href="#add-tool" data-open-fold="add-tool">Add</a>
+    {% endif %}
+    <a class="btn sm secondary" href="{{ url_for('vehicles.index') }}">Vehicles</a>
+  </div>
 </div>
 {% if can_add %}
-<form class="card" method="post" action="{{ url_for('tools.add') }}" enctype="multipart/form-data">
-  <h2>Add a tool</h2>
+<details class="card add-fold" id="add-tool" {% if not items %}open{% endif %}>
+<summary>Add a tool</summary>
+<form method="post" action="{{ url_for('tools.add') }}" enctype="multipart/form-data">
   <label>Name</label>
   <input name="name" placeholder="Honda mower, DeWalt drill, chainsaw" required>
   <label>QR / barcode (optional)</label>
@@ -34,6 +40,7 @@
   <input name="caption" placeholder="Serial plate, the choke, where it lives">
   <div class="btn-row"><button class="btn" type="submit">Save tool</button></div>
 </form>
+</details>
 {% endif %}
 <div class="and-or">optional</div>
 <p class="muted">Open a tool or generator first, then scan a UPC — it attaches as equipment for that one, with Undo.</p>

@@ -19,6 +19,7 @@
   let pending = null;
   const JOB_KEY = "family_scan_job";
   let lastUndoId = null;
+  let lastGrocery = null;
 
   function hostKindWord(host) {
     const t = (host && host.item_type) || "";
@@ -77,19 +78,17 @@
     const st = document.getElementById("scan-live-status");
     if (st) {
       const host = window.FAMILY_SCAN_HOST;
-      if (addFormOpen()) {
-        st.textContent = "VIN sticker creates a new vehicle.";
-      } else if (host && host.id) {
-        st.textContent = "Scan for " + (host.name || "this") + ".";
+      if (host && host.id) {
+        st.textContent = "Scan a UPC for " + (host.name || "this") + ".";
       } else {
         st.textContent =
           job === "out"
-            ? "Used — every scan takes one off."
+            ? "Used — every UPC takes one off."
             : job === "buy"
-              ? "Needed — every scan goes on the list."
+              ? "Needed — every UPC goes on the list."
               : job === "mix"
                 ? "Mix — pick Incoming, Used, or Needed after each scan."
-                : "Incoming — every scan adds one.";
+                : "Incoming — every UPC adds one.";
       }
     }
     paintHostBanner();
@@ -163,15 +162,28 @@
     unfreezeScan();
   }
 
-  function qtyChips() {
+  function qtyChoiceList(data) {
+    const job = getScanJob();
+    const key = job === "out" ? "qty_choices_out" : "qty_choices_in";
+    const nums = (data && (data[key] || data.qty_choices)) || [1, 5, 10];
+    const out = [];
+    for (let i = 0; i < nums.length; i++) {
+      const n = parseInt(nums[i], 10);
+      if (n > 0 && out.indexOf(n) < 0) out.push(n);
+    }
+    return out.length ? out : [1, 5, 10];
+  }
+
+  function qtyChips(data) {
+    const nums = qtyChoiceList(data);
     return (
-      [1, 5, 10]
+      nums
         .map(function (n) {
           return '<button type="button" class="chip" data-qty-now="' + n + '">' + n + "</button>";
         })
         .join("") +
       '<form class="scan-enter" data-qty-form>' +
-      '<input type="number" min="1" step="1" inputmode="numeric" data-qty-enter placeholder="3" aria-label="Count">' +
+      '<input type="number" min="1" step="1" inputmode="numeric" data-qty-enter placeholder="or type" aria-label="Count">' +
       '<button type="submit" class="chip">Enter</button>' +
       "</form>"
     );
@@ -204,8 +216,8 @@
       encode(data.name || "Item") +
       "</strong> " +
       encode(String(qty != null ? qty : "")) +
-      " now · 1, 5, 10, or type it " +
-      qtyChips();
+      " now · usual first, or type it " +
+      qtyChips(data);
     if (data.ask_frozen) {
       html +=
         ' <button type="button" class="btn sm" data-rescan="fridge">Fridge — use soon</button>' +
@@ -303,20 +315,6 @@
   function isUpcLike(raw) {
     return /^\d{8,14}$/.test(String(raw || "").replace(/\s/g, ""));
   }
-  function extractVin(raw) {
-    let t = String(raw || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    if (t.length >= 18 && t.charAt(0) === "I" && /^[A-HJ-NPR-Z0-9]{17}$/.test(t.slice(1, 18))) {
-      return t.slice(1, 18);
-    }
-    const m = t.match(/[A-HJ-NPR-Z0-9]{17}/g) || [];
-    for (let i = 0; i < m.length; i++) {
-      if (/^[A-HJ-NPR-Z0-9]{17}$/.test(m[i]) && !/[IOQ]/.test(m[i])) return m[i];
-    }
-    return null;
-  }
-  function isVinLike(raw) {
-    return !!extractVin(raw);
-  }
   function isFamilyQr(raw) {
     return /^FAM:/i.test(String(raw || ""));
   }
@@ -325,9 +323,15 @@
   }
   function preferUpc(decoded) {
     const s = String(decoded || "").trim();
-    const vin = extractVin(s);
-    if (vin) return vin;
-    if (isUpcLike(s) || isFamilyQr(s)) return s;
+    if (isFamilyQr(s)) return s;
+    const gs1 = s.match(/(?:^|\D)01(\d{14})(?:\D|$)/);
+    if (gs1) {
+      const d = gs1[1];
+      return d.charAt(0) === "0" ? d.slice(1) : d;
+    }
+    const digits = s.replace(/\D/g, "");
+    if (digits.length >= 8 && digits.length <= 14) return digits;
+    if (isUpcLike(s)) return s.replace(/\s/g, "");
     if (window.FAMILY_SCAN_INTO && isWebQr(s)) return null;
     return s.replace(/^\*+|\*+$/g, "");
   }
@@ -446,12 +450,14 @@
       listLine +
       '<p class="kicker" style="margin:.85rem 0 .35rem">How many?</p>' +
       '<div class="scan-qty" role="group" aria-label="How many">' +
-      '<button type="button" class="chip" data-qty-chip="1">1</button>' +
-      '<button type="button" class="chip" data-qty-chip="5">5</button>' +
-      '<button type="button" class="chip" data-qty-chip="10">10</button>' +
+      qtyChoiceList(data)
+        .map(function (n) {
+          return '<button type="button" class="chip" data-qty-chip="' + n + '">' + n + "</button>";
+        })
+        .join("") +
       '<input type="number" min="0" step="1" value="1" inputmode="numeric" data-scan-qty aria-label="Count">' +
       "</div>" +
-      '<p class="muted">Tap 1, 2, 4… then next box. Camera stays on.</p>' +
+      '<p class="muted">Usual amount is first. Tap it, type a count, or next box = 1.</p>' +
       placeHtml +
       '<div class="scan-kid-actions">' +
       buttons +
@@ -799,7 +805,7 @@
           location: extra && extra.location != null ? extra.location : placeFromCard(),
           skip_place: extra && extra.skip_place ? true : false,
           skip_host: extra && extra.skip_host ? true : false,
-          create_new: addFormOpen() || (extra && extra.create_new) ? true : false,
+          create_new: extra && extra.create_new ? true : false,
           host_item_id: extra && extra.skip_host ? null : (window.FAMILY_SCAN_HOST && window.FAMILY_SCAN_HOST.id) || null,
           fields: extra && extra.fields ? extra.fields : undefined,
         }),
@@ -853,6 +859,7 @@
         return;
       }
       if (data.item_type === "grocery") {
+        lastGrocery = data;
         const liveOn = document.getElementById("scan-live") && !document.getElementById("scan-live").hidden;
         if (liveOn && !forcedAction && getScanJob() === "mix" && flashMixPick(data)) {
           pending = { barcode: data.barcode || barcode, action: "into" };
@@ -863,7 +870,7 @@
         if (liveOn && !forcedAction) {
           pending = { barcode: data.barcode || barcode, action: actionForJob() };
           flashToast(data);
-          statusEl.textContent = "Tap 2, 4, 10… or next box = 1.";
+          statusEl.textContent = "Tap the usual amount, type it, or next box = 1.";
           pauseDecode = false;
           return;
         }
@@ -953,7 +960,12 @@
         pauseDecode = false;
         if (code) {
           pending = { barcode: code, action: mix.getAttribute("data-mix") || "into" };
-          flashToast({ name: el.querySelector("strong") ? el.querySelector("strong").textContent : "Item", barcode: code, quantity: "" });
+          flashToast(
+            Object.assign({}, lastGrocery || {}, {
+              name: el.querySelector("strong") ? el.querySelector("strong").textContent : "Item",
+              barcode: code,
+            })
+          );
           statusEl.textContent = "How many this scan?";
           pauseDecode = false;
         }
@@ -1079,34 +1091,20 @@
   function decoderFormats() {
     const F = window.Html5QrcodeSupportedFormats;
     if (!F) return undefined;
-    return [
-      F.CODE_39,
-      F.CODE_128,
-      F.CODE_93,
-      F.CODABAR,
-      F.PDF_417,
-      F.DATA_MATRIX,
-      F.AZTEC,
-      F.QR_CODE,
-      F.ITF,
-      F.UPC_A,
-      F.UPC_E,
-      F.EAN_13,
-      F.EAN_8,
-    ].filter(function (x) {
+    return [F.UPC_A, F.UPC_E, F.EAN_13, F.EAN_8, F.QR_CODE, F.CODE_128].filter(function (x) {
       return x != null;
     });
   }
 
   function scanConfig() {
     return {
-      fps: 16,
+      fps: 12,
       disableFlip: false,
       rememberLastUsedCamera: true,
       qrbox: function (w, h) {
         return {
-          width: Math.max(Math.floor(w * 0.86), 160),
-          height: Math.max(Math.floor(h * 0.7), 160),
+          width: Math.max(Math.floor(w * 0.88), 240),
+          height: Math.max(Math.floor(h * 0.24), 90),
         };
       },
     };
@@ -1132,7 +1130,7 @@
         return new Html5Qrcode(readerId, {
           verbose: false,
           formatsToSupport: decoderFormats(),
-          experimentalFeatures: { useBarCodeDetectorIfSupported: false },
+          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
         });
       } catch (e) {
         return new Html5Qrcode(readerId, false);
@@ -1213,7 +1211,7 @@
       "reader",
       pageSlot,
       function () {
-        if (pageStatus) pageStatus.textContent = "Camera on. Door tags and parts codes — fill the tall slot.";
+        if (pageStatus) pageStatus.textContent = "Camera on. Point at the UPC.";
       },
       function (msg) {
         if (pageStatus) pageStatus.textContent = msg;
@@ -1234,7 +1232,7 @@
     const ready = function () {
       liveSlot.restarting = false;
       setScanJob(getScanJob());
-      if (statusEl) statusEl.textContent = "Door tag / part code — fill the tall slot.";
+      if (statusEl) statusEl.textContent = "Point at the UPC.";
     };
     const fail = function (msg) {
       liveSlot.restarting = false;

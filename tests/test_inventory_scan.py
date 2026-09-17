@@ -9,10 +9,16 @@ if ROOT not in sys.path:
 
 from app.utils.thumbs import https_url, item_thumb_url
 from app.utils.stay import same_site_path
-from app.utils.barcode_lookup import is_placeholder_name
+from app.utils.barcode_lookup import is_placeholder_name, parse_pack_count, upc_forms, catalog_code
 from app.utils.shelf_life import guess_shelf_days, is_meat
 from app.utils.vehicle_lookup import diff_vehicle, vehicle_ours, vehicle_theirs, extract_vin, looks_like_vin
-from app.utils.scan import _host_wants_scan, _sync_grocery_list
+from app.utils.scan import (
+    _host_wants_scan,
+    _sync_grocery_list,
+    qty_choices,
+    remember_usual,
+    usual_amount,
+)
 
 
 class RowPicMacroTests(unittest.TestCase):
@@ -215,6 +221,48 @@ class HostScanTests(unittest.TestCase):
 class AutoBasketDecisionTests(unittest.TestCase):
     def test_sync_docstring_mentions_opt_in(self):
         self.assertIn("opted in", _sync_grocery_list.__doc__)
+
+
+class UpcNormalizeTests(unittest.TestCase):
+    def test_upc_a_and_ean13(self):
+        forms = upc_forms("012345678905")
+        self.assertIn("012345678905", forms)
+        self.assertIn("0012345678905", forms)
+
+    def test_ean13_strips_leading_zero(self):
+        forms = upc_forms("0012345678905")
+        self.assertIn("012345678905", forms)
+
+    def test_catalog_codes(self):
+        self.assertEqual(catalog_code("012345678905", ean13=True), "0012345678905")
+        self.assertEqual(catalog_code("0012345678905", ean13=False), "012345678905")
+
+    def test_pack_count_chips(self):
+        self.assertEqual(parse_pack_count("30 count tortilla chips"), 30)
+        self.assertEqual(parse_pack_count({"name": "Lay's", "quantity": "6-pack"}), 6)
+        self.assertIsNone(parse_pack_count("Horizon Organic Whole Milk"))
+        self.assertIsNone(parse_pack_count("5W-30 motor oil"))
+
+
+class UsualQtyTests(unittest.TestCase):
+    def test_remembers_pack_and_puts_it_first(self):
+        g = SimpleNamespace(extra_data={})
+        remember_usual(g, "into", 30)
+        remember_usual(g, "into", 30)
+        remember_usual(g, "into", 12)
+        self.assertEqual(usual_amount(g, "into"), 30)
+        self.assertEqual(qty_choices(g, "into")[0], 30)
+        self.assertIn(1, qty_choices(g, "into"))
+
+    def test_ones_do_not_wipe_pack(self):
+        g = SimpleNamespace(extra_data={"usual": {"into": 30, "into_hist": [30]}})
+        remember_usual(g, "into", 1)
+        self.assertEqual(usual_amount(g, "into"), 30)
+
+    def test_no_usual_defaults(self):
+        g = SimpleNamespace(extra_data={})
+        self.assertIsNone(usual_amount(g, "into"))
+        self.assertEqual(qty_choices(g, "into"), [1, 5, 10])
 
 
 if __name__ == "__main__":

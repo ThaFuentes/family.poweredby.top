@@ -700,14 +700,33 @@ def set_count(item_id):
 @items_bp.route("/<int:item_id>/qty", methods=["POST"])
 @login_required
 def qty(item_id):
+    from flask import jsonify
+
+    wants_json = (
+        request.is_json
+        or (request.headers.get("X-Requested-With") or "") in ("fetch", "XMLHttpRequest")
+        or (request.headers.get("Accept") or "").find("application/json") >= 0
+    )
     if not (can("edit_grocery") or can("scan")):
+        if wants_json:
+            return jsonify({"ok": False, "error": "You cannot change stock."}), 403
         flash("You cannot change stock.", "warning")
         return redirect(url_for("items.detail", item_id=item_id))
     item = _item_or_404(item_id)
     if item.item_type != "grocery" or not item.grocery:
+        if wants_json:
+            return jsonify({"ok": False, "error": "Not a grocery."}), 400
         return redirect(url_for("items.detail", item_id=item_id))
-    action = (request.form.get("action") or "consume").strip().lower()
-    amount = request.form.get("amount") or 1
+    payload = request.get_json(silent=True) or {}
+    action = (payload.get("action") or request.form.get("action") or "consume").strip().lower()
+    amount = payload.get("amount") if payload.get("amount") is not None else request.form.get("amount") or 1
+    remember = True
+    if action in ("plus", "add", "inc"):
+        action = "restock"
+        remember = False
+    elif action in ("minus", "sub", "dec"):
+        action = "consume"
+        remember = False
     if action in ("need_more", "needs_more"):
         stock = flag_need_more(item.grocery, item, current_user.id)
     elif action in ("freeze", "fridge", "freezer"):
@@ -723,8 +742,23 @@ def qty(item_id):
             ),
         }
     else:
-        stock = apply_grocery_stock(item.grocery, item, action, amount, current_user.id)
+        stock = apply_grocery_stock(
+            item.grocery, item, action, amount, current_user.id, remember=remember
+        )
     db.session.commit()
+    if wants_json:
+        return jsonify(
+            {
+                "ok": True,
+                "item_id": item.id,
+                "quantity": stock.get("quantity"),
+                "quantity_label": stock.get("quantity_label"),
+                "status": stock.get("status"),
+                "needs_restock": stock.get("needs_restock"),
+                "is_in_stock": stock.get("is_in_stock"),
+                "message": stock.get("message"),
+            }
+        )
     cat = "success" if stock.get("status") == "ok" else "warning"
     flash(stock.get("message") or f"{item.name} updated.", cat)
     return redirect(url_for("items.detail", item_id=item.id))

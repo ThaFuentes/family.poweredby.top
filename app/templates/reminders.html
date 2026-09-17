@@ -6,6 +6,7 @@
     <h1>Due</h1>
     <p>Oil, blades, filters. Auto-add puts them on <em>your</em> email calendar — the one named on this page.</p>
   </div>
+  <a class="btn sm" href="#add-reminder" data-open-fold="add-reminder">Add</a>
 </div>
 {% include "partials/calendar_connect.html" %}
 {% if can_set_via %}
@@ -38,8 +39,9 @@
     <div class="empty"><strong>Nothing due</strong></div>
   {% endfor %}
 </div>
-<form class="card" method="post" action="{{ url_for('reminders.add') }}">
-  <h2>Add reminder</h2>
+<details class="card add-fold" id="add-reminder" {% if not rows %}open{% endif %}>
+<summary>Add reminder</summary>
+<form method="post" action="{{ url_for('reminders.add') }}">
   <label>Title</label>
   <input name="title" required>
   <label>What</label>
@@ -72,4 +74,5 @@
   </select>
   <div class="btn-row"><button class="btn" type="submit">Save</button></div>
 </form>
+</details>
 {% endblock %}

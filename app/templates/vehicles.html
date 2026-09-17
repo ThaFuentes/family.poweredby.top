@@ -3,7 +3,7 @@
 {% block title %}Vehicles · Family OS{% endblock %}
 {% block content %}
 <script>window.FAMILY_SCAN_KIND = "vehicle";</script>
-<p class="muted">Scan a VIN sticker with the camera. Open a vehicle first to post the VIN on that one. Open <strong>Add a vehicle</strong> to create a new one from the sticker.</p>
+<p class="muted">Type the VIN below to fill factory specs. The camera is a UPC scanner — open a vehicle, then scan a part to attach it.</p>
 <div class="page-head">
   <div>
     <h1>Vehicles</h1>
@@ -11,7 +11,7 @@
   </div>
   <div class="btn-row">
     {% if can_add %}
-    <a class="btn sm" href="#add-vehicle" onclick="var d=document.getElementById('add-vehicle'); if(d) d.open=true;">Add</a>
+    <a class="btn sm" href="#add-vehicle" data-open-fold="add-vehicle">Add</a>
     {% endif %}
     <a class="btn sm secondary" href="{{ url_for('tools.index') }}">Tools</a>
   </div>

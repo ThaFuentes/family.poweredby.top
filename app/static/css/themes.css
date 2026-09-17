@@ -16,6 +16,11 @@
   --terracotta: #111111;
   --gold: #111111;
   --danger: #8a1f1a;
+  --btn: #111111;
+  --btn-ink: #ffffff;
+  --btn-2: #ecece8;
+  --btn-2-ink: #111111;
+  --btn-edge: #111111;
   --shadow: none;
   --radius: 0.2rem;
   --font: "Helvetica Neue", Helvetica, Arial, sans-serif;
@@ -54,7 +59,7 @@
   text-transform: uppercase;
   font-size: 0.78rem;
 }
-[data-theme="clean"] .btn.secondary { background: #fff; color: #111; }
+[data-theme="clean"] .btn.secondary { background: #ecece8; color: #111; border-color: #111; }
 [data-theme="clean"] .btn.terracotta,
 [data-theme="clean"] .btn.warn { background: #111; color: #fff; }
 [data-theme="clean"] .btn.warn:hover { color: #fff; }
@@ -115,6 +120,11 @@
   --terracotta: #f0a080;
   --gold: #e6c56a;
   --danger: #ff8a80;
+  --btn: #25915a;
+  --btn-ink: #06140c;
+  --btn-2: #2a2e33;
+  --btn-2-ink: #f2f2ee;
+  --btn-edge: #9aa19a;
   --shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
   --radius: 1.1rem;
   --font: "SF Pro Text", "Segoe UI", system-ui, sans-serif;
@@ -252,6 +262,11 @@
   --win-hi: #ffffff;
   --win-sh: #808080;
   --win-dk: #000000;
+  --btn: #c0c0c0;
+  --btn-ink: #000000;
+  --btn-2: #c0c0c0;
+  --btn-2-ink: #000000;
+  --btn-edge: #000000;
 }
 [data-theme="when99"] body {
   background-color: #008080;
@@ -603,6 +618,11 @@
   --terracotta: #6b2a18;
   --gold: #8a7018;
   --danger: #8b0000;
+  --btn: #c6c6c6;
+  --btn-ink: #000000;
+  --btn-2: #c6c6c6;
+  --btn-2-ink: #000000;
+  --btn-edge: #444444;
   --shadow: 3px 3px 0 #2a323c;
   --radius: 0;
   --font: "Lucida Grande", Geneva, Helvetica, "Nimbus Sans L", sans-serif;

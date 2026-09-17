@@ -6,11 +6,15 @@
     <h1>Scan</h1>
     <p>Use the camera button. Incoming, used, needed — or mix, and pick each time.</p>
   </div>
+  {% if can('edit_grocery') or can('edit_meta') or can('maintain') %}
+  <a class="btn sm" href="#add-by-name" data-open-fold="add-by-name">Add by name</a>
+  {% endif %}
 </div>
 <p class="btn-row"><button type="button" class="btn" data-open-scan>Open camera</button></p>
 {% if can('edit_grocery') or can('edit_meta') or can('maintain') %}
-<form class="card" method="post" action="{{ url_for('items.create_item') }}" enctype="multipart/form-data">
-  <h2>No code? Add by name</h2>
+<details class="card add-fold" id="add-by-name">
+<summary>No code? Add by name</summary>
+<form method="post" action="{{ url_for('items.create_item') }}" enctype="multipart/form-data">
   <p class="muted">Milk, the gray truck, a wrench — whatever you call it at home.</p>
   <label>This is a</label>
   <select name="item_type">
@@ -24,5 +28,6 @@
   <input type="file" name="photo" accept="image/*" capture="environment">
   <div class="btn-row"><button class="btn" type="submit">Save</button></div>
 </form>
+</details>
 {% endif %}
 {% endblock %}

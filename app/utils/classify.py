@@ -371,6 +371,8 @@ Reply with JSON only, no markdown:
   "item_type": "grocery" | "tool" | "vehicle" | "custom",
   "kind": "food|drink|household|pet|beauty|aa_battery|car_battery|motor_oil|filter|auto_part|mower|tool|equipment|vehicle|unknown",
   "kind_label": "short label",
+  "name": "short household name from the catalog (Frosted Flakes, not the full title)",
+  "pack_count": null,
   "attach_to": "vehicle" | "tool" | null,
   "location_hint": "one place from the house list, or fridge/pantry/garage/bathroom",
   "confidence": 0.0-1.0,
@@ -379,6 +381,8 @@ Reply with JSON only, no markdown:
   "why": "one short sentence why that room"
 }
 Rules:
+- Parse the UPC catalog fields you were given. name is what the family would call it.
+- pack_count is how many units are in the box if the catalog says so (30 for a 30-count bag of chips). null if unknown. Never guess a count that is not in the data.
 - Pick location_hint from the house's place list when you can (Fridge, Pantry, Garage…).
 - A 12V / group-size / AGM / DieHard / EverStart car battery is kind=car_battery, item_type=grocery (consumable), attach_to=vehicle. Ask which vehicle. Location garage or driveway.
 - AA/AAA/C/D/9V/CR2032 is aa_battery, not a car battery. Junk drawer or pantry.
@@ -454,6 +458,16 @@ def refine_with_ai(lookup: dict | None, heuristic: dict, household=None, extra: 
     message = str(data.get("message") or out.get("message") or "").strip()
     why = str(data.get("why") or "").strip()[:240]
     label = str(data.get("kind_label") or KIND_LABELS.get(kind) or kind).strip()[:80]
+    clean_name = str(data.get("name") or "").strip()
+    if clean_name and len(clean_name) >= 2:
+        out["name"] = clean_name[:200]
+    pack = data.get("pack_count")
+    try:
+        pack_n = int(pack) if pack not in (None, "", False) else None
+    except (TypeError, ValueError):
+        pack_n = None
+    if pack_n and 2 <= pack_n <= 500:
+        out["pack_count"] = pack_n
     try:
         from app.utils.places import snap_location
 
@@ -590,6 +604,12 @@ def place_new_grocery(item, g, lookup, household) -> dict:
         loc = snap_location(guess.get("location_hint"), household)
         if loc and not (g.default_location or "").strip():
             g.default_location = loc
+        try:
+            from app.utils.barcode_lookup import is_placeholder_name
+        except Exception:
+            is_placeholder_name = lambda n: not (n or "").strip()
+        if guess.get("name") and is_placeholder_name(getattr(item, "name", None)):
+            item.name = str(guess["name"])[:200]
         report = {
             "used_ai": guess.get("source") == "ai",
             "kind": guess.get("kind_label") or guess.get("kind") or "",
@@ -601,6 +621,13 @@ def place_new_grocery(item, g, lookup, household) -> dict:
         extra = g.extra_data if isinstance(g.extra_data, dict) else {}
         extra = dict(extra)
         extra["ai"] = report
+        pack = guess.get("pack_count")
+        if pack:
+            usual = dict(extra.get("usual") or {})
+            if not usual.get("into"):
+                usual["into"] = int(pack)
+                usual["into_hist"] = [int(pack)]
+                extra["usual"] = usual
         g.extra_data = extra
         flag_modified(g, "extra_data")
     except Exception:

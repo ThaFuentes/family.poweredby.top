@@ -375,10 +375,83 @@ def grocery_payload(g: GroceryItem, item: Item, action="check", on_list=False, a
         "ask_list": False,
         "auto_basket": bool(getattr(g, "auto_basket", False)),
         "ask_frozen": bool(isinstance(g.extra_data, dict) and g.extra_data.get("ask_frozen")),
+        "usual_into": usual_amount(g, "into"),
+        "usual_out": usual_amount(g, "out"),
+        "qty_choices_in": qty_choices(g, "into"),
+        "qty_choices_out": qty_choices(g, "out"),
+        "qty_choices": qty_choices(g, "into" if action in ("into", "restock", "check", "buy") else "out"),
     }
 
 
-def apply_grocery_stock(g: GroceryItem, item: Item, action: str, amount, user_id, *, sync_list=True):
+def _usual_key(action: str) -> str:
+    if action in ("into", "restock"):
+        return "into"
+    if action == "consume":
+        return "out"
+    return action or "into"
+
+
+def remember_usual(g: GroceryItem, action: str, amount) -> None:
+    """Remember pack sizes (30-count chips). Ignore 1 so inventory +/- does not wipe them."""
+    try:
+        amt = int(clamp_qty(amount))
+    except Exception:
+        return
+    if amt < 2:
+        return
+    extra = dict(g.extra_data or {}) if isinstance(g.extra_data, dict) else {}
+    usual = dict(extra.get("usual") or {})
+    key = _usual_key(action)
+    hist = []
+    for x in usual.get(f"{key}_hist") or []:
+        try:
+            n = int(x)
+        except (TypeError, ValueError):
+            continue
+        if n >= 2:
+            hist.append(n)
+    hist.append(amt)
+    hist = hist[-12:]
+    counts: dict[int, int] = {}
+    for n in hist:
+        counts[n] = counts.get(n, 0) + 1
+    best = hist[-1]
+    best_n = 0
+    for n, c in counts.items():
+        if c > best_n or (c == best_n and n == hist[-1]):
+            best, best_n = n, c
+    usual[f"{key}_hist"] = hist
+    usual[key] = best
+    extra["usual"] = usual
+    g.extra_data = extra
+
+
+def usual_amount(g: GroceryItem | None, action: str) -> int | None:
+    if g is None:
+        return None
+    extra = g.extra_data if isinstance(g.extra_data, dict) else {}
+    usual = extra.get("usual") or {}
+    try:
+        n = int(usual.get(_usual_key(action)) or 0)
+    except (TypeError, ValueError):
+        n = 0
+    return n if n >= 2 else None
+
+
+def qty_choices(g: GroceryItem | None, action: str = "into") -> list[int]:
+    usual = usual_amount(g, action)
+    out: list[int] = []
+    if usual:
+        out.append(usual)
+    for d in (1, 5, 10):
+        if d not in out:
+            out.append(d)
+    return out
+
+
+def apply_grocery_stock(
+    g: GroceryItem, item: Item, action: str, amount, user_id, *, sync_list=True, remember=True
+):
     prev = clamp_qty(g.quantity)
     was_needed = bool(g.needs_restock)
     amt = clamp_qty(amount, "1")
@@ -393,6 +466,8 @@ def apply_grocery_stock(g: GroceryItem, item: Item, action: str, amount, user_id
         qty = set_quantity(g, prev + amt)
         g.last_restocked_at = datetime.utcnow()
         g.needs_restock = qty <= thresh
+        if remember:
+            remember_usual(g, "into", amt)
         try:
             from app.utils.shelf_life import apply_shelf_life
 
@@ -407,6 +482,8 @@ def apply_grocery_stock(g: GroceryItem, item: Item, action: str, amount, user_id
             g.last_consumed_at = datetime.utcnow()
             g.consume_count = int(g.consume_count or 0) + 1
         g.needs_restock = qty <= thresh or was_needed or qty <= 0
+        if remember:
+            remember_usual(g, "out", amt)
     on_list = _sync_grocery_list(g, item, user_id) if sync_list else bool(_open_list_row(g, item))
     try:
         from app.utils.activity import log_grocery
@@ -869,21 +946,25 @@ def process_scan(
     code = (barcode or "").strip()
     action = _normalize_action(action)
     host = None if skip_host or force_new else _resolve_host(household_id, host_item_id)
-    try:
-        from app.utils.vehicle_lookup import looks_like_vin, extract_vin
+    # Camera is a UPC scanner. VIN decode is typed on the vehicle form, not here.
+    vin_scan = False
+    vin_code = code
+    if action == "apply_vin":
+        try:
+            from app.utils.vehicle_lookup import looks_like_vin, extract_vin
 
-        vin_scan = looks_like_vin(code)
-        vin_code = extract_vin(code) or code
-    except Exception:
-        vin_scan = False
-        vin_code = code
-    if vin_scan and action in ("check", "into", "apply_vin", "restock"):
+            vin_scan = looks_like_vin(code)
+            vin_code = extract_vin(code) or code
+        except Exception:
+            vin_scan = False
+            vin_code = code
+    if vin_scan:
         payload = ingest_vin(
             household_id,
             user_id,
             vin_code,
             host_item=host if host and host.item_type == "vehicle" else None,
-            apply=action == "apply_vin",
+            apply=True,
             fields=fields,
             force_new=bool(force_new),
         )

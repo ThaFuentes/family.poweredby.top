@@ -6,6 +6,7 @@
     <h1>Notes</h1>
     <p>Yours, the household’s, or pinned to a car / tool / project. Discord dump? <a href="{{ url_for('sort.index') }}">Sort it</a>.</p>
   </div>
+  <a class="btn sm" href="#add-note" data-open-fold="add-note">Add</a>
 </div>
 <div class="tabs">
   <a class="{% if scope=='all' %}active{% endif %}" href="{{ url_for('notes.index') }}">All</a>
@@ -15,8 +16,9 @@
   <a class="{% if scope=='projects' %}active{% endif %}" href="{{ url_for('notes.index', scope='projects') }}">Projects</a>
 </div>
 
-<form class="card" method="post" action="{{ url_for('notes.add') }}">
-  <h2>New note</h2>
+<details class="card add-fold" id="add-note" {% if not rows %}open{% endif %}>
+<summary>New note</summary>
+<form method="post" action="{{ url_for('notes.add') }}">
   <label>Name</label>
   <input name="title" placeholder="Deck rebuild, or the Honda, or Saturday list" required>
   <label>Note</label>
@@ -35,6 +37,7 @@
   </select>
   <div class="btn-row"><button class="btn" type="submit">Save note</button></div>
 </form>
+</details>
 
 {% for n in rows %}
   {% set author = authors.get(n.user_id) %}

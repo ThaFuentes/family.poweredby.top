@@ -35,6 +35,9 @@
     <h1>Basket</h1>
     <p>Check it off as you walk. Scan the box to mark it got.</p>
   </div>
+  {% if can_add %}
+  <a class="btn sm" href="#add-want" data-open-fold="add-want">Add</a>
+  {% endif %}
 </div>
 {% set compact = true %}
 <p class="muted">Use the camera button to scan. Set it to <strong>Buy</strong> or <strong>In</strong> once.</p>
@@ -57,11 +60,14 @@
 {% endif %}
 </div>
 {% if can_add %}
-<form class="card" method="post" action="{{ url_for('groceries.list_add') }}">
-  <label>Want something — no barcode</label>
+<details class="card add-fold" id="add-want" {% if not rows %}open{% endif %}>
+<summary>Want something — no barcode</summary>
+<form method="post" action="{{ url_for('groceries.list_add') }}">
+  <label>Name</label>
   <input name="name" placeholder="Lucky Charms" required>
   <div class="btn-row"><button class="btn" type="submit">Add to want list</button></div>
 </form>
+</details>
 {% endif %}
 {% endblock %}
 {% block scripts %}
