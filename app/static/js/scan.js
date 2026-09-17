@@ -1116,31 +1116,29 @@
     try {
       host.innerHTML = "";
     } catch (e) {}
-    let qr;
-    try {
-      qr = new Html5Qrcode(readerId, {
-        verbose: false,
-        formatsToSupport: decoderFormats(),
-        experimentalFeatures: { useBarCodeDetectorIfSupported: false },
-      });
-    } catch (e) {
-      if (onFail) onFail("Could not start the camera box.");
-      return;
+    function makeQr() {
+      try {
+        return new Html5Qrcode(readerId, {
+          verbose: false,
+          formatsToSupport: decoderFormats(),
+          experimentalFeatures: { useBarCodeDetectorIfSupported: false },
+        });
+      } catch (e) {
+        return new Html5Qrcode(readerId, false);
+      }
     }
+    let qr = makeQr();
     instanceSlot.qr = qr;
     instanceSlot.starting = true;
-    function go(target) {
-      return qr.start(target, scanConfig(), function (decoded) {
-        const code = preferUpc(decoded);
-        if (!code) return;
-        applyBarcode(code);
-      });
+    function onDecoded(decoded) {
+      const code = preferUpc(decoded);
+      if (!code) return;
+      applyBarcode(code);
     }
-    go({ facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } })
-      .then(function () {
-        instanceSlot.starting = false;
-        if (onReady) onReady();
-      })
+    function go(target) {
+      return qr.start(target, scanConfig(), onDecoded);
+    }
+    go({ facingMode: "environment" })
       .catch(function () {
         return Html5Qrcode.getCameras().then(function (cameras) {
           const cam =
@@ -1148,6 +1146,11 @@
               return /back|rear|environment/i.test(c.label || "");
             }) || (cameras || [])[0];
           if (!cam) throw new Error("no camera");
+          try {
+            qr.stop();
+          } catch (e) {}
+          qr = makeQr();
+          instanceSlot.qr = qr;
           return go(cam.id);
         });
       })
@@ -1155,9 +1158,14 @@
         instanceSlot.starting = false;
         if (onReady) onReady();
       })
-      .catch(function () {
+      .catch(function (err) {
         instanceSlot.starting = false;
-        if (onFail) onFail("Camera permission needed, or type a barcode.");
+        const msg = String((err && (err.message || err.name || err)) || "");
+        if (/NotAllowed|Permission|denied/i.test(msg)) {
+          if (onFail) onFail("Camera is blocked for this app. Close scan, then open it again.");
+        } else {
+          if (onFail) onFail("Camera didn't start. Close scan and try again.");
+        }
       });
   }
 
