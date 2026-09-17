@@ -1,10 +1,18 @@
-{# Product picture for inventory rows. Catalog photo, else the first letter — never a blank white box.
-   Use the item_thumb filter (imported macros do not see context_processor names). #}
+{# Product picture for inventory rows. Only uses the item you pass — no context names. #}
 {% macro row_pic(item=None, src=None, name=None) %}
-{% set label = name or (item.name if item else '?') %}
-{% set pic = src or (item|item_thumb if item else none) %}
+{% set label = name or (item.name if item else none) or '?' %}
+{% set g = item.grocery if item else none %}
+{% set pic = src or (g.image_url if g else none) %}
 <span class="row-pic" aria-hidden="true">
-  {% if pic %}<img src="{{ pic }}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">{% endif %}
-  <span>{{ (label or '?')[0]|upper }}</span>
+  {% if pic %}
+  <img src="{{ pic }}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">
+  {% elif item and item.photos %}
+    {% for p in item.photos %}
+      {% if loop.first %}
+  <img src="/items/photo/{{ p.id }}" alt="" loading="lazy" onerror="this.remove()">
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+  <span>{{ label[0]|upper }}</span>
 </span>
 {% endmacro %}

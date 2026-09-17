@@ -16,7 +16,7 @@
         {% elif row.added_reason in ('need_more', 'low', 'auto_threshold') %}Need more
         {% elif row.added_reason == 'manual' %}Want
         {% else %}{{ row.added_reason or 'Added' }}{% endif %}
-        {% if row.quantity_needed %} · get {{ qty_label(row.quantity_needed) }}{% endif %}
+        {% if row.quantity_needed %} · get {{ row.quantity_needed|qty_label }}{% endif %}
       </span>
     </span>
     <noscript>

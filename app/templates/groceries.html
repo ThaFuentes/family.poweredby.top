@@ -6,13 +6,13 @@
   <a class="row {% if onhand %}onhand-row{% endif %}" href="{{ url_for('items.detail', item_id=item.id) }}">
     {{ row_pic(item) }}
     {% if onhand and item.grocery %}
-    <span class="onhand-qty">{{ qty_label(item.grocery.quantity) }}</span>
+    <span class="onhand-qty">{{ item.grocery.quantity|qty_label }}</span>
     {% endif %}
     <div>
       <strong>{{ item.name }}</strong>
       <div class="muted">
         {% if item.grocery %}
-          {% if not onhand %}{{ qty_label(item.grocery.quantity) }} {{ item.grocery.unit or '' }}{% else %}{{ item.grocery.unit or '' }}{% endif %}
+          {% if not onhand %}{{ item.grocery.quantity|qty_label }} {{ item.grocery.unit or '' }}{% else %}{{ item.grocery.unit or '' }}{% endif %}
           {% if item.grocery.brand %} · {{ item.grocery.brand }}{% endif %}
           {% if item.grocery.default_location and not place %} · {{ item.grocery.default_location }}{% endif %}
         {% else %}

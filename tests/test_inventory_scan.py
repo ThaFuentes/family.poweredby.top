@@ -21,14 +21,42 @@ class RowPicMacroTests(unittest.TestCase):
             loader=FileSystemLoader(os.path.join(ROOT, "app", "templates")),
             autoescape=True,
         )
-        env.filters["item_thumb"] = item_thumb_url
         src = '{% from "partials/row_pic.html" import row_pic %}\n{{ row_pic(item) }}'
         tmpl = env.from_string(src)
-        item = SimpleNamespace(name="Cheerios", grocery=SimpleNamespace(image_url="http://off.example/c.jpg"))
+        item = SimpleNamespace(
+            name="Cheerios",
+            grocery=SimpleNamespace(image_url="https://off.example/c.jpg"),
+            photos=[],
+        )
         html = tmpl.render(item=item)
         self.assertIn("row-pic", html)
         self.assertIn("https://off.example/c.jpg", html)
         self.assertIn(">C</span>", html)
+
+    def test_nested_pantry_row_qty_filter(self):
+        from jinja2 import Environment, FileSystemLoader
+
+        env = Environment(
+            loader=FileSystemLoader(os.path.join(ROOT, "app", "templates")),
+            autoescape=True,
+        )
+        env.filters["qty_label"] = lambda v: str(v)
+        src = (
+            '{% from "partials/row_pic.html" import row_pic %}\n'
+            "{% macro pantry_row(item) %}"
+            "{{ row_pic(item) }}{{ item.grocery.quantity|qty_label }}"
+            "{% endmacro %}\n"
+            "{{ pantry_row(item) }}"
+        )
+        tmpl = env.from_string(src)
+        item = SimpleNamespace(
+            name="Milk",
+            grocery=SimpleNamespace(image_url="", quantity=2),
+            photos=[],
+        )
+        html = tmpl.render(item=item)
+        self.assertIn("2", html)
+        self.assertIn("row-pic", html)
 
 
 class ThumbTests(unittest.TestCase):
