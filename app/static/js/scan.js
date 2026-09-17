@@ -1077,11 +1077,12 @@
       experimentalFeatures: { useBarCodeDetectorIfSupported: true },
       formatsToSupport: formats,
       qrbox: function (w, h) {
-        const boxW = Math.floor(Math.min(w - 16, Math.max(w * 0.96, 240)));
-        const boxH = Math.floor(Math.min(h * 0.2, 120));
+        const land = w >= h;
+        const boxW = Math.floor(w * (land ? 0.94 : 0.92));
+        const boxH = Math.floor(land ? Math.min(h * 0.36, 160) : Math.min(h * 0.2, 120));
         return {
-          width: Math.max(Math.min(boxW, w - 8), 180),
-          height: Math.max(Math.min(boxH, h - 8), 64),
+          width: Math.max(Math.min(boxW, w - 12), 160),
+          height: Math.max(Math.min(boxH, h - 12), 56),
         };
       },
     };
@@ -1097,6 +1098,7 @@
       if (onFail) onFail("No camera box.");
       return;
     }
+    if (instanceSlot.starting) return;
     if (instanceSlot.qr && instanceSlot.qr.isScanning) return;
     try {
       host.innerHTML = "";
@@ -1109,6 +1111,7 @@
       return;
     }
     instanceSlot.qr = qr;
+    instanceSlot.starting = true;
     function go(target) {
       return qr.start(target, scanConfig(), function (decoded) {
         const code = preferUpc(decoded);
@@ -1118,6 +1121,7 @@
     }
     go({ facingMode: "environment" })
       .then(function () {
+        instanceSlot.starting = false;
         if (onReady) onReady();
       })
       .catch(function () {
@@ -1131,24 +1135,32 @@
         });
       })
       .then(function () {
+        instanceSlot.starting = false;
         if (onReady) onReady();
       })
       .catch(function () {
+        instanceSlot.starting = false;
         if (onFail) onFail("Camera permission needed, or type a barcode.");
       });
   }
 
   function stopQr(slot) {
-    if (!slot || !slot.qr) return;
+    if (!slot || !slot.qr) return Promise.resolve();
     const q = slot.qr;
     slot.qr = null;
+    slot.starting = false;
     try {
-      q.stop().then(function () {
-        try {
-          q.clear();
-        } catch (e) {}
-      }).catch(function () {});
-    } catch (e) {}
+      return q
+        .stop()
+        .then(function () {
+          try {
+            q.clear();
+          } catch (e) {}
+        })
+        .catch(function () {});
+    } catch (e) {
+      return Promise.resolve();
+    }
   }
 
   const pageSlot = {};
@@ -1174,22 +1186,40 @@
     );
   }
 
-  function lockScanPortrait() {
-    document.documentElement.classList.add("scan-live-open");
-    try {
-      const ori = screen.orientation;
-      if (ori && typeof ori.lock === "function") {
-        ori.lock("portrait").catch(function () {});
-      }
-    } catch (e) {}
+  function liveScanOpen() {
+    const live = document.getElementById("scan-live");
+    return !!(live && !live.hidden);
   }
-  function unlockScanPortrait() {
-    document.documentElement.classList.remove("scan-live-open");
-    try {
-      if (screen.orientation && typeof screen.orientation.unlock === "function") {
-        screen.orientation.unlock();
-      }
-    } catch (e) {}
+
+  function restartLiveCamera() {
+    if (!liveScanOpen()) return;
+    if (liveSlot.restarting) return;
+    liveSlot.restarting = true;
+    const ready = function () {
+      liveSlot.restarting = false;
+      setScanJob(getScanJob());
+      if (statusEl) statusEl.textContent = "Hold the barcode in the long bar.";
+    };
+    const fail = function (msg) {
+      liveSlot.restarting = false;
+      if (statusEl) statusEl.textContent = msg;
+    };
+    stopQr(liveSlot).then(function () {
+      startOn("scan-live-reader", liveSlot, ready, fail);
+    });
+  }
+
+  let rotateTimer = null;
+  let lastScanWH = "";
+  function onScanRotate() {
+    if (!liveScanOpen()) return;
+    const key = String(window.innerWidth) + "x" + String(window.innerHeight);
+    if (key === lastScanWH) return;
+    clearTimeout(rotateTimer);
+    rotateTimer = setTimeout(function () {
+      lastScanWH = String(window.innerWidth) + "x" + String(window.innerHeight);
+      restartLiveCamera();
+    }, 450);
   }
 
   function openLiveScan(e) {
@@ -1202,7 +1232,8 @@
     if (!live) return;
     live.hidden = false;
     document.body.classList.add("scan-live-open");
-    lockScanPortrait();
+    document.documentElement.classList.add("scan-live-open");
+    lastScanWH = String(window.innerWidth) + "x" + String(window.innerHeight);
     statusEl = document.getElementById("scan-live-status") || statusEl;
     resultEl = document.getElementById("scan-live-result") || resultEl;
     setScanJob(getScanJob());
@@ -1226,7 +1257,7 @@
     stopQr(liveSlot);
     if (live) live.hidden = true;
     document.body.classList.remove("scan-live-open");
-    unlockScanPortrait();
+    document.documentElement.classList.remove("scan-live-open");
     if (pageStatus) statusEl = pageStatus;
     if (pageResult) resultEl = pageResult;
   }
@@ -1250,10 +1281,11 @@
   });
   const liveClose = document.getElementById("scan-live-close");
   if (liveClose) liveClose.addEventListener("click", closeLiveScan);
-  window.addEventListener("orientationchange", function () {
-    const live = document.getElementById("scan-live");
-    if (live && !live.hidden) lockScanPortrait();
-  });
+  window.addEventListener("orientationchange", onScanRotate);
+  window.addEventListener("resize", onScanRotate);
+  if (screen.orientation) {
+    screen.orientation.addEventListener("change", onScanRotate);
+  }
 
   async function undoScan(aid) {
     if (!aid) return;
