@@ -134,14 +134,25 @@ def _executor() -> ThreadPoolExecutor:
         return _pool
 
 
-def lookup_product(barcode: str) -> dict:
+def is_placeholder_name(name: str | None) -> bool:
+    n = (name or "").strip().lower()
+    if not n:
+        return True
+    return (
+        n.startswith("scanned ")
+        or n.startswith("needs a name")
+        or n.startswith("unknown")
+    )
+
+
+def lookup_product(barcode: str, *, force: bool = False) -> dict:
     code = (barcode or "").strip()
     out = dict(_EMPTY)
     out["barcode"] = code
     if not code or len(code) < 8 or not code.replace("-", "").isalnum():
         return out
     cached = cache_get(f"upc:{code}")
-    if isinstance(cached, dict):
+    if isinstance(cached, dict) and not (force and not cached.get("ok")):
         return cached
     hits = []
     futs = [
@@ -380,7 +391,7 @@ def apply_product_lookup(g, item, lookup: dict) -> None:
     g.extra_data = extra
     if lookup.get("category") and item is not None and not item.category:
         item.category = str(lookup["category"])[:100]
-    if lookup.get("name") and item is not None and (not item.name or item.name.startswith("Scanned ")):
+    if lookup.get("name") and item is not None and is_placeholder_name(item.name):
         item.name = str(lookup["name"])[:200]
     if lookup.get("suggested_type") and item is not None and item.item_type == "grocery":
         # Keep grocery for consumable car parts; only retag true tools if still a stub.

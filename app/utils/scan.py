@@ -430,7 +430,7 @@ def _lookup_name(code: str) -> tuple[str, dict]:
         name = brand
     if not name:
         tail = code[-8:] if len(code) >= 8 else code
-        name = f"Scanned {tail}"
+        name = f"Needs a name · {tail}"
     return name[:200], lookup
 
 
@@ -520,6 +520,44 @@ def ensure_wanted_item(household_id: int, user_id: int, barcode: str):
     except Exception:
         pass
     return item, g, True
+
+
+def fill_placeholder_names(items, *, limit=3, force=False) -> int:
+    """Retry barcode lookup for rows still named Scanned / Needs a name."""
+    from app.utils.barcode_lookup import lookup_product, apply_product_lookup, is_placeholder_name
+
+    filled = 0
+    tried = 0
+    for item in items or []:
+        if tried >= limit:
+            break
+        if not is_placeholder_name(getattr(item, "name", None)):
+            continue
+        code = (getattr(item, "barcode", None) or "").strip()
+        if len(code) < 8:
+            continue
+        g = getattr(item, "grocery", None)
+        if g is None:
+            continue
+        extra = g.extra_data if isinstance(g.extra_data, dict) else {}
+        if not force:
+            tried_at = extra.get("lookup_tried_at")
+            if tried_at:
+                try:
+                    t = datetime.fromisoformat(str(tried_at).replace("Z", ""))
+                    if (datetime.utcnow() - t).total_seconds() < 6 * 3600:
+                        continue
+                except Exception:
+                    pass
+        tried += 1
+        lookup = lookup_product(code, force=True)
+        extra = dict(extra)
+        extra["lookup_tried_at"] = datetime.utcnow().isoformat()
+        g.extra_data = extra
+        if lookup.get("ok") and (lookup.get("name") or lookup.get("brand")):
+            apply_product_lookup(g, item, lookup)
+            filled += 1
+    return filled
 
 
 def consumption_hint(g: GroceryItem) -> str | None:
@@ -930,7 +968,9 @@ def process_scan(
             stock = flag_need_more(g, item, user_id)
         else:
             stock = grocery_payload(g, item, action="check")
-            looked = created and not (item.name or "").startswith("Scanned ")
+            from app.utils.barcode_lookup import is_placeholder_name as _ph
+
+            looked = created and not _ph(item.name)
             stock["message"] = (
                 f"{item.name}."
                 + (" That's the barcode lookup." if looked else " New here — rename it if the name is wrong.")
@@ -974,11 +1014,15 @@ def process_scan(
             db.session.flush()
         set_quantity(g, g.quantity)
         extra_g = g.extra_data if isinstance(g.extra_data, dict) else {}
-        if item.barcode and (not extra_g.get("product") or not (g.image_url or "").strip()):
+        from app.utils.barcode_lookup import is_placeholder_name as _ph
+
+        if item.barcode and (
+            _ph(item.name) or not extra_g.get("product") or not (g.image_url or "").strip()
+        ):
             try:
                 from app.utils.barcode_lookup import lookup_product, apply_product_lookup
 
-                apply_product_lookup(g, item, lookup_product(item.barcode))
+                apply_product_lookup(g, item, lookup_product(item.barcode, force=_ph(item.name)))
             except Exception:
                 pass
         if action == "buy":

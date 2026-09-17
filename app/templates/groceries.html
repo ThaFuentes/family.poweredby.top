@@ -9,6 +9,11 @@
     <span class="onhand-qty">{{ item.grocery.quantity|qty_label }}</span>
     {% endif %}
     <div>
+      {% set nameless = (item.name or '').startswith('Scanned ') or (item.name or '').startswith('Needs a name') or (item.name or '').startswith('Unknown') %}
+      {% if nameless %}
+      <strong>Needs a name</strong>
+      <div class="muted">Code {{ item.barcode or '—' }}{% if item.grocery and item.grocery.brand %} · {{ item.grocery.brand }}{% endif %} · tap to name it</div>
+      {% else %}
       <strong>{{ item.name }}</strong>
       <div class="muted">
         {% if item.grocery %}
@@ -19,6 +24,7 @@
           {{ item.category or '' }}
         {% endif %}
       </div>
+      {% endif %}
     </div>
     {% if onhand and item.grocery and item.grocery.needs_restock %}
       <span class="badge low">Low</span>

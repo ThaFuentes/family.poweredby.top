@@ -9,6 +9,7 @@ if ROOT not in sys.path:
 
 from app.utils.thumbs import https_url, item_thumb_url
 from app.utils.stay import same_site_path
+from app.utils.barcode_lookup import is_placeholder_name
 from app.utils.vehicle_lookup import diff_vehicle, vehicle_ours, vehicle_theirs
 from app.utils.scan import _host_wants_scan, _sync_grocery_list
 
@@ -58,6 +59,14 @@ class RowPicMacroTests(unittest.TestCase):
         html = tmpl.render(item=item)
         self.assertIn("2", html)
         self.assertIn("row-pic", html)
+
+
+class PlaceholderNameTests(unittest.TestCase):
+    def test_scanned_stub(self):
+        self.assertTrue(is_placeholder_name("Scanned 01234567"))
+        self.assertTrue(is_placeholder_name("Needs a name · 01234567"))
+        self.assertFalse(is_placeholder_name("Cheerios"))
+        self.assertTrue(is_placeholder_name(""))
 
 
 class StayPathTests(unittest.TestCase):

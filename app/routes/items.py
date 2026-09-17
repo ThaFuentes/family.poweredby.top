@@ -496,6 +496,15 @@ def quick_item():
 @login_required
 def detail(item_id):
     item = _item_or_404(item_id)
+    try:
+        from app.utils.barcode_lookup import is_placeholder_name
+        from app.utils.scan import fill_placeholder_names
+
+        if is_placeholder_name(item.name) and item.barcode and item.grocery:
+            fill_placeholder_names([item], limit=1, force=True)
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
     tab = (request.args.get("tab") or "").strip()
     if not tab:
         tab = "systems" if item.item_type in ("vehicle", "house") else "overview"

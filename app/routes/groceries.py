@@ -8,7 +8,15 @@ from app.builddb.table_items import Item
 from app.builddb.table_grocery_list import GroceryListEntry
 from app.utils.household import household_id, scoped
 from app.utils.permissions import require_perm, can
-from app.utils.scan import stock_status, STATUS_OUT, STATUS_LOW, STATUS_WANT, apply_grocery_stock, qty_label
+from app.utils.scan import (
+    stock_status,
+    STATUS_OUT,
+    STATUS_LOW,
+    STATUS_WANT,
+    apply_grocery_stock,
+    qty_label,
+    fill_placeholder_names,
+)
 
 groceries_bp = Blueprint("groceries", __name__, url_prefix="/groceries")
 
@@ -74,6 +82,12 @@ def index():
     )
     if qtext:
         q = [item for item in q if _matches(item, qtext)]
+    try:
+        fill_placeholder_names(q, limit=4)
+        if db.session.dirty:
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
     want_all, out_all, low_all, ok_all = _pantry_groups(q)
     all_hand = ok_all + low_all
     place_counts = {room: len(rows) for room, rows in _rooms(all_hand).items()}
