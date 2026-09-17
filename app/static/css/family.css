@@ -649,7 +649,18 @@ textarea { min-height: 5rem; }
   text-align: center;
   font-weight: 800;
 }
-body.scan-live-open { overflow: hidden; }
+html.scan-live-open,
+html.scan-live-open body,
+body.scan-live-open {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+html.scan-live-open #scan-live {
+  width: 100vw;
+  height: 100dvh;
+  max-width: 100vw;
+  max-height: 100dvh;
+}
 
 .side-nav,
 .desk-links,

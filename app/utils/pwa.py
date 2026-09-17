@@ -300,7 +300,7 @@ def register_pwa(app) -> None:
             "id": "/",
             "display": "standalone",
             "display_override": ["standalone", "minimal-ui", "window-controls-overlay"],
-            "orientation": "any",
+            "orientation": "portrait",
             "dir": "ltr",
             "background_color": "#f3f1ec",
             "theme_color": "#1f6a45",

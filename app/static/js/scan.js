@@ -1073,14 +1073,16 @@
     return {
       fps: 12,
       disableFlip: false,
-      aspectRatio: 1.777,
       rememberLastUsedCamera: true,
       experimentalFeatures: { useBarCodeDetectorIfSupported: true },
       formatsToSupport: formats,
       qrbox: function (w, h) {
-        const boxW = Math.floor(Math.min(w * 0.92, 360));
-        const boxH = Math.floor(Math.min(h * 0.28, 140));
-        return { width: Math.max(boxW, 220), height: Math.max(boxH, 80) };
+        const boxW = Math.floor(Math.min(w - 16, Math.max(w * 0.96, 240)));
+        const boxH = Math.floor(Math.min(h * 0.2, 120));
+        return {
+          width: Math.max(Math.min(boxW, w - 8), 180),
+          height: Math.max(Math.min(boxH, h - 8), 64),
+        };
       },
     };
   }
@@ -1172,6 +1174,24 @@
     );
   }
 
+  function lockScanPortrait() {
+    document.documentElement.classList.add("scan-live-open");
+    try {
+      const ori = screen.orientation;
+      if (ori && typeof ori.lock === "function") {
+        ori.lock("portrait").catch(function () {});
+      }
+    } catch (e) {}
+  }
+  function unlockScanPortrait() {
+    document.documentElement.classList.remove("scan-live-open");
+    try {
+      if (screen.orientation && typeof screen.orientation.unlock === "function") {
+        screen.orientation.unlock();
+      }
+    } catch (e) {}
+  }
+
   function openLiveScan(e) {
     if (e) {
       e.preventDefault();
@@ -1182,6 +1202,7 @@
     if (!live) return;
     live.hidden = false;
     document.body.classList.add("scan-live-open");
+    lockScanPortrait();
     statusEl = document.getElementById("scan-live-status") || statusEl;
     resultEl = document.getElementById("scan-live-result") || resultEl;
     setScanJob(getScanJob());
@@ -1205,6 +1226,7 @@
     stopQr(liveSlot);
     if (live) live.hidden = true;
     document.body.classList.remove("scan-live-open");
+    unlockScanPortrait();
     if (pageStatus) statusEl = pageStatus;
     if (pageResult) resultEl = pageResult;
   }
@@ -1228,6 +1250,10 @@
   });
   const liveClose = document.getElementById("scan-live-close");
   if (liveClose) liveClose.addEventListener("click", closeLiveScan);
+  window.addEventListener("orientationchange", function () {
+    const live = document.getElementById("scan-live");
+    if (live && !live.hidden) lockScanPortrait();
+  });
 
   async function undoScan(aid) {
     if (!aid) return;
