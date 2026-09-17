@@ -41,7 +41,13 @@
       {% endif %}
       <p class="qty">{{ qty_label(item.grocery.quantity) }} <span class="muted">{{ item.grocery.unit or '' }} on hand</span></p>
       <p class="muted">Need more at {{ qty_label(item.grocery.restock_threshold) }}{% if item.grocery.brand %} · {{ item.grocery.brand }}{% endif %}{% if item.grocery.size %} · {{ item.grocery.size }}{% endif %}{% if item.grocery.default_location %} · {{ item.grocery.default_location }}{% endif %}</p>
-      {% if expires_on %}
+      {% if item.grocery.extra_data and item.grocery.extra_data.get('ask_frozen') %}
+      <p><strong>Fridge or freezer?</strong></p>
+      <form method="post" action="{{ url_for('items.qty', item_id=item.id) }}" class="btn-row">
+        <button class="btn" name="action" value="fridge" type="submit">Fridge — use soon</button>
+        <button class="btn secondary" name="action" value="freeze" type="submit">Freezer</button>
+      </form>
+      {% elif expires_on %}
       <p>{% if expires_guessed %}Typical use-by <strong>{{ expires_on }}</strong> — change it under Edit.{% else %}Use by <strong>{{ expires_on }}</strong>{% endif %}</p>
       {% endif %}
       {% if item.grocery.image_url %}

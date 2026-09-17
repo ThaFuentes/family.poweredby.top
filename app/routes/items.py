@@ -710,6 +710,18 @@ def qty(item_id):
     amount = request.form.get("amount") or 1
     if action in ("need_more", "needs_more"):
         stock = flag_need_more(item.grocery, item, current_user.id)
+    elif action in ("freeze", "fridge", "freezer"):
+        from app.utils.shelf_life import set_meat_storage
+
+        frozen = action in ("freeze", "freezer")
+        exp = set_meat_storage(item, item.grocery, frozen=frozen)
+        stock = {
+            "status": "ok",
+            "message": (
+                f"{item.name} in the {'freezer' if frozen else 'fridge'}."
+                + (f" Use by {exp}." if exp else "")
+            ),
+        }
     else:
         stock = apply_grocery_stock(item.grocery, item, action, amount, current_user.id)
     db.session.commit()

@@ -10,7 +10,7 @@ if ROOT not in sys.path:
 from app.utils.thumbs import https_url, item_thumb_url
 from app.utils.stay import same_site_path
 from app.utils.barcode_lookup import is_placeholder_name
-from app.utils.shelf_life import guess_shelf_days
+from app.utils.shelf_life import guess_shelf_days, is_meat
 from app.utils.vehicle_lookup import diff_vehicle, vehicle_ours, vehicle_theirs, extract_vin, looks_like_vin
 from app.utils.scan import _host_wants_scan, _sync_grocery_list
 
@@ -68,6 +68,11 @@ class ShelfLifeTests(unittest.TestCase):
 
     def test_not_oil(self):
         self.assertIsNone(guess_shelf_days(name="5W-30 motor oil", kind="motor_oil"))
+
+    def test_meat_fridge_vs_freezer(self):
+        self.assertTrue(is_meat(name="Ground beef"))
+        self.assertEqual(guess_shelf_days(name="Ground beef", kind="food"), 4)
+        self.assertEqual(guess_shelf_days(name="Ground beef", kind="food", frozen=True), 180)
 
     def test_cereal(self):
         self.assertEqual(guess_shelf_days(name="Cheerios cereal", kind="food", location="pantry"), 180)

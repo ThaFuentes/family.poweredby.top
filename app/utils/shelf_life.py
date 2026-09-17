@@ -13,11 +13,43 @@ _NOT_FOOD = {
     "beauty",
 }
 
+_MEAT = (
+    "chicken",
+    "beef",
+    "pork",
+    "turkey",
+    "steak",
+    "sausage",
+    "bacon",
+    "ham",
+    "ribs",
+    "roast",
+    "hamburger",
+    "ground beef",
+    "ground turkey",
+    "ground pork",
+    "meatball",
+    "hot dog",
+    "hotdog",
+    "brisket",
+    "lamb",
+    "fish",
+    "salmon",
+    "shrimp",
+    "meat",
+)
 
-def guess_shelf_days(name="", category="", kind="", location="") -> int | None:
+
+def is_meat(name="", category="", kind="") -> bool:
+    hay = f"{name} {category} {kind}".lower()
+    return any(w in hay for w in _MEAT)
+
+
+def guess_shelf_days(name="", category="", kind="", location="", frozen=None) -> int | None:
     kind = (kind or "").strip().lower()
     if kind in _NOT_FOOD:
         return None
+    loc = (location or "").lower()
     hay = f"{name} {category} {kind} {location}".lower()
     if any(w in hay for w in ("motor oil", "coolant", "air filter", "cabin filter", "car battery", "wiper")):
         return None
@@ -25,7 +57,11 @@ def guess_shelf_days(name="", category="", kind="", location="") -> int | None:
         return 10
     if "egg" in hay:
         return 21
-    if any(w in hay for w in ("chicken", "beef", "pork", "turkey", "steak", "sausage", "bacon", "ground")):
+    meat = is_meat(name, category, kind)
+    frozen_here = frozen is True or "frozen" in hay or loc == "freezer"
+    if meat and frozen_here:
+        return 180
+    if meat:
         return 4
     if any(w in hay for w in ("bread", "bagel", "tortilla", "bun")):
         return 7
@@ -41,7 +77,6 @@ def guess_shelf_days(name="", category="", kind="", location="") -> int | None:
         return 120
     if kind == "pet" or "dog food" in hay or "cat food" in hay:
         return 180
-    loc = (location or "").lower()
     if loc in ("fridge", "refrigerator"):
         return 14
     if kind in ("food", "drink", "pet", "unknown", ""):
@@ -56,16 +91,42 @@ def apply_shelf_life(item, g, *, force: bool = False) -> str | None:
     if extra.get("expires_on") and not extra.get("expires_guessed") and not force:
         return extra.get("expires_on")
     kind = extra.get("kind") if isinstance(extra.get("kind"), str) else ""
+    name = getattr(item, "name", "") or ""
+    category = getattr(item, "category", "") or ""
+    loc = getattr(g, "default_location", "") or ""
+    if is_meat(name, category, kind) and extra.get("frozen") is None:
+        if loc.lower() == "freezer":
+            extra["frozen"] = True
+        else:
+            extra["ask_frozen"] = True
+            g.extra_data = extra
+            return extra.get("expires_on")
     days = guess_shelf_days(
-        name=getattr(item, "name", "") or "",
-        category=getattr(item, "category", "") or "",
+        name=name,
+        category=category,
         kind=kind or "",
-        location=getattr(g, "default_location", "") or "",
+        location=loc,
+        frozen=extra.get("frozen"),
     )
     if not days:
         return extra.get("expires_on")
     extra["expires_on"] = (date.today() + timedelta(days=days)).isoformat()
     extra["expires_guessed"] = True
     extra["expires_days"] = days
+    extra.pop("ask_frozen", None)
     g.extra_data = extra
     return extra["expires_on"]
+
+
+def set_meat_storage(item, g, *, frozen: bool) -> str | None:
+    extra = dict(g.extra_data or {}) if isinstance(getattr(g, "extra_data", None), dict) else {}
+    extra["frozen"] = bool(frozen)
+    extra.pop("ask_frozen", None)
+    extra.pop("expires_cleared", None)
+    g.extra_data = extra
+    if frozen:
+        if not (g.default_location or "").strip():
+            g.default_location = "freezer"
+    elif not (g.default_location or "").strip():
+        g.default_location = "fridge"
+    return apply_shelf_life(item, g, force=True)

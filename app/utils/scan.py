@@ -59,6 +59,11 @@ _ACTION_ALIASES = {
     "miles": "mileage",
     "odometer": "mileage",
     "hours": "hours",
+    "freeze": "freeze",
+    "freezer": "freeze",
+    "frozen": "freeze",
+    "fridge": "fridge",
+    "refrigerator": "fridge",
 }
 
 
@@ -369,6 +374,7 @@ def grocery_payload(g: GroceryItem, item: Item, action="check", on_list=False, a
         "ai_ready": _ai_ready(item),
         "ask_list": False,
         "auto_basket": bool(getattr(g, "auto_basket", False)),
+        "ask_frozen": bool(isinstance(g.extra_data, dict) and g.extra_data.get("ask_frozen")),
     }
 
 
@@ -981,6 +987,13 @@ def process_scan(
             put_on_list(g, item, user_id, "buy", amount)
             stock = grocery_payload(g, item, action="buy", on_list=True)
             stock["message"] = f"{item.name} on the basket."
+        elif action in ("freeze", "fridge"):
+            from app.utils.shelf_life import set_meat_storage
+
+            exp = set_meat_storage(item, g, frozen=action == "freeze")
+            stock = grocery_payload(g, item, action=action, on_list=bool(_open_list_row(g, item)))
+            where = "the freezer" if action == "freeze" else "the fridge"
+            stock["message"] = f"{item.name} in {where}." + (f" Use by {exp}." if exp else "")
         elif action in ("need_more", "want"):
             stock = flag_need_more(g, item, user_id)
         else:
@@ -1075,6 +1088,15 @@ def process_scan(
             payload.update(stock)
             if action == "into":
                 payload.update(apply_place(g, item, location=location, skip_place=skip_place))
+            payload["hint"] = consumption_hint(g)
+        elif action in ("freeze", "fridge"):
+            from app.utils.shelf_life import set_meat_storage
+
+            exp = set_meat_storage(item, g, frozen=action == "freeze")
+            stock = grocery_payload(g, item, action=action, on_list=bool(_open_list_row(g, item)))
+            where = "the freezer" if action == "freeze" else "the fridge"
+            stock["message"] = f"{item.name} in {where}." + (f" Use by {exp}." if exp else "")
+            payload.update(stock)
             payload["hint"] = consumption_hint(g)
         elif action in ("need_more", "want"):
             stock = flag_need_more(g, item, user_id)

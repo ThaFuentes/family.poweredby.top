@@ -206,6 +206,11 @@
       encode(String(qty != null ? qty : "")) +
       " now · 1, 5, 10, or type it " +
       qtyChips();
+    if (data.ask_frozen) {
+      html +=
+        ' <button type="button" class="btn sm" data-rescan="fridge">Fridge — use soon</button>' +
+        ' <button type="button" class="btn sm" data-rescan="freeze">Freezer</button>';
+    }
     if (data.ask_list) {
       html +=
         ' <button type="button" class="btn sm" data-add-list data-barcode="' +
@@ -415,6 +420,12 @@
       "<p><strong>" +
       encode(data.message || "") +
       "</strong></p>" +
+      (data.ask_frozen
+        ? '<div class="scan-kid-actions">' +
+          '<button type="button" class="btn" data-rescan="fridge">Fridge — use soon</button>' +
+          '<button type="button" class="btn secondary" data-rescan="freeze">Freezer</button>' +
+          "</div>"
+        : "") +
       img +
       (meta.length ? '<p class="muted">' + encode(meta.join(" · ")) + "</p>" : "") +
       factsHtml +
