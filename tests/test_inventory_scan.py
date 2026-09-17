@@ -10,6 +10,7 @@ if ROOT not in sys.path:
 from app.utils.thumbs import https_url, item_thumb_url
 from app.utils.stay import same_site_path
 from app.utils.barcode_lookup import is_placeholder_name
+from app.utils.shelf_life import guess_shelf_days
 from app.utils.vehicle_lookup import diff_vehicle, vehicle_ours, vehicle_theirs, extract_vin, looks_like_vin
 from app.utils.scan import _host_wants_scan, _sync_grocery_list
 
@@ -59,6 +60,18 @@ class RowPicMacroTests(unittest.TestCase):
         html = tmpl.render(item=item)
         self.assertIn("2", html)
         self.assertIn("row-pic", html)
+
+
+class ShelfLifeTests(unittest.TestCase):
+    def test_milk(self):
+        self.assertEqual(guess_shelf_days(name="Whole milk", kind="drink", location="fridge"), 10)
+
+    def test_not_oil(self):
+        self.assertIsNone(guess_shelf_days(name="5W-30 motor oil", kind="motor_oil"))
+
+    def test_cereal(self):
+        self.assertEqual(guess_shelf_days(name="Cheerios cereal", kind="food", location="pantry"), 180)
+        self.assertEqual(guess_shelf_days(name="Unknown snack", kind="food", location="pantry"), 90)
 
 
 class PlaceholderNameTests(unittest.TestCase):

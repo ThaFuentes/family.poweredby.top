@@ -207,9 +207,19 @@ def _attach_type_row(item, form):
         exp = (form.get("expires_on") or "").strip()
         if exp:
             extra["expires_on"] = exp[:10]
-        elif "expires_on" in extra:
+            extra.pop("expires_guessed", None)
+            extra.pop("expires_cleared", None)
+            g.extra_data = extra
+        elif extra.get("expires_on"):
             extra.pop("expires_on", None)
-        g.extra_data = extra or None
+            extra["expires_cleared"] = True
+            extra.pop("expires_guessed", None)
+            g.extra_data = extra or None
+        else:
+            g.extra_data = extra or None
+            from app.utils.shelf_life import apply_shelf_life
+
+            apply_shelf_life(item, g)
         if form.get("product_facts"):
             extra = dict(g.extra_data or {})
             extra["product"] = extra.get("product") or {}
@@ -620,6 +630,7 @@ def detail(item_id):
         systems_host=systems_host,
         photo_kinds=PHOTO_KINDS,
         expires_on=((item.grocery.extra_data or {}).get("expires_on") if item.grocery and isinstance(item.grocery.extra_data, dict) else None),
+        expires_guessed=bool((item.grocery.extra_data or {}).get("expires_guessed")) if item.grocery and isinstance(item.grocery.extra_data, dict) else False,
         last_part_source=((item.extra_data or {}).get("last_part_source") if isinstance(item.extra_data, dict) else None),
     )
 

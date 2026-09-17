@@ -387,6 +387,14 @@ def apply_grocery_stock(g: GroceryItem, item: Item, action: str, amount, user_id
         qty = set_quantity(g, prev + amt)
         g.last_restocked_at = datetime.utcnow()
         g.needs_restock = qty <= thresh
+        try:
+            from app.utils.shelf_life import apply_shelf_life
+
+            extra = g.extra_data if isinstance(g.extra_data, dict) else {}
+            if not extra.get("expires_on") or extra.get("expires_guessed"):
+                apply_shelf_life(item, g, force=bool(extra.get("expires_guessed")))
+        except Exception:
+            pass
     else:
         qty = set_quantity(g, max(Decimal("0"), prev - amt))
         if prev > 0:
@@ -504,6 +512,12 @@ def ensure_wanted_item(household_id: int, user_id: int, barcode: str):
                 from app.utils.barcode_lookup import apply_product_lookup
 
                 apply_product_lookup(g, item, lookup)
+            except Exception:
+                pass
+            try:
+                from app.utils.shelf_life import apply_shelf_life
+
+                apply_shelf_life(item, g)
             except Exception:
                 pass
     except IntegrityError:

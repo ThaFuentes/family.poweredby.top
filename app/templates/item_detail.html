@@ -41,6 +41,9 @@
       {% endif %}
       <p class="qty">{{ qty_label(item.grocery.quantity) }} <span class="muted">{{ item.grocery.unit or '' }} on hand</span></p>
       <p class="muted">Need more at {{ qty_label(item.grocery.restock_threshold) }}{% if item.grocery.brand %} · {{ item.grocery.brand }}{% endif %}{% if item.grocery.size %} · {{ item.grocery.size }}{% endif %}{% if item.grocery.default_location %} · {{ item.grocery.default_location }}{% endif %}</p>
+      {% if expires_on %}
+      <p>{% if expires_guessed %}Typical use-by <strong>{{ expires_on }}</strong> — change it under Edit.{% else %}Use by <strong>{{ expires_on }}</strong>{% endif %}</p>
+      {% endif %}
       {% if item.grocery.image_url %}
         <img class="detail-photo" src="{{ item.grocery.image_url }}" alt="{{ item.name }}">
       {% endif %}
@@ -90,7 +93,12 @@
         <button class="btn" type="submit">Log miles</button>
       </form>
       {% endif %}
-      <p><a class="btn" href="{{ url_for('items.detail', item_id=item.id, tab='systems') }}">Systems — body, electrical, electronics, engine</a></p>
+      <div class="btn-row">
+        <a class="btn" href="{{ url_for('items.detail', item_id=item.id, tab='systems', next=stay) }}">Parts on it</a>
+        {% if vehicle_recalls %}
+        <button type="button" class="btn secondary" onclick="var d=document.getElementById('recalls-fold'); if(d){d.open=true; d.scrollIntoView({behavior:'smooth'});}">Recalls ({{ vehicle_recalls|length }})</button>
+        {% endif %}
+      </div>
     {% endif %}
     {% if parts %}
       <p class="muted" style="margin-top:.6rem">Catalog items linked here</p>
@@ -149,8 +157,8 @@
   </div>
   {% endif %}
   {% if vehicle_recalls %}
-  <div class="card">
-    <h2>Recalls</h2>
+  <details class="card add-fold" id="recalls-fold">
+    <summary>Recalls ({{ vehicle_recalls|length }})</summary>
     {% for rec in vehicle_recalls %}
       <div class="row">
         <div>
@@ -160,11 +168,12 @@
         </div>
       </div>
     {% endfor %}
-  </div>
+  </details>
   {% endif %}
   {% if can_edit %}
-  <form class="card" method="post" action="{{ url_for('items.edit_item', item_id=item.id) }}">
-    <h2>Edit</h2>
+  <details class="card add-fold">
+    <summary>Edit this item</summary>
+  <form method="post" action="{{ url_for('items.edit_item', item_id=item.id) }}">
     <label>Name</label>
     <input name="name" value="{{ item.name }}">
     <label>Barcode</label>
@@ -211,7 +220,7 @@
           <option value="{{ item.grocery.default_location }}" selected>{{ item.grocery.default_location }}</option>
         {% endif %}
       </select>
-      <label>Expires</label><input type="date" name="expires_on" value="{{ expires_on or '' }}">
+      <label>Expires{% if expires_guessed %} <span class="muted">(typical — change it)</span>{% endif %}</label><input type="date" name="expires_on" value="{{ expires_on or '' }}">
       <label>Ingredients</label><textarea name="ingredients">{{ item.grocery.ingredients or '' }}</textarea>
       <label>Allergens</label><input name="allergens" value="{{ item.grocery.allergens or '' }}">
       <label>Serving size</label><input name="serving_size" value="{{ item.grocery.serving_size or '' }}">
@@ -252,6 +261,7 @@
     <label><input type="checkbox" name="lookup_now" value="1"> Look up full details again on save</label>
     <div class="btn-row"><button class="btn" type="submit">Save</button></div>
   </form>
+  </details>
   <form method="post" action="{{ url_for('items.delete_item', item_id=item.id) }}" onsubmit="return confirm('Remove this item?')">
     <input type="hidden" name="next" value="{{ stay }}">
     <button class="btn secondary" type="submit">Delete item</button>
