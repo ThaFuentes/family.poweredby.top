@@ -515,6 +515,29 @@ textarea { min-height: 5rem; }
   inset: 0;
   background: #000;
 }
+#scan-live-reader #qr-shaded-region {
+  display: none !important;
+}
+.scan-slot {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  top: 11%;
+  bottom: 22%;
+  left: 50%;
+  width: min(42vw, 11.5rem);
+  transform: translateX(-50%);
+  border: 2.5px solid #3ecf7a;
+  border-radius: .7rem;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, .42);
+}
+@media (orientation: landscape) {
+  .scan-slot {
+    top: 8%;
+    bottom: 14%;
+    width: min(24vw, 10rem);
+  }
+}
 #scan-live-reader video,
 #scan-live-reader canvas {
   width: 100% !important;

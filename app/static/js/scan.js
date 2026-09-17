@@ -1077,12 +1077,11 @@
       experimentalFeatures: { useBarCodeDetectorIfSupported: true },
       formatsToSupport: formats,
       qrbox: function (w, h) {
-        const land = w >= h;
-        const boxW = Math.floor(w * (land ? 0.94 : 0.92));
-        const boxH = Math.floor(land ? Math.min(h * 0.36, 160) : Math.min(h * 0.2, 120));
+        const boxW = Math.floor(Math.min(w * 0.4, h * 0.36, 240));
+        const boxH = Math.floor(Math.min(h * 0.76, w * 1.9));
         return {
-          width: Math.max(Math.min(boxW, w - 12), 160),
-          height: Math.max(Math.min(boxH, h - 12), 56),
+          width: Math.max(Math.min(boxW, w - 16), 72),
+          height: Math.max(Math.min(boxH, h - 16), 160),
         };
       },
     };
@@ -1177,7 +1176,7 @@
       "reader",
       pageSlot,
       function () {
-        if (pageStatus) pageStatus.textContent = "Camera on. Hold the barcode in the wide box.";
+        if (pageStatus) pageStatus.textContent = "Camera on. Run the tag up the tall slot.";
       },
       function (msg) {
         if (pageStatus) pageStatus.textContent = msg;
@@ -1198,7 +1197,7 @@
     const ready = function () {
       liveSlot.restarting = false;
       setScanJob(getScanJob());
-      if (statusEl) statusEl.textContent = "Hold the barcode in the long bar.";
+      if (statusEl) statusEl.textContent = "Run the tag up the tall slot.";
     };
     const fail = function (msg) {
       liveSlot.restarting = false;

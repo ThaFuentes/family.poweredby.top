@@ -138,6 +138,7 @@
     </div>
     <div class="scan-stage">
       <div id="scan-live-reader"></div>
+      <div class="scan-slot" aria-hidden="true"></div>
       <canvas id="scan-freeze" hidden></canvas>
       <div class="scan-hud">
         <p id="scan-live-status">Opening camera…</p>
@@ -147,7 +148,7 @@
   </div>
   <script>window.FAMILY_CAN_CREATE = {{ 'true' if can('edit_grocery') or can('edit_meta') or can('maintain') else 'false' }};</script>
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="{{ url_for('static', filename='js/scan.js') }}?v=os29"></script>
+  <script src="{{ url_for('static', filename='js/scan.js') }}?v=os30"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}?v=os12"></script>
   {% block scripts %}{% endblock %}
 </body>
