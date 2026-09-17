@@ -19,7 +19,7 @@
 
 <div class="card list" id="garage">
   {% for item in items %}
-    <a class="row" href="{{ url_for('items.detail', item_id=item.id, tab='systems') }}">
+    <a class="row" href="{{ url_for('items.detail', item_id=item.id, tab='systems', next=request.full_path) }}">
       {{ row_pic(item) }}
       <div>
         <strong>{{ item.name }}</strong>

@@ -16,13 +16,13 @@
 </div>
 <div class="tabs">
   {% if systems_host %}
-  <a class="{% if tab=='systems' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='systems') }}">Systems</a>
+  <a class="{% if tab=='systems' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='systems', next=stay) }}">Systems</a>
   {% endif %}
-  <a class="{% if tab=='overview' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='overview') }}">Overview</a>
-  <a class="{% if tab=='photos' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='photos') }}">Photos</a>
-  <a class="{% if tab=='notes' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='notes') }}">Notes</a>
-  <a class="{% if tab=='maintenance' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='maintenance') }}">Maintenance</a>
-  <a class="{% if tab=='history' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='history') }}">History</a>
+  <a class="{% if tab=='overview' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='overview', next=stay) }}">Overview</a>
+  <a class="{% if tab=='photos' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='photos', next=stay) }}">Photos</a>
+  <a class="{% if tab=='notes' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='notes', next=stay) }}">Notes</a>
+  <a class="{% if tab=='maintenance' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='maintenance', next=stay) }}">Maintenance</a>
+  <a class="{% if tab=='history' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='history', next=stay) }}">History</a>
 </div>
 
 {% if tab == 'systems' and systems_host %}
@@ -253,6 +253,7 @@
     <div class="btn-row"><button class="btn" type="submit">Save</button></div>
   </form>
   <form method="post" action="{{ url_for('items.delete_item', item_id=item.id) }}" onsubmit="return confirm('Remove this item?')">
+    <input type="hidden" name="next" value="{{ stay }}">
     <button class="btn secondary" type="submit">Delete item</button>
   </form>
   {% endif %}

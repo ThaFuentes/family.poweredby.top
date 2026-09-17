@@ -32,6 +32,7 @@ from app.utils.household import household_id, scoped
 from app.utils.permissions import can, require_perm
 from app.utils.qr_labels import ensure_item_barcode, qr_png_response, item_payload
 from app.utils.scan import apply_grocery_stock, flag_need_more, clamp_qty, _dec
+from app.utils.stay import list_url_for_item, same_site_path, stay_path
 from app.utils.crypto import write_encrypted_file, sendable_image
 
 items_bp = Blueprint("items", __name__, url_prefix="/items")
@@ -573,10 +574,18 @@ def detail(item_id):
         for ph in photos:
             if ph.part_id:
                 part_photos.setdefault(ph.part_id, []).append(ph)
+    stay = same_site_path(request.args.get("next"))
+    if not stay:
+        ref = same_site_path(request.referrer)
+        if ref and not ref.split("?", 1)[0].rstrip("/").endswith(f"/items/{item.id}"):
+            stay = ref
+    if not stay:
+        stay = list_url_for_item(item)
     return render_template(
         "item_detail.html",
         item=item,
         tab=tab,
+        stay=stay,
         maint=maint,
         history=history,
         photos=photos,
@@ -1208,4 +1217,4 @@ def delete_item(item_id):
     )
     db.session.commit()
     flash(f"{item.name} is out of the house. A parent can put it back on Happened.", "info")
-    return redirect(url_for("home.home"))
+    return redirect(stay_path(item))

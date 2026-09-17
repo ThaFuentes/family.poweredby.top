@@ -8,6 +8,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from app.utils.thumbs import https_url, item_thumb_url
+from app.utils.stay import same_site_path
 from app.utils.vehicle_lookup import diff_vehicle, vehicle_ours, vehicle_theirs
 from app.utils.scan import _host_wants_scan, _sync_grocery_list
 
@@ -57,6 +58,18 @@ class RowPicMacroTests(unittest.TestCase):
         html = tmpl.render(item=item)
         self.assertIn("2", html)
         self.assertIn("row-pic", html)
+
+
+class StayPathTests(unittest.TestCase):
+    def test_relative_ok(self):
+        self.assertEqual(same_site_path("/groceries/?view=hand"), "/groceries/?view=hand")
+
+    def test_rejects_protocol_relative(self):
+        self.assertIsNone(same_site_path("//evil.example/phish"))
+
+    def test_blank(self):
+        self.assertIsNone(same_site_path(""))
+        self.assertIsNone(same_site_path(None))
 
 
 class ThumbTests(unittest.TestCase):

@@ -3,7 +3,7 @@
 {% block title %}{% if place %}{{ place }} · {% endif %}Inventory · Family OS{% endblock %}
 
 {% macro pantry_row(item, onhand=false) %}
-  <a class="row {% if onhand %}onhand-row{% endif %}" href="{{ url_for('items.detail', item_id=item.id) }}">
+  <a class="row {% if onhand %}onhand-row{% endif %}" href="{{ url_for('items.detail', item_id=item.id, next=request.full_path) }}">
     {{ row_pic(item) }}
     {% if onhand and item.grocery %}
     <span class="onhand-qty">{{ item.grocery.quantity|qty_label }}</span>

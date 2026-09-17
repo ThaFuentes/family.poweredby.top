@@ -40,7 +40,7 @@
 <script>window.FAMILY_SCAN_KIND = "tool";</script>
 <div class="card list">
   {% for item in items %}
-    <a class="row" href="{{ url_for('items.detail', item_id=item.id) }}">
+    <a class="row" href="{{ url_for('items.detail', item_id=item.id, next=request.full_path) }}">
       {{ row_pic(item) }}
       <div>
         <strong>{{ item.name }}</strong>
