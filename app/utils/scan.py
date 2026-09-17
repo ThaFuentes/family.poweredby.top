@@ -646,11 +646,12 @@ def ingest_vin(
         lookup_vehicle,
         apply_vehicle_lookup,
         looks_like_vin,
+        extract_vin,
         diff_vehicle,
     )
     from app.utils.qr_labels import item_payload
 
-    code = (vin or "").replace(" ", "").upper()
+    code = extract_vin(vin) or (vin or "").replace(" ", "").upper()
     if not looks_like_vin(code):
         return {"found": False, "create": False, "error": "Not a VIN."}
     decoded = lookup_vehicle(vin=code)
@@ -849,16 +850,18 @@ def process_scan(
     action = _normalize_action(action)
     host = None if skip_host or force_new else _resolve_host(household_id, host_item_id)
     try:
-        from app.utils.vehicle_lookup import looks_like_vin
+        from app.utils.vehicle_lookup import looks_like_vin, extract_vin
 
         vin_scan = looks_like_vin(code)
+        vin_code = extract_vin(code) or code
     except Exception:
         vin_scan = False
+        vin_code = code
     if vin_scan and action in ("check", "into", "apply_vin", "restock"):
         payload = ingest_vin(
             household_id,
             user_id,
-            code,
+            vin_code,
             host_item=host if host and host.item_type == "vehicle" else None,
             apply=action == "apply_vin",
             fields=fields,

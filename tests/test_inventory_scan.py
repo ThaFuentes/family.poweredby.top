@@ -10,7 +10,7 @@ if ROOT not in sys.path:
 from app.utils.thumbs import https_url, item_thumb_url
 from app.utils.stay import same_site_path
 from app.utils.barcode_lookup import is_placeholder_name
-from app.utils.vehicle_lookup import diff_vehicle, vehicle_ours, vehicle_theirs
+from app.utils.vehicle_lookup import diff_vehicle, vehicle_ours, vehicle_theirs, extract_vin, looks_like_vin
 from app.utils.scan import _host_wants_scan, _sync_grocery_list
 
 
@@ -99,6 +99,21 @@ class ThumbTests(unittest.TestCase):
     def test_item_thumb_none_without_photo(self):
         item = SimpleNamespace(grocery=SimpleNamespace(image_url=""), photos=[])
         self.assertIsNone(item_thumb_url(item))
+
+
+class VinExtractTests(unittest.TestCase):
+    def test_plain(self):
+        self.assertEqual(extract_vin("1HGCM82633A004352"), "1HGCM82633A004352")
+        self.assertTrue(looks_like_vin("1HGCM82633A004352"))
+
+    def test_code39_stars(self):
+        self.assertEqual(extract_vin("*1HGCM82633A004352*"), "1HGCM82633A004352")
+
+    def test_i_prefix(self):
+        self.assertEqual(extract_vin("I1HGCM82633A004352"), "1HGCM82633A004352")
+
+    def test_not_upc(self):
+        self.assertIsNone(extract_vin("012345678905"))
 
 
 class VinDiffTests(unittest.TestCase):

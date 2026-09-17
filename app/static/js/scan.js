@@ -298,9 +298,19 @@
   function isUpcLike(raw) {
     return /^\d{8,14}$/.test(String(raw || "").replace(/\s/g, ""));
   }
+  function extractVin(raw) {
+    let t = String(raw || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (t.length >= 18 && t.charAt(0) === "I" && /^[A-HJ-NPR-Z0-9]{17}$/.test(t.slice(1, 18))) {
+      return t.slice(1, 18);
+    }
+    const m = t.match(/[A-HJ-NPR-Z0-9]{17}/g) || [];
+    for (let i = 0; i < m.length; i++) {
+      if (/^[A-HJ-NPR-Z0-9]{17}$/.test(m[i]) && !/[IOQ]/.test(m[i])) return m[i];
+    }
+    return null;
+  }
   function isVinLike(raw) {
-    const t = String(raw || "").replace(/[\s-]/g, "").toUpperCase();
-    return t.length === 17 && /^[A-HJ-NPR-Z0-9]{17}$/.test(t);
+    return !!extractVin(raw);
   }
   function isFamilyQr(raw) {
     return /^FAM:/i.test(String(raw || ""));
@@ -310,9 +320,11 @@
   }
   function preferUpc(decoded) {
     const s = String(decoded || "").trim();
-    if (isUpcLike(s) || isVinLike(s) || isFamilyQr(s)) return isVinLike(s) ? s.replace(/[\s-]/g, "").toUpperCase() : s;
+    const vin = extractVin(s);
+    if (vin) return vin;
+    if (isUpcLike(s) || isFamilyQr(s)) return s;
     if (window.FAMILY_SCAN_INTO && isWebQr(s)) return null;
-    return s;
+    return s.replace(/^\*+|\*+$/g, "");
   }
 
   function statusClass(data) {
@@ -1053,35 +1065,37 @@
   let qrLive = null;
   let qrPage = null;
 
+  function decoderFormats() {
+    const F = window.Html5QrcodeSupportedFormats;
+    if (!F) return undefined;
+    return [
+      F.CODE_39,
+      F.CODE_128,
+      F.CODE_93,
+      F.CODABAR,
+      F.PDF_417,
+      F.DATA_MATRIX,
+      F.AZTEC,
+      F.QR_CODE,
+      F.ITF,
+      F.UPC_A,
+      F.UPC_E,
+      F.EAN_13,
+      F.EAN_8,
+    ].filter(function (x) {
+      return x != null;
+    });
+  }
+
   function scanConfig() {
-    const formats = window.Html5QrcodeSupportedFormats
-      ? [
-          Html5QrcodeSupportedFormats.UPC_A,
-          Html5QrcodeSupportedFormats.UPC_E,
-          Html5QrcodeSupportedFormats.EAN_13,
-          Html5QrcodeSupportedFormats.EAN_8,
-          Html5QrcodeSupportedFormats.CODE_128,
-          Html5QrcodeSupportedFormats.ITF,
-          Html5QrcodeSupportedFormats.CODE_39,
-          Html5QrcodeSupportedFormats.CODE_93,
-          Html5QrcodeSupportedFormats.PDF_417,
-          Html5QrcodeSupportedFormats.QR_CODE,
-        ].filter(function (x) {
-          return x != null;
-        })
-      : undefined;
     return {
-      fps: 12,
+      fps: 16,
       disableFlip: false,
       rememberLastUsedCamera: true,
-      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-      formatsToSupport: formats,
       qrbox: function (w, h) {
-        const boxW = Math.floor(Math.min(w * 0.4, h * 0.36, 240));
-        const boxH = Math.floor(Math.min(h * 0.76, w * 1.9));
         return {
-          width: Math.max(Math.min(boxW, w - 16), 72),
-          height: Math.max(Math.min(boxH, h - 16), 160),
+          width: Math.max(Math.floor(w * 0.86), 160),
+          height: Math.max(Math.floor(h * 0.7), 160),
         };
       },
     };
@@ -1104,7 +1118,11 @@
     } catch (e) {}
     let qr;
     try {
-      qr = new Html5Qrcode(readerId, false);
+      qr = new Html5Qrcode(readerId, {
+        verbose: false,
+        formatsToSupport: decoderFormats(),
+        experimentalFeatures: { useBarCodeDetectorIfSupported: false },
+      });
     } catch (e) {
       if (onFail) onFail("Could not start the camera box.");
       return;
@@ -1118,7 +1136,7 @@
         applyBarcode(code);
       });
     }
-    go({ facingMode: "environment" })
+    go({ facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } })
       .then(function () {
         instanceSlot.starting = false;
         if (onReady) onReady();
@@ -1176,7 +1194,7 @@
       "reader",
       pageSlot,
       function () {
-        if (pageStatus) pageStatus.textContent = "Camera on. Run the tag up the tall slot.";
+        if (pageStatus) pageStatus.textContent = "Camera on. Door tags and parts codes — fill the tall slot.";
       },
       function (msg) {
         if (pageStatus) pageStatus.textContent = msg;
@@ -1197,7 +1215,7 @@
     const ready = function () {
       liveSlot.restarting = false;
       setScanJob(getScanJob());
-      if (statusEl) statusEl.textContent = "Run the tag up the tall slot.";
+      if (statusEl) statusEl.textContent = "Door tag / part code — fill the tall slot.";
     };
     const fail = function (msg) {
       liveSlot.restarting = false;

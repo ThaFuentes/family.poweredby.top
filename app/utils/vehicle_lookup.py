@@ -6,6 +6,7 @@ import requests
 
 _UA = {"User-Agent": "family.poweredby.top/1.0 (household)"}
 _VIN_RE = re.compile(r"^[A-HJ-NPR-Z0-9]{17}$", re.I)
+_VIN_FIND = re.compile(r"[A-HJ-NPR-Z0-9]{17}", re.I)
 _SKIP = {"", "0", "not applicable", "n/a", "null", "none"}
 
 # Human labels for the household card (NHTSA key → label)
@@ -37,8 +38,20 @@ FACT_LABELS = (
 )
 
 
+def extract_vin(value: str) -> str | None:
+    """Code 39 door tags often wrap the VIN in *stars* or an I prefix."""
+    t = re.sub(r"[^A-Za-z0-9]", "", value or "").upper()
+    if len(t) >= 18 and t[0] == "I" and _VIN_RE.match(t[1:18]):
+        return t[1:18]
+    for m in _VIN_FIND.finditer(t):
+        chunk = m.group(0).upper()
+        if _VIN_RE.match(chunk):
+            return chunk
+    return None
+
+
 def looks_like_vin(value: str) -> bool:
-    return bool(_VIN_RE.match((value or "").strip().replace(" ", "").upper()))
+    return extract_vin(value) is not None
 
 
 def _clean_val(v) -> str | None:
@@ -51,7 +64,7 @@ def _clean_val(v) -> str | None:
 
 
 def decode_vin(vin: str) -> dict:
-    code = (vin or "").strip().replace(" ", "").upper()
+    code = extract_vin(vin) or (vin or "").strip().replace(" ", "").upper()
     out = {"ok": False, "vin": code, "facts": {}, "raw": {}, "recalls": [], "error": None}
     if not looks_like_vin(code):
         out["error"] = "VIN should be 17 characters (no I, O, or Q)."
