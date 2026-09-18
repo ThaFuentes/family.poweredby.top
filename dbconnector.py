@@ -57,8 +57,11 @@ def _on_checkout(dbapi_conn, connection_rec, connection_proxy):
         cursor.execute("SELECT 1")
         cursor.fetchone()
         cursor.close()
-    except Exception:
+    except Exception as exc:
         connection_rec.invalidate()
+        from sqlalchemy.exc import DisconnectionError
+
+        raise DisconnectionError(str(exc)) from exc
 
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -8,7 +8,9 @@ if ROOT not in sys.path:
 
 from decimal import Decimal
 
-from app.utils.item_log import mpg_of, _dec
+from datetime import date
+
+from app.utils.item_log import mpg_of, year_driven, _dec
 from app.utils.dtc import parse_dtcs, normalize_dtc, lookup_dtc
 from app.utils.stash_image import _MIME_EXT, _SKIP_SLOTS, commons_thumb_url
 
@@ -17,6 +19,14 @@ class MpgTests(unittest.TestCase):
     def test_fillup_mpg(self):
         self.assertEqual(mpg_of(240, 12), 20.0)
         self.assertEqual(mpg_of(Decimal("310"), Decimal("10.5")), 29.5)
+
+    def test_ytd_miles_from_snapshots(self):
+        snaps = [
+            (date(2025, 12, 20), 80000),
+            (date(2026, 3, 1), 82000),
+            (date(2026, 9, 1), 86000),
+        ]
+        self.assertEqual(year_driven(snaps, 2026, 87432), 7432)
 
     def test_bad_gallons(self):
         self.assertIsNone(mpg_of(100, 0))

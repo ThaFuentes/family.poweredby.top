@@ -192,6 +192,21 @@ def _write_schema_stamp(app) -> None:
 def init_tenant_system(app):
     db.init_app(app)
     _quiet_dead_sessions()
+    try:
+        from sqlalchemy import event, text as _sql_text
+        from sqlalchemy.exc import DisconnectionError
+
+        @event.listens_for(db.engine, "engine_connect")
+        def _ping_mysql(conn, branch):
+            if branch:
+                return
+            try:
+                conn.execute(_sql_text("SELECT 1"))
+            except Exception as exc:
+                conn.invalidate()
+                raise DisconnectionError() from exc
+    except Exception as ping_exc:
+        _say(f"[BUILD-DB] engine ping not attached: {ping_exc}")
     with app.app_context():
         package_name = __name__.rsplit(".", 1)[0]
         package_path = os.path.dirname(__file__)

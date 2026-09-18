@@ -54,18 +54,20 @@ def create_app():
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     # Versioned /static/* URLs (?v=os22). Browsers keep CSS/JS/images a week.
     app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 604800
+    # HostM wait_timeout is often 60s. Recycle before that; ping dead SSL sockets.
     app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-        "pool_recycle": 280,
+        "pool_recycle": 50,
         "pool_pre_ping": True,
-        "pool_size": 5,
-        "max_overflow": 10,
-        "pool_timeout": 30,
+        "pool_size": 2,
+        "max_overflow": 5,
+        "pool_timeout": 20,
         "connect_args": {
+            "charset": "utf8mb4",
             "connect_timeout": 15,
-            "read_timeout": 90,
-            "write_timeout": 90,
+            "read_timeout": 45,
+            "write_timeout": 45,
         },
-        "pool_reset_on_return": "commit",
+        "pool_reset_on_return": "rollback",
     }
     os.makedirs(app.instance_path, exist_ok=True)
     os.makedirs(os.path.join(os.path.dirname(app.root_path), "uploads"), exist_ok=True)
@@ -90,6 +92,14 @@ def create_app():
         except Exception:
             pass
     login_manager.init_app(app)
+    try:
+        from app.builddb.builddb import db as _db
+
+        with app.app_context():
+            _db.session.remove()
+            _db.engine.dispose()
+    except Exception:
+        pass
     from datetime import timedelta
 
     # Phone PWA: stay signed in. Wrapper default is 1 day and does not slide.
@@ -101,6 +111,33 @@ def create_app():
     app.config["REMEMBER_COOKIE_SECURE"] = bool(app.config.get("SESSION_COOKIE_SECURE"))
     app.config["REMEMBER_COOKIE_SAMESITE"] = "Lax"
     app.config["REMEMBER_COOKIE_NAME"] = "pbt_family_remember"
+
+    @app.before_request
+    def _db_alive():
+        """HostM drops idle MariaDB/SSL sockets. Don't 500 the first page hit."""
+        from sqlalchemy import text
+        from app.builddb.builddb import db as _db
+
+        try:
+            _db.session.execute(text("SELECT 1"))
+        except Exception:
+            try:
+                _db.session.remove()
+            except Exception:
+                pass
+            try:
+                _db.engine.dispose()
+            except Exception:
+                pass
+
+    @app.teardown_appcontext
+    def _db_teardown(_exc):
+        try:
+            from app.builddb.builddb import db as _db
+
+            _db.session.remove()
+        except Exception:
+            pass
 
     @app.before_request
     def _slide_family_login():

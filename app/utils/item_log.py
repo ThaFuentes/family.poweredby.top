@@ -25,6 +25,38 @@ def _f(val) -> float | None:
         return None
 
 
+def year_driven(readings, year: int, current) -> int | None:
+    """Miles (or hours) put on this year from odometer snapshots. Gas not required."""
+    cur = _f(current)
+    if cur is None:
+        return None
+    jan1 = date(year, 1, 1)
+    before = []
+    during = []
+    for when, raw in readings or []:
+        n = _f(raw)
+        if n is None:
+            continue
+        if when is None:
+            during.append(n)
+            continue
+        day = when.date() if hasattr(when, "date") and not isinstance(when, date) else when
+        try:
+            if day < jan1:
+                before.append(n)
+            else:
+                during.append(n)
+        except TypeError:
+            during.append(n)
+    start = before[-1] if before else (during[0] if during else None)
+    if start is None:
+        return None
+    delta = cur - start
+    if delta < 0:
+        return None
+    return int(round(delta))
+
+
 def mpg_of(miles, gallons) -> float | None:
     m = _f(miles)
     g = _f(gallons)
@@ -153,6 +185,12 @@ def log_stats(item) -> dict:
         reading = item.vehicle.current_mileage
     elif item.item_type == "tool" and item.tool:
         reading = item.tool.hours_used
+    snaps = [
+        (r.happened_on, r.reading)
+        for r in reversed(rows)
+        if r.reading is not None and r.kind in ("miles", "hours", "fillup", "repair", "code")
+    ]
+    ytd = year_driven(snaps, year, reading)
     codes = [r for r in rows if r.kind == "code"]
     latest = {}
     for r in codes:
@@ -175,6 +213,7 @@ def log_stats(item) -> dict:
         "year_spent": float(year_spent) if year_spent else 0,
         "year_mpg": avg(year_mpg),
         "year": year,
+        "year_miles": ytd,
         "count": len(rows),
         "active_codes": active_codes,
     }

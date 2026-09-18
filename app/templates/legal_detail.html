@@ -10,6 +10,8 @@
   <div class="btn-row" style="margin:0">
     {% if row.case %}
     <a class="btn sm" href="{{ url_for('legal.case_detail', case_id=row.case.id) }}">{{ case_label(row.case) }}</a>
+    {% elif can_edit %}
+    <a class="btn sm" href="#make-case">On a case</a>
     {% endif %}
     <span class="badge {% if row.status=='open' %}low{% endif %}">{{ status_labels.get(row.status, row.status) }}</span>
   </div>
@@ -28,26 +30,26 @@
   </p>
 </div>
 {% elif can_edit %}
-<details class="card add-fold" id="make-case">
-<summary>Create a case</summary>
-<p class="muted">The notice stays a notice. A case is the file if this is turning into a fight — notes, emails, links, more paper.</p>
-<form method="post" action="{{ url_for('legal.open_case', record_id=row.id) }}">
-  <label>Case name</label>
-  <input name="title" value="{{ row.title }}" placeholder="The parking tickets, the HOA">
-  <div class="btn-row"><button class="btn" type="submit">Open {{ kind_labels.get(row.kind, 'this') }} as a case</button></div>
-</form>
-{% if open_cases %}
-<form method="post" action="{{ url_for('legal.attach_case', record_id=row.id) }}" style="margin-top:.85rem">
-  <label>Or add it to a case already open</label>
-  <select name="case_id">
-    {% for c in open_cases %}
-    <option value="{{ c.id }}">{{ case_label(c) }} · {{ c.title }}</option>
-    {% endfor %}
-  </select>
-  <div class="btn-row"><button class="btn secondary" type="submit">Add to that case</button></div>
-</form>
-{% endif %}
-</details>
+<div class="card" id="make-case">
+  <h2>Put on a case</h2>
+  <p class="muted">This {{ kind_labels.get(row.kind, 'record') }} stays searchable on its own. A case is the file if it turns into a fight.</p>
+  {% if open_cases %}
+  <form method="post" action="{{ url_for('legal.attach_case', record_id=row.id) }}">
+    <label>Open case</label>
+    <select name="case_id" required>
+      {% for c in open_cases %}
+      <option value="{{ c.id }}">{{ case_label(c) }} · {{ c.title }}</option>
+      {% endfor %}
+    </select>
+    <div class="btn-row"><button class="btn" type="submit">Add to that case</button></div>
+  </form>
+  {% endif %}
+  <form method="post" action="{{ url_for('legal.open_case', record_id=row.id) }}" {% if open_cases %}style="margin-top:.85rem"{% endif %}>
+    <label>{% if open_cases %}Or start a new case{% else %}Case name{% endif %}</label>
+    <input name="title" value="{{ row.title }}" placeholder="The parking tickets, the HOA">
+    <div class="btn-row"><button class="btn {% if open_cases %}secondary{% endif %}" type="submit">Start a case</button></div>
+  </form>
+</div>
 {% endif %}
 
 <div class="card">

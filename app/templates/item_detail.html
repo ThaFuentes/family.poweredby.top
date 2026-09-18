@@ -100,7 +100,7 @@
       {% endif %}
       <p>Oil: <strong>{{ item.tool.oil_type or '—' }}</strong> · Fuel: <strong>{{ item.tool.fuel_type or '—' }}</strong></p>
       <p class="muted">{{ item.tool.usage_notes or '' }}</p>
-      <p class="muted">Hours: {{ item.tool.hours_used or '—' }} · Last maintenance: {{ item.tool.last_maintenance_at or 'never' }}{% if log_stats.last_mpg %} · last fill {{ log_stats.last_mpg }} mpg{% endif %}</p>
+      <p class="muted">Hours: {{ item.tool.hours_used or '—' }}{% if log_stats.year_miles is not none %} · {{ log_stats.year_miles }} this year{% endif %} · Last maintenance: {{ item.tool.last_maintenance_at or 'never' }}{% if log_stats.last_mpg %} · last fill {{ log_stats.last_mpg }} mpg{% endif %}</p>
       {% if can_scan or can_maintain or can_edit %}
       <form method="post" action="{{ url_for('items.set_mileage', item_id=item.id) }}" class="btn-row">
         <input name="hours" inputmode="decimal" placeholder="Hours" value="{{ item.tool.hours_used or '' }}" style="max-width:9rem">
@@ -121,17 +121,19 @@
       {% if item.notes %}<p style="white-space:pre-wrap">{{ item.notes }}</p>{% endif %}
       {% if item.vehicle.transmission %}<p>Transmission: {{ item.vehicle.transmission }}</p>{% endif %}
       <p>Mileage: {% if item.vehicle.current_mileage %}{{ '{:,}'.format(item.vehicle.current_mileage) }}{% else %}—{% endif %}
+        {% if log_stats.year_miles is not none %} · {{ '{:,}'.format(log_stats.year_miles) }} in {{ log_stats.year }}{% endif %}
         {% if log_stats.last_mpg %} · last fill <strong>{{ log_stats.last_mpg }} mpg</strong>{% endif %}
         {% if log_stats.active_codes %} · codes {% for c in log_stats.active_codes %}<a href="{{ url_for('items.detail', item_id=item.id, tab='log') }}">{{ c.title }}</a>{% if not loop.last %} {% endif %}{% endfor %}{% endif %}
         · Last oil: {{ item.vehicle.last_oil_change_date or '—' }}
         @ {{ item.vehicle.last_oil_change_mileage or '—' }}</p>
       {% if can_scan or can_maintain or can_edit %}
       <form method="post" action="{{ url_for('items.set_mileage', item_id=item.id) }}" class="btn-row">
-        <input name="mileage" inputmode="numeric" placeholder="87432" value="{{ item.vehicle.current_mileage or '' }}" style="max-width:9rem">
+        <input name="mileage" inputmode="numeric" placeholder="87432" value="{{ item.vehicle.current_mileage or '' }}" style="max-width:9rem" aria-label="Odometer">
         <button class="btn" type="submit">Log miles</button>
         <a class="btn outline" href="{{ url_for('items.detail', item_id=item.id, tab='log') }}#add-log">Fill-up</a>
         <a class="btn outline" href="{{ url_for('items.detail', item_id=item.id, tab='log') }}#add-log">Error code</a>
       </form>
+      <p class="muted">Miles only — no gas needed. YTD uses these snapshots.</p>
       {% endif %}
       <div class="btn-row">
         <a class="btn" href="{{ url_for('items.detail', item_id=item.id, tab='systems', next=stay) }}">Parts on it</a>
@@ -312,6 +314,9 @@
   <div class="card log-totals">
     {% if item.item_type == 'vehicle' %}
     <p class="qty">{% if reading %}{{ '{:,}'.format(reading|int) }}{% else %}—{% endif %} <span class="muted">miles</span></p>
+    {% if log_stats.year_miles is not none %}
+    <p class="muted">{{ '{:,}'.format(log_stats.year_miles) }} miles in {{ log_stats.year }} (YTD)</p>
+    {% endif %}
     {% elif item.item_type == 'tool' %}
     <p class="qty">{{ reading or '—' }} <span class="muted">hours</span></p>
     {% else %}
