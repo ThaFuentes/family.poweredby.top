@@ -42,6 +42,52 @@ def _place_of(item):
     return ((g.default_location if g else None) or "").strip()
 
 
+STORE_RUN_KINDS = frozenset({"food", "drink", "household", "beauty", "pet", "aa_battery"})
+NOT_STORE_KINDS = frozenset(
+    {"car_battery", "motor_oil", "filter", "auto_part", "mower", "tool", "equipment", "vehicle"}
+)
+NOT_STORE_NAMES = (
+    "knife",
+    "knives",
+    "machete",
+    "wrench",
+    "socket",
+    "ratchet",
+    "diehard",
+    "alternator",
+    "motor oil",
+    "5w-30",
+    "5w30",
+)
+
+
+def _kind_of(item) -> str:
+    g = getattr(item, "grocery", None)
+    extra = g.extra_data if g is not None and isinstance(g.extra_data, dict) else {}
+    return str(extra.get("kind") or item.category or "").strip().lower()
+
+
+def is_store_run(item) -> bool:
+    """Typical grocery run: food, TP, shampoo, AA batteries. Not car batteries or knives."""
+    kind = _kind_of(item)
+    if kind in NOT_STORE_KINDS:
+        return False
+    name = (item.name or "").lower()
+    if any(bit in name for bit in NOT_STORE_NAMES):
+        return False
+    if kind in STORE_RUN_KINDS:
+        return True
+    return True
+
+
+def is_auto_supply(item) -> bool:
+    kind = _kind_of(item)
+    if kind in ("car_battery", "motor_oil", "filter", "auto_part"):
+        return True
+    name = (item.name or "").lower()
+    return any(bit in name for bit in ("diehard", "motor oil", "alternator", "5w-30", "5w30"))
+
+
 def _matches(item, needle: str) -> bool:
     if not needle:
         return True
@@ -80,8 +126,15 @@ def index():
         .order_by(Item.name.asc())
         .all()
     )
+    kind_filter = (request.args.get("kind") or "").strip().lower()
+    if kind_filter not in ("", "all", "store", "auto"):
+        kind_filter = ""
     if qtext:
         q = [item for item in q if _matches(item, qtext)]
+    if kind_filter == "store":
+        q = [item for item in q if is_store_run(item)]
+    elif kind_filter == "auto":
+        q = [item for item in q if is_auto_supply(item)]
     try:
         fill_placeholder_names(q, limit=4)
         if db.session.dirty:
@@ -115,6 +168,7 @@ def index():
         view=view,
         place=place,
         q=qtext,
+        kind_filter=kind_filter,
         place_counts=place_counts,
         counts={
             "hand": len(hand_items),

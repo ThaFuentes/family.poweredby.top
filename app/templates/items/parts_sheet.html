@@ -101,6 +101,15 @@
   {% elif shown %}
   <h1 style="margin:.2rem 0 .35rem;font-size:1.2rem">{{ shown.label }}</h1>
   <p class="muted">{{ shown.hint }}</p>
+  {% for s in systems_catalog if s.id == shown.id %}
+  <p class="kicker" style="margin:.85rem 0 .35rem">What is it?</p>
+  <p class="muted" style="margin:0 0 .4rem">Tap the type — TV, laptop, faucet — then add model and serial.</p>
+  <div class="place-chips" style="margin-bottom:.85rem">
+    {% for sl in s.slots %}
+    <a href="{{ url_for('items.parts_sheet', item_id=item.id, system=shown.id, add=1, slot=sl.id) }}">{{ sl.label }}</a>
+    {% endfor %}
+  </div>
+  {% endfor %}
 
   <h2 style="margin:1rem 0 .35rem;font-size:1rem">On it now</h2>
   {% set now_parts = shown.current or shown.on_it or [] %}

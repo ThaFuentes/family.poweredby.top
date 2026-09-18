@@ -54,11 +54,7 @@
 {% endmacro %}
 
 {% macro room_href(room) -%}
-  {%- if q -%}
-    {{ url_for('groceries.index', view=view, place=room, q=q) }}
-  {%- else -%}
-    {{ url_for('groceries.index', view=view, place=room) }}
-  {%- endif -%}
+    {{ url_for('groceries.index', view=view, place=room, q=q or none, kind=kind_filter or none) }}
 {%- endmacro %}
 
 {% block content %}
@@ -84,6 +80,7 @@
 <form class="card" method="get" action="{{ url_for('groceries.index') }}" style="margin-bottom:1rem">
   <input type="hidden" name="view" value="{{ view }}">
   {% if place %}<input type="hidden" name="place" value="{{ place }}">{% endif %}
+  {% if kind_filter %}<input type="hidden" name="kind" value="{{ kind_filter }}">{% endif %}
   <label>Search groceries and supplies</label>
   <div class="btn-row" style="margin:.35rem 0 0">
     <input name="q" value="{{ q or '' }}" placeholder="A.1., tp, soap…" autofocus>
@@ -101,17 +98,22 @@
 </div>
 {% endif %}
 <div class="place-chips no-print" role="tablist">
-  <a class="{% if view=='hand' %}on{% endif %}" href="{{ url_for('groceries.index', view='hand', place=place or none, q=q or none) }}">On hand {{ counts.hand }}</a>
-  <a class="{% if view=='out' %}on{% endif %}" href="{{ url_for('groceries.index', view='out', place=place or none, q=q or none) }}">Out {{ counts.out }}</a>
-  <a class="{% if view=='want' %}on{% endif %}" href="{{ url_for('groceries.index', view='want', place=place or none, q=q or none) }}">Want {{ counts.want }}</a>
+  <a class="{% if view=='hand' %}on{% endif %}" href="{{ url_for('groceries.index', view='hand', place=place or none, q=q or none, kind=kind_filter or none) }}">On hand {{ counts.hand }}</a>
+  <a class="{% if view=='out' %}on{% endif %}" href="{{ url_for('groceries.index', view='out', place=place or none, q=q or none, kind=kind_filter or none) }}">Out {{ counts.out }}</a>
+  <a class="{% if view=='want' %}on{% endif %}" href="{{ url_for('groceries.index', view='want', place=place or none, q=q or none, kind=kind_filter or none) }}">Want {{ counts.want }}</a>
 </div>
 <div class="place-chips no-print">
-  <a class="{% if not place %}on{% endif %}" href="{{ url_for('groceries.index', view=view, q=q or none) }}">Every room</a>
+  <a class="{% if kind_filter=='store' %}on{% endif %}" href="{{ url_for('groceries.index', view=view, place=place or none, q=q or none, kind='store') }}">Groceries</a>
+  <a class="{% if kind_filter=='auto' %}on{% endif %}" href="{{ url_for('groceries.index', view=view, place=place or none, q=q or none, kind='auto') }}">Auto</a>
+  <a class="{% if not kind_filter or kind_filter=='all' %}on{% endif %}" href="{{ url_for('groceries.index', view=view, place=place or none, q=q or none) }}">Everything</a>
+</div>
+<div class="place-chips no-print">
+  <a class="{% if not place %}on{% endif %}" href="{{ url_for('groceries.index', view=view, q=q or none, kind=kind_filter or none) }}">Every room</a>
   {% for p in places %}
-    <a class="{% if place==p %}on{% endif %}" href="{{ url_for('groceries.index', view=view, place=p, q=q or none) }}">{{ p }}{% if place_counts.get(p) %} {{ place_counts[p] }}{% endif %}</a>
+    <a class="{% if place==p %}on{% endif %}" href="{{ url_for('groceries.index', view=view, place=p, q=q or none, kind=kind_filter or none) }}">{{ p }}{% if place_counts.get(p) %} {{ place_counts[p] }}{% endif %}</a>
   {% endfor %}
   {% if place_counts.get('No room yet') %}
-    <a class="{% if place=='No room yet' %}on{% endif %}" href="{{ url_for('groceries.index', view=view, place='No room yet', q=q or none) }}">No room yet {{ place_counts['No room yet'] }}</a>
+    <a class="{% if place=='No room yet' %}on{% endif %}" href="{{ url_for('groceries.index', view=view, place='No room yet', q=q or none, kind=kind_filter or none) }}">No room yet {{ place_counts['No room yet'] }}</a>
   {% endif %}
 </div>
 

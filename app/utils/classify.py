@@ -246,6 +246,11 @@ _RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
             "socket set",
             "wrench",
             "hammer",
+            "knife",
+            "knives",
+            "chef knife",
+            "steak knife",
+            "utility knife",
         ),
     ),
     (

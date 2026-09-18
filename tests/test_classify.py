@@ -48,6 +48,49 @@ class ClassifyTests(unittest.TestCase):
         hit = classify_product({"name": "FRAM Extra Guard Oil Filter PH3614"})
         self.assertEqual(hit["kind"], "filter")
 
+    def test_knife_is_tool_not_grocery(self):
+        self.assertEqual(classify_text("chef knife"), "tool")
+
+
+class StoreRunTests(unittest.TestCase):
+    def test_food_and_tp_and_aa(self):
+        from types import SimpleNamespace
+        from app.routes.groceries import is_store_run, is_auto_supply
+
+        milk = SimpleNamespace(
+            name="Milk",
+            category="",
+            grocery=SimpleNamespace(extra_data={"kind": "food"}),
+        )
+        tp = SimpleNamespace(
+            name="Toilet paper",
+            category="",
+            grocery=SimpleNamespace(extra_data={"kind": "household"}),
+        )
+        aa = SimpleNamespace(
+            name="Duracell AA",
+            category="",
+            grocery=SimpleNamespace(extra_data={"kind": "aa_battery"}),
+        )
+        car = SimpleNamespace(
+            name="DieHard Gold",
+            category="",
+            grocery=SimpleNamespace(extra_data={"kind": "car_battery"}),
+        )
+        knife = SimpleNamespace(
+            name="Chef knife",
+            category="",
+            grocery=SimpleNamespace(extra_data={"kind": "tool"}),
+        )
+        self.assertTrue(is_store_run(milk))
+        self.assertTrue(is_store_run(tp))
+        self.assertTrue(is_store_run(aa))
+        self.assertFalse(is_store_run(car))
+        self.assertFalse(is_store_run(knife))
+        self.assertTrue(is_auto_supply(car))
+        self.assertFalse(is_auto_supply(milk))
+
 
 if __name__ == "__main__":
     unittest.main()
+
