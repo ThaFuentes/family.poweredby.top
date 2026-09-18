@@ -1140,6 +1140,15 @@ body.platform { padding-bottom: 1.5rem; }
 .basket-drop { flex: 0 0 auto; }
 .basket-row.picked { background: var(--green-soft); }
 .basket-bulk { margin: 0 0 .85rem; }
+.room-split {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .65rem;
+  margin: .35rem 0;
+  font-weight: 700;
+}
+.room-split input { max-width: 5.5rem; text-align: center; }
 .basket-row.got { opacity: .45; text-decoration: line-through; }
 .more-sheet {
   position: fixed;

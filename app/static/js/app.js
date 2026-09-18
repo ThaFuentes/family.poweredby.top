@@ -239,7 +239,7 @@
         "X-CSRF-Token": csrfToken(),
         "X-Requested-With": "fetch",
       },
-      body: JSON.stringify({ action: action, amount: 1 }),
+      body: JSON.stringify({ action: action, amount: 1, place: stepper.getAttribute("data-qty-place") || "" }),
     })
       .then(function (res) {
         return res.json().then(function (data) {

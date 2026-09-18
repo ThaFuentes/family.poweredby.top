@@ -91,6 +91,20 @@ class StoreRunTests(unittest.TestCase):
         self.assertFalse(is_auto_supply(milk))
 
 
+class RoomSplitTests(unittest.TestCase):
+    def test_sync_sums_and_picks_primary(self):
+        from decimal import Decimal
+        from types import SimpleNamespace
+
+        from app.utils.places import rooms_map, sync_rooms
+
+        g = SimpleNamespace(extra_data={}, quantity=Decimal("0"), default_location=None, is_in_stock=False)
+        sync_rooms(g, {"Alice's room": 2, "Master": 1, "Grandma's": 1})
+        self.assertEqual(int(g.quantity), 4)
+        self.assertEqual(g.default_location, "Alice's room")
+        self.assertEqual(int(rooms_map(g)["Master"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
 

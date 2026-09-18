@@ -2,8 +2,9 @@
 {% from "partials/row_pic.html" import row_pic with context %}
 {% block title %}{% if place %}{{ place }} · {% endif %}Inventory · Family OS{% endblock %}
 
-{% macro pantry_row(item, onhand=false) %}
+{% macro pantry_row(item, onhand=false, room_qty=none, room_name=none) %}
   {% set g = item.grocery %}
+  {% set show_qty = room_qty if room_qty is not none else (g.quantity if g else 0) %}
   {% set nameless = (item.name or '').startswith('Scanned ') or (item.name or '').startswith('Needs a name') or (item.name or '').startswith('Unknown') %}
   <div class="row {% if onhand %}onhand-row{% endif %}" data-item-id="{{ item.id }}">
     <a class="row-main" href="{{ url_for('items.detail', item_id=item.id, next=request.full_path) }}">
@@ -18,7 +19,7 @@
           {% if g %}
             {% if g.unit %}{{ g.unit }}{% endif %}
             {% if g.brand %} · {{ g.brand }}{% endif %}
-            {% if g.default_location and not place %} · {{ g.default_location }}{% endif %}
+            {% if room_name %} · {{ room_name }}{% elif g.default_location and not place %} · {{ g.default_location }}{% endif %}
           {% else %}
             {{ item.category or '' }}
           {% endif %}
@@ -28,13 +29,13 @@
     </a>
     {% if g and (can('scan') or can('edit_grocery')) %}
     <button type="button" class="btn sm secondary" data-list-item="{{ item.id }}">List</button>
-    <div class="qty-stepper" data-qty-item="{{ item.id }}">
+    <div class="qty-stepper" data-qty-item="{{ item.id }}" {% if room_name %}data-qty-place="{{ room_name }}"{% endif %}>
       <button type="button" class="qty-btn" data-qty-delta="-1" aria-label="One less">−</button>
-      <span class="onhand-qty" data-qty-label>{{ g.quantity|qty_label }}</span>
+      <span class="onhand-qty" data-qty-label>{{ show_qty|qty_label }}</span>
       <button type="button" class="qty-btn" data-qty-delta="1" aria-label="One more">+</button>
     </div>
     {% elif g %}
-    <span class="onhand-qty" data-qty-label>{{ g.quantity|qty_label }}</span>
+    <span class="onhand-qty" data-qty-label>{{ show_qty|qty_label }}</span>
     {% endif %}
     {% if onhand and g and g.needs_restock %}
       <span class="badge low" data-stock-badge>Low</span>
@@ -124,7 +125,7 @@
     {% if hand_items %}
     <div class="card list">
       <h2>{{ place }} · {{ hand_items|length }}</h2>
-      {% for item in hand_items %}{{ pantry_row(item, true) }}{% endfor %}
+      {% for item in hand_items %}{{ pantry_row(item, true, room_qty=room_qtys.get(item.id) if room_qtys is defined else none, room_name=place) }}{% endfor %}
     </div>
     {% else %}
     <div class="card"><div class="empty"><strong>Nothing in {{ place }}</strong>Scan a box, or AI put these in rooms.</div></div>
@@ -136,7 +137,13 @@
         <h2>{{ room }}</h2>
         <span class="muted">{{ rows|length }} · open</span>
       </a>
-      {% for item in rows %}{{ pantry_row(item, true) }}{% endfor %}
+      {% for row in rows %}
+        {% if row is sequence and row is not string %}
+          {{ pantry_row(row[0], true, room_qty=row[1], room_name=room) }}
+        {% else %}
+          {{ pantry_row(row, true, room_name=room) }}
+        {% endif %}
+      {% endfor %}
     </section>
     {% endfor %}
   {% else %}

@@ -733,6 +733,48 @@ def lookup_again(item_id):
     return redirect(url_for("items.detail", item_id=item.id, tab="overview"))
 
 
+@items_bp.route("/<int:item_id>/rooms", methods=["POST"])
+@login_required
+def set_rooms(item_id):
+    from flask import jsonify
+
+    from app.utils.places import sync_rooms
+
+    if not (can("edit_grocery") or can("scan")):
+        abort(403)
+    item = _item_or_404(item_id)
+    if item.item_type != "grocery" or not item.grocery:
+        abort(400)
+    payload = request.get_json(silent=True) or {}
+    rooms = payload.get("rooms") if isinstance(payload.get("rooms"), dict) else {}
+    if not rooms:
+        for key, val in request.form.items():
+            if key.startswith("room__"):
+                rooms[key[6:].replace("_", " ")] = val
+            elif key.startswith("room[") and key.endswith("]"):
+                rooms[key[5:-1]] = val
+    extra_place = (request.form.get("new_place") or payload.get("new_place") or "").strip()
+    extra_qty = request.form.get("new_qty") or payload.get("new_qty")
+    if extra_place and extra_qty not in (None, ""):
+        rooms[extra_place] = extra_qty
+    sync_rooms(item.grocery, rooms)
+    db.session.commit()
+    if request.is_json or request.headers.get("X-Requested-With") == "fetch":
+        from app.utils.places import rooms_map
+        from app.utils.scan import qty_label
+
+        return jsonify(
+            {
+                "ok": True,
+                "quantity": float(item.grocery.quantity or 0),
+                "quantity_label": qty_label(item.grocery.quantity),
+                "rooms": {k: float(v) for k, v in rooms_map(item.grocery).items()},
+            }
+        )
+    flash(f"{item.name}: {item.grocery.quantity:g} in the house.", "success")
+    return redirect(url_for("items.detail", item_id=item.id, tab="overview"))
+
+
 @items_bp.route("/<int:item_id>/count", methods=["POST"])
 @login_required
 @require_perm("override")
@@ -771,6 +813,7 @@ def qty(item_id):
     payload = request.get_json(silent=True) or {}
     action = (payload.get("action") or request.form.get("action") or "consume").strip().lower()
     amount = payload.get("amount") if payload.get("amount") is not None else request.form.get("amount") or 1
+    place = (payload.get("place") or request.form.get("place") or "").strip() or None
     remember = True
     if action in ("plus", "add", "inc"):
         action = "restock"
@@ -794,7 +837,7 @@ def qty(item_id):
         }
     else:
         stock = apply_grocery_stock(
-            item.grocery, item, action, amount, current_user.id, remember=remember
+            item.grocery, item, action, amount, current_user.id, remember=remember, place=place
         )
     db.session.commit()
     if wants_json:
@@ -808,6 +851,7 @@ def qty(item_id):
                 "needs_restock": stock.get("needs_restock"),
                 "is_in_stock": stock.get("is_in_stock"),
                 "on_list": stock.get("on_list"),
+                "rooms": stock.get("rooms"),
                 "message": stock.get("message"),
             }
         )

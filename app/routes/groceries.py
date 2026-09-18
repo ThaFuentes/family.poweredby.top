@@ -42,6 +42,40 @@ def _place_of(item):
     return ((g.default_location if g else None) or "").strip()
 
 
+def _item_in_place(item, place: str) -> bool:
+    from app.utils.places import rooms_map
+
+    g = getattr(item, "grocery", None)
+    if g is None:
+        return place.lower() == "no room yet"
+    split = rooms_map(g)
+    if split:
+        return any(p.lower() == place.lower() for p in split)
+    loc = _place_of(item)
+    if place.lower() == "no room yet":
+        return not loc
+    return loc.lower() == place.lower()
+
+
+def _room_qty(item, place: str):
+    from app.utils.places import rooms_map
+
+    g = getattr(item, "grocery", None)
+    if g is None:
+        return 0
+    split = rooms_map(g)
+    if split:
+        for p, n in split.items():
+            if p.lower() == place.lower():
+                return n
+        return 0
+    if place.lower() == "no room yet" and not _place_of(item):
+        return g.quantity
+    if _place_of(item).lower() == place.lower():
+        return g.quantity
+    return 0
+
+
 STORE_RUN_KINDS = frozenset({"food", "drink", "household", "beauty", "pet", "aa_battery"})
 NOT_STORE_KINDS = frozenset(
     {"car_battery", "motor_oil", "filter", "auto_part", "mower", "tool", "equipment", "vehicle"}
@@ -98,6 +132,7 @@ def _matches(item, needle: str) -> bool:
             item.name or "",
             (g.brand if g else "") or "",
             (g.default_location if g else "") or "",
+            " ".join((getattr(g, "extra_data", None) or {}).get("rooms", {}) if isinstance(getattr(g, "extra_data", None), dict) else {}),
             (g.size if g else "") or "",
             item.category or "",
         ]
@@ -106,10 +141,17 @@ def _matches(item, needle: str) -> bool:
 
 
 def _rooms(items):
+    from app.utils.places import rooms_map
+
     rooms = {}
     for item in items:
-        room = _place_of(item) or "No room yet"
-        rooms.setdefault(room, []).append(item)
+        g = getattr(item, "grocery", None)
+        split = rooms_map(g) if g is not None else {}
+        if split:
+            for room, qty in split.items():
+                rooms.setdefault(room, []).append((item, qty))
+        else:
+            rooms.setdefault(_place_of(item) or "No room yet", []).append((item, g.quantity if g else 0))
     return rooms
 
 
@@ -145,10 +187,7 @@ def index():
     all_hand = ok_all + low_all
     place_counts = {room: len(rows) for room, rows in _rooms(all_hand).items()}
     if place:
-        if place.lower() == "no room yet":
-            q = [item for item in q if not _place_of(item)]
-        else:
-            q = [item for item in q if _place_of(item).lower() == place.lower()]
+        q = [item for item in q if _item_in_place(item, place)]
     want_items, out_items, low_items, ok_items = _pantry_groups(q)
     hand_items = ok_items + low_items
     hand_items.sort(key=lambda i: (_place_of(i).lower(), (i.name or "").lower()))
@@ -170,6 +209,7 @@ def index():
         rooms=rooms,
         view=view,
         place=place,
+        room_qtys={i.id: _room_qty(i, place) for i in hand_items} if place else {},
         q=qtext,
         kind_filter=kind_filter,
         place_counts=place_counts,

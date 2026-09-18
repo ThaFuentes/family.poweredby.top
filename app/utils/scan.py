@@ -8,6 +8,7 @@ from app.builddb.builddb import db
 from app.builddb.table_items import Item
 from app.builddb.table_grocery_items import GroceryItem
 from app.builddb.table_grocery_list import GroceryListEntry
+from app.utils.places import rooms_map
 from app.builddb.table_scan_events import ScanEvent
 from app.builddb.table_tools import Tool
 from app.builddb.table_vehicles import Vehicle
@@ -380,6 +381,7 @@ def grocery_payload(g: GroceryItem, item: Item, action="check", on_list=False, a
         "qty_choices_in": qty_choices(g, "into"),
         "qty_choices_out": qty_choices(g, "out"),
         "qty_choices": qty_choices(g, "into" if action in ("into", "restock", "check", "buy") else "out"),
+        "rooms": {k: float(v) for k, v in rooms_map(g).items()},
     }
 
 
@@ -450,20 +452,27 @@ def qty_choices(g: GroceryItem | None, action: str = "into") -> list[int]:
 
 
 def apply_grocery_stock(
-    g: GroceryItem, item: Item, action: str, amount, user_id, *, sync_list=True, remember=True
+    g: GroceryItem, item: Item, action: str, amount, user_id, *, sync_list=True, remember=True, place=None
 ):
+    from app.utils.places import bump_room, rooms_map, take_from_rooms
+
     prev = clamp_qty(g.quantity)
     was_needed = bool(g.needs_restock)
     amt = clamp_qty(amount, "1")
     if amt <= 0:
         amt = Decimal("1")
     thresh = clamp_qty(g.restock_threshold, "1")
+    loc = (place or "").strip()
     if action == "set":
         qty = set_quantity(g, amt)
         g.last_restocked_at = datetime.utcnow()
         g.needs_restock = qty <= thresh
     elif action == "restock":
-        qty = set_quantity(g, prev + amt)
+        if loc or rooms_map(g):
+            bump_room(g, loc or g.default_location or "No room yet", amt)
+            qty = clamp_qty(g.quantity)
+        else:
+            qty = set_quantity(g, prev + amt)
         g.last_restocked_at = datetime.utcnow()
         g.needs_restock = qty <= thresh
         if remember:
@@ -477,7 +486,14 @@ def apply_grocery_stock(
         except Exception:
             pass
     else:
-        qty = set_quantity(g, max(Decimal("0"), prev - amt))
+        if loc:
+            bump_room(g, loc, -amt)
+            qty = clamp_qty(g.quantity)
+        elif rooms_map(g):
+            take_from_rooms(g, amt)
+            qty = clamp_qty(g.quantity)
+        else:
+            qty = set_quantity(g, max(Decimal("0"), prev - amt))
         if prev > 0:
             g.last_consumed_at = datetime.utcnow()
             g.consume_count = int(g.consume_count or 0) + 1
