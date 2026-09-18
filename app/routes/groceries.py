@@ -379,6 +379,51 @@ def list_toggle(entry_id):
     return jsonify({"ok": True, "id": row.id, "status": row.status})
 
 
+@groceries_bp.route("/list/bulk", methods=["POST"])
+@login_required
+def list_bulk():
+    if not (can("scan") or can("edit_grocery")):
+        if request.headers.get("X-Requested-With") == "fetch":
+            return jsonify({"error": "not allowed"}), 403
+        flash("Ask a grown-up.", "warning")
+        return redirect(url_for("groceries.grocery_list"))
+    payload = request.get_json(silent=True) or {}
+    action = (payload.get("action") or request.form.get("action") or "").strip().lower()
+    raw_ids = payload.get("ids") if payload.get("ids") is not None else request.form.getlist("ids")
+    ids = []
+    for x in raw_ids or []:
+        try:
+            ids.append(int(x))
+        except (TypeError, ValueError):
+            continue
+    if not ids or action not in ("done", "got", "add", "remove", "drop"):
+        if request.headers.get("X-Requested-With") == "fetch":
+            return jsonify({"ok": False, "error": "Pick rows first."}), 400
+        flash("Pick rows first.", "warning")
+        return redirect(url_for("groceries.grocery_list"))
+    rows = (
+        scoped(GroceryListEntry)
+        .filter(GroceryListEntry.id.in_(ids), GroceryListEntry.status == "open")
+        .all()
+    )
+    n = 0
+    drop = action in ("remove", "drop")
+    for row in rows:
+        if drop:
+            db.session.delete(row)
+        else:
+            _check_off(row)
+        n += 1
+    db.session.commit()
+    if request.is_json or request.headers.get("X-Requested-With") == "fetch":
+        return jsonify({"ok": True, "count": n, "dropped": drop})
+    if drop:
+        flash(f"Dropped {n} from the basket. Stock unchanged.", "info")
+    else:
+        flash(f"Got {n}. Stock updated.", "success")
+    return redirect(url_for("groceries.grocery_list"))
+
+
 @groceries_bp.route("/list/<int:entry_id>/remove", methods=["POST"])
 @login_required
 def list_remove(entry_id):

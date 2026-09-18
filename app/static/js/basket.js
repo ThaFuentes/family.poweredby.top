@@ -1,7 +1,8 @@
-/* Store-mode basket: big checkboxes, live list, scan-to-check-off. */
+/* Store-mode basket: pick rows, then Got it (stock) or Drop (no stock). */
 (function () {
   const root = document.getElementById("basket-live");
   if (!root) return;
+  const bar = document.getElementById("basket-bulk");
 
   function csrfToken() {
     const m = document.querySelector('meta[name="csrf-token"]');
@@ -35,6 +36,26 @@
     );
   }
 
+  function boxes() {
+    return Array.prototype.slice.call(root.querySelectorAll(".basket-check"));
+  }
+  function pickedIds() {
+    return boxes()
+      .filter(function (b) {
+        return b.checked;
+      })
+      .map(function (b) {
+        return b.getAttribute("data-pick");
+      })
+      .filter(Boolean);
+  }
+  function paintPicked() {
+    boxes().forEach(function (b) {
+      const row = b.closest(".basket-row");
+      if (row) row.classList.toggle("picked", b.checked);
+    });
+  }
+
   function render(rows) {
     const want = rows.filter(function (r) { return r.reason === "want"; });
     const need = rows.filter(function (r) { return r.reason !== "want"; });
@@ -46,9 +67,9 @@
         html +=
           '<div class="basket-row" data-entry-id="' +
           r.id +
-          '"><label class="basket-check-wrap"><input type="checkbox" class="basket-check" data-toggle="' +
+          '"><label class="basket-check-wrap"><input type="checkbox" class="basket-check" data-pick="' +
           r.id +
-          '" aria-label="Got ' +
+          '" aria-label="Select ' +
           encode(r.name || "") +
           '"></label>' +
           picHtml(r) +
@@ -84,16 +105,18 @@
     } catch (e) {}
   }
 
-  async function toggle(id, checked) {
-    const row = root.querySelector('[data-entry-id="' + id + '"]');
-    if (row) row.classList.toggle("got", checked);
+  async function runBulk(action, ids) {
+    if (!ids.length) return;
     try {
-      await fetch("/groceries/list/" + id + "/toggle", {
+      await fetch("/groceries/list/bulk", {
         method: "POST",
         headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
           "X-CSRF-Token": csrfToken(),
           "X-Requested-With": "fetch",
         },
+        body: JSON.stringify({ action: action, ids: ids }),
       });
       await refresh();
     } catch (e) {
@@ -102,24 +125,12 @@
   }
 
   async function drop(id) {
-    try {
-      await fetch("/groceries/list/" + id + "/remove", {
-        method: "POST",
-        headers: {
-          "X-CSRF-Token": csrfToken(),
-          "X-Requested-With": "fetch",
-        },
-      });
-      await refresh();
-    } catch (e) {
-      await refresh();
-    }
+    await runBulk("drop", [id]);
   }
 
   root.addEventListener("change", function (e) {
-    const box = e.target.closest("[data-toggle]");
-    if (!box) return;
-    toggle(box.getAttribute("data-toggle"), box.checked);
+    if (!e.target.closest("[data-pick]")) return;
+    paintPicked();
   });
   root.addEventListener("click", function (e) {
     const btn = e.target.closest("[data-drop]");
@@ -128,6 +139,30 @@
     e.stopPropagation();
     drop(btn.getAttribute("data-drop"));
   });
+  if (bar) {
+    bar.addEventListener("click", function (e) {
+      const all = e.target.closest("[data-basket-all]");
+      if (all) {
+        const on = boxes().some(function (b) {
+          return !b.checked;
+        });
+        boxes().forEach(function (b) {
+          b.checked = on;
+        });
+        paintPicked();
+        return;
+      }
+      const ids = pickedIds();
+      if (!ids.length) return;
+      if (e.target.closest("[data-basket-got]")) {
+        runBulk("got", ids);
+        return;
+      }
+      if (e.target.closest("[data-basket-drop-sel]")) {
+        runBulk("drop", ids);
+      }
+    });
+  }
 
   window.addEventListener("family-basket-refresh", refresh);
   setInterval(refresh, 5000);

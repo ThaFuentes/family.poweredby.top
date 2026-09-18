@@ -6,7 +6,7 @@
   <div class="basket-row" data-entry-id="{{ row.id }}">
     {% if can_check %}
     <label class="basket-check-wrap">
-      <input type="checkbox" class="basket-check" data-toggle="{{ row.id }}" {% if row.status == 'done' %}checked{% endif %} aria-label="Got {{ row.name }}">
+      <input type="checkbox" class="basket-check" data-pick="{{ row.id }}" aria-label="Select {{ row.name }}">
     </label>
     {% endif %}
     {{ row_pic(src=row.image_url, name=row.name) }}
@@ -41,7 +41,7 @@
 <div class="page-head">
   <div>
     <h1>Basket</h1>
-    <p>Camera here is <strong>Needed</strong> — scan anything, even a new box we never had. Check = got it. Drop = not buying.</p>
+    <p>Select rows, then <strong>Got it</strong> (bought, add stock) or <strong>Drop</strong> (not buying). Camera is Needed.</p>
   </div>
   {% if can_add %}
   <a class="btn sm" href="#add-want" data-open-fold="add-want">Add</a>
@@ -50,6 +50,13 @@
 {% set compact = true %}
 <p class="muted">Use the camera button to scan. Set it to <strong>Buy</strong> or <strong>In</strong> once.</p>
 <script>window.FAMILY_SCAN_KIND = "basket";</script>
+{% if can_check %}
+<div class="btn-row basket-bulk no-print" id="basket-bulk">
+  <button type="button" class="btn sm secondary" data-basket-all>Select all</button>
+  <button type="button" class="btn sm" data-basket-got>Got it</button>
+  <button type="button" class="btn sm secondary" data-basket-drop-sel>Drop</button>
+</div>
+{% endif %}
 <div id="basket-live">
 {% if want_rows %}
 <h2>Want</h2>
@@ -79,5 +86,5 @@
 {% endif %}
 {% endblock %}
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/basket.js') }}?v=os2"></script>
+<script src="{{ url_for('static', filename='js/basket.js') }}?v=os3"></script>
 {% endblock %}

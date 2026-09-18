@@ -1138,6 +1138,8 @@ body.platform { padding-bottom: 1.5rem; }
   width: 1.55rem; height: 1.55rem; flex-shrink: 0; accent-color: var(--green);
 }
 .basket-drop { flex: 0 0 auto; }
+.basket-row.picked { background: var(--green-soft); }
+.basket-bulk { margin: 0 0 .85rem; }
 .basket-row.got { opacity: .45; text-decoration: line-through; }
 .more-sheet {
   position: fixed;
