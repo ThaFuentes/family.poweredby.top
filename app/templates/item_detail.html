@@ -62,34 +62,40 @@
       {% else %}
       <p class="qty">{{ qty_label(item.grocery.quantity) }} <span class="muted">{{ item.grocery.unit or '' }} on hand</span></p>
       {% endif %}
-      <p class="muted">Need more at {{ qty_label(item.grocery.restock_threshold) }}{% if item.grocery.brand %} · {{ item.grocery.brand }}{% endif %}{% if item.grocery.size %} · {{ item.grocery.size }}{% endif %} · total {{ qty_label(item.grocery.quantity) }}</p>
-      {% if can_grocery or can_scan %}
+      <p class="muted">Need more at {{ qty_label(item.grocery.restock_threshold) }}{% if item.grocery.brand %} · {{ item.grocery.brand }}{% endif %}{% if item.grocery.size %} · {{ item.grocery.size }}{% endif %}</p>
       {% set split = (item.grocery.extra_data or {}).get('rooms') if item.grocery.extra_data is mapping else none %}
-      <form class="card" method="post" action="{{ url_for('items.set_rooms', item_id=item.id) }}" style="margin:.65rem 0;padding:.75rem .85rem">
-        <p class="kicker" style="margin:0 0 .4rem">Where they live</p>
-        <p class="muted">Alice’s room 2, Master 1, Grandma 1 — total stays the sum. Move a count to fix a wrong room.</p>
-        {% for p in places %}
-        <label class="room-split">{{ p }}
-          <input name="room[{{ p }}]" inputmode="numeric" value="{% if split and split.get(p) is not none %}{{ split.get(p)|int }}{% elif item.grocery.default_location==p %}{{ item.grocery.quantity|int }}{% else %}0{% endif %}">
-        </label>
-        {% endfor %}
-        {% if split %}
-          {% for p, n in split.items() %}
-            {% if p not in places %}
-        <label class="room-split">{{ p }}
-          <input name="room[{{ p }}]" inputmode="numeric" value="{{ n|int }}">
-        </label>
-            {% endif %}
-          {% endfor %}
-        {% endif %}
-        <label class="room-split">Another room
-          <span class="btn-row" style="margin:0;flex:1">
-            <input name="new_place" placeholder="Alice’s room">
-            <input name="new_qty" inputmode="numeric" placeholder="2" style="max-width:4.5rem">
-          </span>
-        </label>
-        <div class="btn-row"><button class="btn" type="submit">Save rooms</button></div>
-      </form>
+      {% if split %}
+      <p>{% for p, n in split.items() if n %}{{ p }} <strong>{{ n|int }}</strong>{% if not loop.last %} · {% endif %}{% endfor %} · total {{ qty_label(item.grocery.quantity) }}</p>
+      {% elif item.grocery.default_location %}
+      <p>{{ item.grocery.default_location }} · total {{ qty_label(item.grocery.quantity) }}</p>
+      {% endif %}
+      {% if can_grocery or can_scan %}
+      <details class="card add-fold sheet-add" id="split-rooms" style="margin:.55rem 0">
+        <summary>Split / move rooms</summary>
+        <form method="post" action="{{ url_for('items.set_rooms', item_id=item.id) }}">
+          {% if split %}
+            {% for p, n in split.items() %}
+          <label class="room-split">{{ p }}
+            <input name="room[{{ p }}]" inputmode="numeric" value="{{ n|int }}">
+          </label>
+            {% endfor %}
+          {% elif item.grocery.default_location %}
+          <label class="room-split">{{ item.grocery.default_location }}
+            <input name="room[{{ item.grocery.default_location }}]" inputmode="numeric" value="{{ item.grocery.quantity|int }}">
+          </label>
+          {% endif %}
+          <label>Put some in</label>
+          <select name="new_place">
+            <option value="">— pick a room —</option>
+            {% for p in places %}
+            <option value="{{ p }}">{{ p }}</option>
+            {% endfor %}
+          </select>
+          <label>How many there</label>
+          <input name="new_qty" inputmode="numeric" placeholder="2">
+          <div class="btn-row"><button class="btn" type="submit">Save</button></div>
+        </form>
+      </details>
       {% endif %}
       {% if item.grocery.extra_data and item.grocery.extra_data.get('ask_frozen') %}
       <p><strong>Fridge or freezer?</strong></p>
