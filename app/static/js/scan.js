@@ -1262,6 +1262,7 @@
       e.stopPropagation();
     }
     window.FAMILY_SCAN_INTO = true;
+    if (window.FAMILY_SCAN_KIND === "basket") setScanJob("buy");
     const live = document.getElementById("scan-live");
     if (!live) return;
     live.hidden = false;

@@ -807,6 +807,7 @@ def qty(item_id):
                 "status": stock.get("status"),
                 "needs_restock": stock.get("needs_restock"),
                 "is_in_stock": stock.get("is_in_stock"),
+                "on_list": stock.get("on_list"),
                 "message": stock.get("message"),
             }
         )

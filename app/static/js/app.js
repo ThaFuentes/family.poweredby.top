@@ -143,6 +143,13 @@
       bumpQty(deltaBtn);
       return;
     }
+    var listBtn = e.target.closest("[data-list-item]");
+    if (listBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      putOnList(listBtn);
+      return;
+    }
     var foldBtn = e.target.closest("[data-open-fold]");
     if (foldBtn) {
       e.preventDefault();
@@ -182,6 +189,37 @@
     } else {
       badge.textContent = "Have";
     }
+  }
+
+  function putOnList(btn) {
+    var itemId = btn.getAttribute("data-list-item");
+    if (!itemId) return;
+    btn.disabled = true;
+    fetch("/items/" + itemId + "/qty", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-CSRF-Token": csrfToken(),
+        "X-Requested-With": "fetch",
+      },
+      body: JSON.stringify({ action: "need_more", amount: 1 }),
+    })
+      .then(function (res) {
+        return res.json().then(function (data) {
+          return { ok: res.ok, data: data };
+        });
+      })
+      .then(function (out) {
+        if (!out.ok || !out.data || !out.data.ok) {
+          btn.disabled = false;
+          return;
+        }
+        btn.textContent = "On list";
+      })
+      .catch(function () {
+        btn.disabled = false;
+      });
   }
 
   function bumpQty(btn) {

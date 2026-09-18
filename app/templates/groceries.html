@@ -27,6 +27,7 @@
       </div>
     </a>
     {% if g and (can('scan') or can('edit_grocery')) %}
+    <button type="button" class="btn sm secondary" data-list-item="{{ item.id }}">List</button>
     <div class="qty-stepper" data-qty-item="{{ item.id }}">
       <button type="button" class="qty-btn" data-qty-delta="-1" aria-label="One less">−</button>
       <span class="onhand-qty" data-qty-label>{{ g.quantity|qty_label }}</span>
@@ -62,7 +63,7 @@
 <div class="page-head">
   <div>
     <h1>{% if place %}{{ place }}{% else %}Inventory{% endif %}</h1>
-    <p>{% if place %}What’s in this room.{% else %}What’s in the house, by room. Basket is the store list. This is what you already have.{% endif %}</p>
+    <p>{% if place %}What’s in this room.{% else %}On hand, out, and never-had. List puts it on the basket without adding stock.{% endif %}</p>
   </div>
   <div class="btn-row" style="margin:0">
     {% if can('edit_grocery') %}
@@ -101,6 +102,7 @@
   <a class="{% if view=='hand' %}on{% endif %}" href="{{ url_for('groceries.index', view='hand', place=place or none, q=q or none, kind=kind_filter or none) }}">On hand {{ counts.hand }}</a>
   <a class="{% if view=='out' %}on{% endif %}" href="{{ url_for('groceries.index', view='out', place=place or none, q=q or none, kind=kind_filter or none) }}">Out {{ counts.out }}</a>
   <a class="{% if view=='want' %}on{% endif %}" href="{{ url_for('groceries.index', view='want', place=place or none, q=q or none, kind=kind_filter or none) }}">Want {{ counts.want }}</a>
+  <a class="{% if view=='all' %}on{% endif %}" href="{{ url_for('groceries.index', view='all', place=place or none, q=q or none, kind=kind_filter or none) }}">All {{ counts.all }}</a>
 </div>
 <div class="place-chips no-print">
   <a class="{% if kind_filter=='store' %}on{% endif %}" href="{{ url_for('groceries.index', view=view, place=place or none, q=q or none, kind='store') }}">Groceries</a>
@@ -155,6 +157,14 @@
   </div>
   {% else %}
   <div class="card"><div class="empty"><strong>No wants</strong>Scan something new if you want it.</div></div>
+  {% endif %}
+{% elif view == 'all' %}
+  {% if all_items %}
+  <div class="card list">
+    {% for item in all_items %}{{ pantry_row(item, onhand=item.grocery and item.grocery.quantity and item.grocery.quantity > 0) }}{% endfor %}
+  </div>
+  {% else %}
+  <div class="card"><div class="empty"><strong>Nothing here</strong>Scan a box, or Add by name.</div></div>
   {% endif %}
 {% endif %}
 

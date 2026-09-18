@@ -156,6 +156,8 @@ def index():
     if view not in ("hand", "out", "want", "all"):
         view = "hand"
     rooms = _rooms(hand_items) if view == "hand" else {}
+    all_items = want_items + out_items + low_items + ok_items
+    all_items.sort(key=lambda i: ((i.name or "").lower()))
     return render_template(
         "groceries.html",
         items=q,
@@ -164,6 +166,7 @@ def index():
         low_items=low_items,
         ok_items=ok_items,
         hand_items=hand_items,
+        all_items=all_items,
         rooms=rooms,
         view=view,
         place=place,
