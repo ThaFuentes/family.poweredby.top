@@ -8,6 +8,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from app.utils.thumbs import https_url, item_thumb_url
+from app.utils.part_icons import icon_for, part_icon_key
 from app.utils.stay import same_site_path
 from app.utils.barcode_lookup import is_placeholder_name, parse_pack_count, upc_forms, catalog_code
 from app.utils.shelf_life import guess_shelf_days, is_meat
@@ -30,6 +31,7 @@ class RowPicMacroTests(unittest.TestCase):
             loader=FileSystemLoader(os.path.join(ROOT, "app", "templates")),
             autoescape=True,
         )
+        env.filters["part_icon"] = icon_for
         src = '{% from "partials/row_pic.html" import row_pic %}\n{{ row_pic(item) }}'
         tmpl = env.from_string(src)
         item = SimpleNamespace(
@@ -50,6 +52,7 @@ class RowPicMacroTests(unittest.TestCase):
             autoescape=True,
         )
         env.filters["qty_label"] = lambda v: str(v)
+        env.filters["part_icon"] = icon_for
         src = (
             '{% from "partials/row_pic.html" import row_pic %}\n'
             "{% macro pantry_row(item) %}"
@@ -66,6 +69,29 @@ class RowPicMacroTests(unittest.TestCase):
         html = tmpl.render(item=item)
         self.assertIn("2", html)
         self.assertIn("row-pic", html)
+
+
+class PartIconTests(unittest.TestCase):
+    def test_alternator_slot(self):
+        self.assertEqual(part_icon_key(slot="alternator"), "alternator")
+
+    def test_name_hint(self):
+        self.assertEqual(part_icon_key(name="Motorcraft alternator 130A"), "alternator")
+        self.assertEqual(part_icon_key(name="DieHard battery"), "battery")
+
+    def test_grocery_kind(self):
+        item = SimpleNamespace(
+            item_type="grocery",
+            name="DieHard Gold",
+            slot=None,
+            system=None,
+            grocery=SimpleNamespace(extra_data={"kind": "car_battery"}),
+        )
+        self.assertEqual(icon_for(item), "battery")
+
+    def test_cereal_stays_letter(self):
+        item = SimpleNamespace(item_type="grocery", name="Cheerios", grocery=None)
+        self.assertEqual(icon_for(item), "")
 
 
 class ShelfLifeTests(unittest.TestCase):

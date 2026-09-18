@@ -470,6 +470,14 @@ def apply_product_lookup(g, item, lookup: dict) -> None:
         from app.utils.thumbs import https_url
 
         g.image_url = https_url(str(lookup["image_url"])) or str(lookup["image_url"])[:500]
+        try:
+            from app.utils.stash_image import stash_url
+
+            ph = stash_url(item, g.image_url, caption=getattr(item, "name", None))
+            if ph:
+                g.image_url = f"/items/photo/{ph.id}"
+        except Exception:
+            pass
     extra = dict(g.extra_data or {})
     facts = lookup.get("facts") or {}
     if facts:

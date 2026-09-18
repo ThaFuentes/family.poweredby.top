@@ -3,6 +3,7 @@
 {% set label = name or (item.name if item else none) or '?' %}
 {% set g = item.grocery if item else none %}
 {% set pic = src or (g.image_url if g else none) %}
+{% set key = item|part_icon if item else none %}
 <span class="row-pic" aria-hidden="true">
   {% if pic %}
   <img src="{{ pic }}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">
@@ -12,6 +13,9 @@
   <img src="/items/photo/{{ p.id }}" alt="" loading="lazy" onerror="this.remove()">
       {% endif %}
     {% endfor %}
+  {% endif %}
+  {% if key %}
+  <svg><use href="#pi-{{ key }}"></use></svg>
   {% endif %}
   <span>{{ label[0]|upper }}</span>
 </span>

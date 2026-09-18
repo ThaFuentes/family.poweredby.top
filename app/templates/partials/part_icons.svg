@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true">
+  <symbol id="pi-battery" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="8" width="16" height="12" rx="1.5"/>
+    <path d="M7 8V6h3v2M13 8V6h3v2M19 12h2v4h-2"/>
+    <path d="M8 14h4M14 14h2"/>
+  </symbol>
+  <symbol id="pi-alternator" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="13" r="7"/>
+    <circle cx="12" cy="13" r="2.2"/>
+    <path d="M12 3v3M9 4.2l1.2 2.2M15 4.2l-1.2 2.2"/>
+    <path d="M12 10.2l1.4 2.4h-2.8z"/>
+  </symbol>
+  <symbol id="pi-starter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="11" cy="13" r="6"/>
+    <path d="M17 13h4M19 11v4"/>
+    <path d="M9 13h4M11 11v4"/>
+  </symbol>
+  <symbol id="pi-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 10c0-3.3 3.1-6 7-6s7 2.7 7 6v2H5v-2z"/>
+    <path d="M7 12v6h10v-6M9 20h6"/>
+    <path d="M20 9l2-1M20 13l2 1"/>
+  </symbol>
+  <symbol id="pi-radiator" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="4" y="5" width="16" height="14" rx="1.5"/>
+    <path d="M7 8v8M10 8v8M13 8v8M17 8v8"/>
+    <path d="M8 5V3h8v2"/>
+  </symbol>
+  <symbol id="pi-oil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 8h8l1 12H7L8 8z"/>
+    <path d="M10 8V5h4v3"/>
+    <path d="M12 13c1.2 0 2 .8 2 2 0 1.5-2 3-2 3s-2-1.5-2-3c0-1.2.8-2 2-2z"/>
+  </symbol>
+  <symbol id="pi-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 5h14l-5 7v6l-4 2v-8L5 5z"/>
+  </symbol>
+  <symbol id="pi-spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10 3h4v7l2 2v9H8v-9l2-2V3z"/>
+    <path d="M10 16h4"/>
+  </symbol>
+  <symbol id="pi-belt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="7" cy="12" r="3.5"/>
+    <circle cx="17" cy="12" r="2.5"/>
+    <path d="M10 9.4c2-.8 4-.8 6.2 0M10 14.6c2 .8 4 .8 6.2 0"/>
+  </symbol>
+  <symbol id="pi-tire" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="8"/>
+    <circle cx="12" cy="12" r="3.2"/>
+    <path d="M12 4v2.5M12 17.5V20M4 12h2.5M17.5 12H20"/>
+  </symbol>
+  <symbol id="pi-brake" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="7"/>
+    <circle cx="12" cy="12" r="3"/>
+    <path d="M5 7l2.2 2.2M19 7l-2.2 2.2M5 17l2.2-2.2M19 17l-2.2-2.2"/>
+  </symbol>
+  <symbol id="pi-exhaust" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 14h8c2 0 3-2 5-2h5"/>
+    <path d="M16 12v5a2 2 0 0 0 2 2h1"/>
+    <path d="M3 14v-2a2 2 0 0 1 2-2h3"/>
+  </symbol>
+  <symbol id="pi-radio" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="8" width="18" height="12" rx="1.5"/>
+    <circle cx="8" cy="14" r="2.2"/>
+    <path d="M13 12h6M13 16h4M8 8V5l8-2"/>
+  </symbol>
+  <symbol id="pi-pump" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="6" y="8" width="10" height="12" rx="1"/>
+    <path d="M10 8V5h6l2 3M16 12h4v4h-2"/>
+  </symbol>
+  <symbol id="pi-wiper" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 16c3-6 6-9 9-9s6 3 9 9"/>
+    <path d="M12 7v11M12 18l7-8"/>
+  </symbol>
+  <symbol id="pi-cog" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="3"/>
+    <path d="M12 4v2.2M12 17.8V20M4 12h2.2M17.8 12H20M6.3 6.3l1.6 1.6M16.1 16.1l1.6 1.6M6.3 17.7l1.6-1.6M16.1 7.9l1.6-1.6"/>
+  </symbol>
+  <symbol id="pi-engine" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 10h3l2-3h6l1 3h4v8H4v-8z"/>
+    <path d="M8 15h8M14 7V4"/>
+  </symbol>
+  <symbol id="pi-fuel" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="4" y="5" width="11" height="15" rx="1.5"/>
+    <path d="M15 9h2.5a2 2 0 0 1 2 2V16a2 2 0 1 0 2 0V9"/>
+    <path d="M7 9h5"/>
+  </symbol>
+  <symbol id="pi-hose" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 16c4-8 12-8 16 0"/>
+    <path d="M4 16v3M20 16v3"/>
+  </symbol>
+  <symbol id="pi-shock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3v5M9 8h6"/>
+    <path d="M10 8v8h4V8"/>
+    <path d="M8 16h8M12 16v5"/>
+  </symbol>
+</svg>

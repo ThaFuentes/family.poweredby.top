@@ -3,11 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>{% if shown %}{{ shown.label }}{% else %}Add a part{% endif %}</title>
+  <title>{% if focus %}{{ focus.name }}{% elif shown %}{{ shown.label }}{% else %}Add a part{% endif %}</title>
   <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
   {% include "partials/theme_head.html" %}
 </head>
 <body class="sheet-body">
+  {% include "partials/part_icons.svg" %}
+  {% from "partials/part_pic.html" import part_pic %}
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
       {% for category, message in messages %}
@@ -16,70 +18,112 @@
     {% endif %}
   {% endwith %}
 
-  {% if shown %}
+  {% if focus %}
+  <p class="muted" style="margin:0 0 .45rem">
+    {% if shown %}
+    <a href="{{ url_for('items.parts_sheet', item_id=item.id, system=shown.id) }}">{{ shown.label }}</a>
+    · on {{ item.name }}
+    {% else %}
+    {{ item.name }}
+    {% endif %}
+  </p>
+  <div class="btn-row" style="margin:0 0 .45rem;align-items:center">
+    {{ part_pic(focus, part_photos.get(focus.id), 'lg') }}
+    <h1 style="margin:0;font-size:1.25rem">{{ focus.name }}</h1>
+  </div>
+  <p class="muted">
+    {{ shown.label if shown else focus.system }} · {{ focus.slot.replace('_',' ') }}
+    {% if focus.installed_on %} · Added {{ focus.installed_on.strftime('%b') }} {{ focus.installed_on.day }}{% endif %}
+    {% if not focus.is_current %} · off it{% endif %}
+  </p>
+  {% if part_photos.get(focus.id) %}
+  <div class="photo-strip" style="margin:.55rem 0">
+    {% for ph in part_photos.get(focus.id) %}
+    <a href="{{ url_for('items.serve_photo', photo_id=ph.id) }}" target="_blank" rel="noopener">
+      <img src="{{ url_for('items.serve_photo', photo_id=ph.id) }}" alt="{{ ph.caption or focus.name }}">
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <div class="card">
+    <dl class="facts">
+      {% if focus.brand %}<div><dt>Brand</dt><dd>{{ focus.brand }}</dd></div>{% endif %}
+      {% if focus.spec %}<div><dt>Spec</dt><dd>{{ focus.spec }}</dd></div>{% endif %}
+      {% if focus.part_number %}<div><dt>Part #</dt><dd>{{ focus.part_number }}</dd></div>{% endif %}
+      {% if focus.source %}<div><dt>Store</dt><dd>{{ focus.source }}</dd></div>{% endif %}
+      {% if focus.cost %}<div><dt>Paid</dt><dd>${{ '%.2f'|format(focus.cost|float) }}</dd></div>{% endif %}
+      {% if focus.installed_mileage %}<div><dt>Miles</dt><dd>{{ '{:,}'.format(focus.installed_mileage) }}</dd></div>{% endif %}
+      {% if focus.notes %}<div><dt>Note</dt><dd style="white-space:pre-wrap">{{ focus.notes }}</dd></div>{% endif %}
+    </dl>
+  </div>
+  {% if can_maintain or can_edit %}
+  <details class="card add-fold sheet-add" id="update-part">
+    <summary>Update / note</summary>
+    <form method="post" action="{{ url_for('items.edit_part', item_id=item.id, part_id=focus.id) }}" enctype="multipart/form-data">
+      <input type="hidden" name="next" value="sheet">
+      <label>Name</label>
+      <input name="name" value="{{ focus.name }}">
+      <label>Brand</label>
+      <input name="brand" value="{{ focus.brand or '' }}">
+      <label>Spec</label>
+      <input name="spec" value="{{ focus.spec or '' }}">
+      <label>Installed on</label>
+      <input type="date" name="installed_on" value="{{ focus.installed_on or '' }}">
+      <label>Note</label>
+      <textarea name="part_notes" placeholder="How it comes off, the bolt…">{{ focus.notes or '' }}</textarea>
+      <label>Photo</label>
+      <input type="file" name="photo" accept="image/*" capture="environment">
+      <div class="btn-row"><button class="btn" type="submit">Save</button></div>
+    </form>
+  </details>
+  {% if focus.is_current %}
+  <p class="btn-row">
+    <a class="btn" href="{{ url_for('items.parts_sheet', item_id=item.id, system=shown.id if shown else focus.system, add=1, slot=focus.slot) }}">Replace this</a>
+  </p>
+  <form method="post" action="{{ url_for('items.retire_part', item_id=item.id, part_id=focus.id) }}" onsubmit="return confirm('Take {{ focus.name }} off {{ item.name }}?')">
+    <input type="hidden" name="next" value="sheet">
+    <button class="btn danger" type="submit">No longer on it</button>
+  </form>
+  {% endif %}
+  {% endif %}
+
+  {% elif shown %}
   <h1 style="margin:.2rem 0 .35rem;font-size:1.2rem">{{ shown.label }}</h1>
   <p class="muted">{{ shown.hint }}</p>
 
   <h2 style="margin:1rem 0 .35rem;font-size:1rem">On it now</h2>
-  {% for p in shown.on_it or shown.current %}
-  <article class="card" style="margin:.55rem 0" id="part-{{ p.id }}">
-    <div class="muted" style="font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;font-weight:800">{{ p.slot.replace('_',' ') }}</div>
-    <strong>{{ p.name }}</strong>
-    <div class="muted">
-      {% if p.brand %}{{ p.brand }}{% endif %}{% if p.spec %}{% if p.brand %} · {% endif %}{{ p.spec }}{% endif %}
-      {% if p.installed_on %} · Added {{ p.installed_on.strftime('%b') }} {{ p.installed_on.day }}{% endif %}
-    </div>
-    {% if can_maintain or can_edit %}
-    <details class="more">
-      <summary>Open</summary>
-      <p class="muted" style="margin:.35rem 0">
-        {% if p.installed_on %}Installed {{ p.installed_on }}{% endif %}
-        {% if p.installed_mileage %} · {{ p.installed_mileage }} mi{% endif %}
-        {% if p.source %} · {{ p.source }}{% endif %}
-        {% if p.notes %}<br>{{ p.notes }}{% endif %}
-      </p>
-      <form method="post" action="{{ url_for('items.edit_part', item_id=item.id, part_id=p.id) }}" enctype="multipart/form-data">
-        <input type="hidden" name="next" value="sheet">
-        <label>Name</label>
-        <input name="name" value="{{ p.name }}">
-        <label>Brand</label>
-        <input name="brand" value="{{ p.brand or '' }}">
-        <label>Spec</label>
-        <input name="spec" value="{{ p.spec or '' }}">
-        <label>Installed on</label>
-        <input type="date" name="installed_on" value="{{ p.installed_on or '' }}">
-        <label>This part only</label>
-        <textarea name="part_notes">{{ p.notes or '' }}</textarea>
-        <div class="btn-row"><button class="btn sm" type="submit">Save</button></div>
-      </form>
-      <form method="post" action="{{ url_for('items.retire_part', item_id=item.id, part_id=p.id) }}" style="margin-top:.4rem" onsubmit="return confirm('Take {{ p.name }} off this system?')">
-        <input type="hidden" name="next" value="sheet">
-        <button class="btn sm danger" type="submit">Take it off</button>
-      </form>
-    </details>
-    {% endif %}
-  </article>
+  {% set now_parts = shown.current or shown.on_it or [] %}
+  {% if now_parts %}
+  <div class="card list">
+    {% for p in now_parts %}
+    <a class="row part-open-row" href="{{ url_for('items.parts_sheet', item_id=item.id, system=shown.id, part=p.id) }}">
+      {{ part_pic(p, part_photos.get(p.id)) }}
+      <div>
+        <strong>{{ p.name }}</strong>
+        <div class="muted">
+          {{ p.slot.replace('_',' ') }}
+          {% if p.installed_on %} · Added {{ p.installed_on.strftime('%b') }} {{ p.installed_on.day }}{% endif %}
+          {% if p.status == 'spare' %} · spare{% endif %}
+          {% if p.brand %} · {{ p.brand }}{% endif %}
+        </div>
+      </div>
+      <span class="badge">Open</span>
+    </a>
+    {% endfor %}
+  </div>
   {% else %}
-  <p class="muted">Nothing on this system yet.</p>
-  {% endfor %}
-
-  {% if shown.spares %}
-  <p class="muted" style="margin:.7rem 0 .2rem">Spares</p>
-  {% for p in shown.spares %}
-  <div class="muted" style="padding:.35rem 0">{{ p.name }}{% if p.brand %} · {{ p.brand }}{% endif %}</div>
-  {% endfor %}
+  <p class="muted">Nothing on this system yet. Tap add when you put something on it.</p>
   {% endif %}
 
   {% if shown.history %}
   <details class="more">
     <summary>History ({{ shown.history|length }})</summary>
     {% for p in shown.history %}
-    <div class="muted" style="padding:.45rem 0;border-top:1px solid var(--edge)">
+    <a class="muted" style="display:block;padding:.45rem 0;border-top:1px solid var(--edge);color:inherit" href="{{ url_for('items.parts_sheet', item_id=item.id, system=shown.id, part=p.id) }}">
       <strong>{{ p.name }}</strong>
       · {{ p.slot.replace('_',' ') }}
       · {% if p.id in (shown.replaced_ids or []) %}replaced{% if p.removed_on %} {{ p.removed_on.strftime('%b') }} {{ p.removed_on.day }}{% endif %}{% elif p.removed_on %}took it off {{ p.removed_on.strftime('%b') }} {{ p.removed_on.day }}{% else %}took it off{% endif %}
-      {% if p.spec %} · {{ p.spec }}{% endif %}
-    </div>
+    </a>
     {% endfor %}
   </details>
   {% endif %}
@@ -88,11 +132,12 @@
   <p class="muted">What it is, when it went on. Replace moves the old one to History.</p>
   {% endif %}
 
-  {% if can_maintain or can_edit %}
-  <details class="add-fold card" id="add-part-fold" {% if not shown or not shown.on_it %}open{% endif %}>
-    <summary>{% if shown and shown.on_it %}Replace / add part{% else %}Add a part{% endif %}</summary>
+  {% if not focus and (can_maintain or can_edit) %}
+  <details class="card sheet-add" id="add-part-fold" {% if open_add or not shown %}open{% endif %}>
+    <summary>+ Add a part</summary>
   <form id="part-form" method="post" action="{{ url_for('items.add_part', item_id=item.id) }}" enctype="multipart/form-data" autocomplete="off">
     <input type="hidden" name="next" value="sheet">
+    <p class="muted">Saves onto this vehicle, then this sheet shows that part.</p>
     <label>System</label>
     <select name="system" id="part-system">
       {% for s in systems_catalog %}
@@ -114,8 +159,8 @@
     <input name="installed_mileage" inputmode="numeric" value="{{ (item.vehicle.current_mileage if item.vehicle else '') }}">
     {% endif %}
     <input type="hidden" name="replace_current" value="0">
-    <label class="cal-check"><input type="checkbox" name="replace_current" id="replace-current" value="1" checked> Replace what’s on it?</label>
-    <p class="muted" id="replace-hint" style="margin:.15rem 0 .55rem">On: the old one moves to History with today’s date. Off: add alongside.</p>
+    <label class="cal-check"><input type="checkbox" name="replace_current" id="replace-current" value="1" {% if open_add %}checked{% endif %}> Replace what’s on it?</label>
+    <p class="muted" id="replace-hint" style="margin:.15rem 0 .55rem">On: the old one moves to History. Off: add alongside.</p>
     <label>On it now or spare</label>
     <select name="status" id="part-status">
       <option value="installed">On it now</option>
@@ -141,6 +186,11 @@
 
   <script>
   (function () {
+    try {
+      if (window.parent && window.parent !== window && document.querySelector(".flash")) {
+        window.parent.postMessage({ family: "sheet-saved" }, "*");
+      }
+    } catch (e) {}
     const catalog = {{ systems_catalog|tojson }};
     const currentMap = {{ current_map|tojson }};
     const sys = document.getElementById("part-system");
@@ -190,9 +240,9 @@
         replaceBox.disabled = statusEl.value !== "installed";
       });
     }
-    fillSlots({{ (shown.empty_slots[0].id if shown and shown.empty_slots else (shown.on_it[0].slot if shown and shown.on_it else ''))|tojson }});
+    fillSlots({{ (add_slot or (shown.empty_slots[0].id if shown and shown.empty_slots else (shown.on_it[0].slot if shown and shown.on_it else '')))|tojson }});
   })();
   </script>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=os14"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=os15"></script>
 </body>
 </html>

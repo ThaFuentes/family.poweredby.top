@@ -59,9 +59,12 @@
     }
   }
 
+  var sheetDirty = false;
   function closeSheet() {
     var overlay = document.getElementById("sheet-overlay");
     var frame = document.getElementById("sheet-frame");
+    var reload = sheetDirty;
+    sheetDirty = false;
     if (!overlay || overlay.hidden) return;
     overlay.hidden = true;
     if (frame) {
@@ -69,7 +72,12 @@
       frame.hidden = true;
     }
     document.body.classList.remove("sheet-open");
+    if (reload && location.pathname.indexOf("/items/") === 0) location.reload();
   }
+  window.addEventListener("message", function (e) {
+    if (!e.data || e.data.family !== "sheet-saved") return;
+    sheetDirty = true;
+  });
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape") closeSheet();
   });

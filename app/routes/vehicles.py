@@ -148,6 +148,14 @@ def add_part(item_id):
         replace_current=_vehicle_want_replace(status),
     )
     nfiles = attach_part_uploads(item, row, current_user.id)
+    if not nfiles and row:
+        try:
+            from app.utils.stash_image import stash_part_picture
+
+            if stash_part_picture(item, row, current_user.id):
+                nfiles = 1
+        except Exception:
+            pass
     db.session.commit()
     extra = f" {nfiles} file(s)." if nfiles else ""
     shown = (row.name if row else name) or "Part"

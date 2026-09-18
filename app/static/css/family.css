@@ -230,6 +230,21 @@ h2 { font-size: 1.02rem; margin: 1.15rem 0 .55rem; letter-spacing: -0.02em; }
   overflow: hidden;
 }
 .row-pic span { line-height: 1; }
+.row-pic svg {
+  position: relative;
+  z-index: 1;
+  width: 62%;
+  height: 62%;
+  color: var(--green);
+}
+.row-pic:has(img) svg { display: none; }
+.row-pic:has(svg) > span { display: none; }
+.part-icon.lg {
+  width: 3.6rem;
+  height: 3.6rem;
+  flex-basis: 3.6rem;
+  border-radius: 1rem;
+}
 .row-pic img {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
@@ -1456,6 +1471,39 @@ html.family-intro-out #family-intro{opacity:0;transition:opacity .4s ease}
 .followup:last-child { border-bottom: 0; }
 .followup strong { display: block; margin: .15rem 0 0; }
 .log-totals .qty { margin: 0 0 .2rem; }
+.part-open-row {
+  width: 100%;
+  text-align: left;
+  background: var(--btn-2);
+  border: 1.5px solid var(--btn-edge);
+  border-radius: .9rem;
+  color: var(--btn-2-ink);
+  font: inherit;
+  cursor: pointer;
+  margin: .4rem 0;
+  padding: .75rem .85rem;
+}
+.part-open-row:hover { background: var(--green-soft); }
+.sheet-add {
+  margin-top: 1rem;
+  padding: .7rem .85rem;
+}
+.sheet-add > summary {
+  list-style: none;
+  cursor: pointer;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--btn);
+  border: 1.5px solid var(--btn);
+  border-radius: .85rem;
+  padding: .7rem 1rem;
+  min-height: 2.75rem;
+}
+.sheet-add > summary::-webkit-details-marker { display: none; }
+.sheet-add[open] > summary { margin-bottom: .65rem; }
 .landing-brand {
   display: flex; align-items: center; gap: .75rem; color: var(--ink); min-width: 0;
 }

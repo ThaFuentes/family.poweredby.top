@@ -123,10 +123,15 @@ def _item_or_404(item_id):
     return scoped(Item).filter_by(id=item_id).first_or_404()
 
 
-def _parts_sheet_url(item, system=""):
+def _parts_sheet_url(item, system="", part_id=None, add=False):
+    kwargs = {"item_id": item.id}
     if system:
-        return url_for("items.parts_sheet", item_id=item.id, system=system)
-    return url_for("items.parts_sheet", item_id=item.id)
+        kwargs["system"] = system
+    if part_id:
+        kwargs["part"] = part_id
+    if add:
+        kwargs["add"] = 1
+    return url_for("items.parts_sheet", **kwargs)
 
 
 def _calm_systems_flag() -> bool:
@@ -144,9 +149,9 @@ def _want_replace(status: str) -> bool:
     return str(vals[-1]).strip().lower() not in ("0", "false", "off", "no")
 
 
-def _after_part_change(item, system=""):
+def _after_part_change(item, system="", part_id=None):
     if (request.form.get("next") or "").strip() == "sheet":
-        return redirect(_parts_sheet_url(item, system))
+        return redirect(_parts_sheet_url(item, system, part_id=part_id))
     return redirect(url_for("items.detail", item_id=item.id, tab="systems") + (f"#sys-{system}" if system else ""))
 
 
@@ -1242,6 +1247,15 @@ def parts_sheet(item_id):
     want = (request.args.get("system") or "").strip()
     picked = [s for s in systems if s["id"] == want]
     shown = picked[0] if picked else None
+    focus_id = (request.args.get("part") or "").strip()
+    focus = None
+    if shown and focus_id:
+        for p in (shown.get("current") or []) + (shown.get("history") or []):
+            if str(getattr(p, "id", "")) == str(focus_id):
+                focus = p
+                break
+    open_add = (request.args.get("add") or "").strip().lower() in ("1", "yes", "true")
+    add_slot = (request.args.get("slot") or "").strip()
     part_photos = {}
     for ph in PhotoNote.query.filter_by(household_id=household_id(), item_id=item.id).all():
         if ph.part_id:
@@ -1268,6 +1282,9 @@ def parts_sheet(item_id):
         today=date.today().isoformat(),
         current_map=current_map,
         calm_systems=_calm_systems_flag(),
+        focus=focus,
+        open_add=open_add,
+        add_slot=add_slot,
     )
 
 
@@ -1327,6 +1344,14 @@ def add_part(item_id):
             **_part_shop_fields(),
         )
     nfiles = attach_part_uploads(item, row, current_user.id)
+    if not nfiles and row:
+        try:
+            from app.utils.stash_image import stash_part_picture
+
+            if stash_part_picture(item, row, current_user.id):
+                nfiles = 1
+        except Exception:
+            pass
     _remember_part_source(item, request.form.get("source"))
     extra = f" {nfiles} file(s)." if nfiles else ""
     shown = (row.name if row else name) or "Part"
@@ -1346,7 +1371,7 @@ def add_part(item_id):
         pass
     db.session.commit()
     flash(f"{shown} is on {item.name}.{extra} Store name stays for the next one.", "success")
-    return _after_part_change(item, row.system if row else "")
+    return _after_part_change(item, row.system if row else "", part_id=row.id if row else None)
 
 
 @items_bp.route("/<int:item_id>/parts/<int:part_id>/retire", methods=["POST"])
@@ -1427,7 +1452,7 @@ def edit_part(item_id, part_id):
     nfiles = attach_part_uploads(item, row, current_user.id)
     db.session.commit()
     flash(f"{row.name} updated." + (f" {nfiles} file(s)." if nfiles else ""), "success")
-    return _after_part_change(item, row.system)
+    return _after_part_change(item, row.system, part_id=row.id)
 
 
 @items_bp.route("/<int:item_id>/delete", methods=["POST"])

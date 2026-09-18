@@ -1,8 +1,9 @@
+{% from "partials/part_pic.html" import part_pic %}
 <p class="muted" style="margin:0 0 .55rem">Scan for this {% if systems_host == 'house' %}house{% else %}vehicle{% endif %}.</p>
 
 {% if can_maintain or can_edit %}
 <p class="btn-row" style="margin:0 0 .75rem">
-  <button type="button" class="btn sm outline" data-sheet="{{ url_for('items.parts_sheet', item_id=item.id) }}" data-sheet-title="Add a part">+ Add part</button>
+  <button type="button" class="btn sm outline" data-sheet="{{ url_for('items.parts_sheet', item_id=item.id, add=1) }}" data-sheet-title="Add a part">+ Add part</button>
 </p>
 {% endif %}
 
@@ -12,7 +13,8 @@
     {% for row in on_it_now %}
       {% set s = row.system %}
       {% set p = row.part %}
-      <button type="button" class="row" style="width:100%;text-align:left;background:none;border:0;font:inherit;color:inherit;cursor:pointer" data-sheet="{{ url_for('items.parts_sheet', item_id=item.id, system=s.id) }}" data-sheet-title="{{ s.label }}">
+      <button type="button" class="row part-open-row" data-sheet="{{ url_for('items.parts_sheet', item_id=item.id, system=s.id, part=p.id) }}" data-sheet-title="{{ p.name }}">
+        {{ part_pic(p, part_photos.get(p.id) if part_photos else none) }}
         <div>
           <strong>{{ p.name }}</strong>
           <div class="muted">{{ s.label }}{% if p.installed_on %} · Added {{ p.installed_on.strftime('%b') }} {{ p.installed_on.day }}{% endif %}</div>

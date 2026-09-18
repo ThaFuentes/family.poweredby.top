@@ -1,0 +1,11 @@
+{# Photo if we have one. Else a free line icon for that part. #}
+{% macro part_pic(part, photos=None, size='') %}
+{% set key = part|part_icon %}
+{% set shots = photos or [] %}
+<span class="row-pic part-icon {{ size }}" aria-hidden="true">
+  {% if shots %}
+  <img src="{{ url_for('items.serve_photo', photo_id=shots[0].id) }}" alt="" loading="lazy" onerror="this.remove()">
+  {% endif %}
+  <svg><use href="#pi-{{ key }}"></use></svg>
+</span>
+{% endmacro %}
