@@ -122,6 +122,7 @@
       {% if item.vehicle.transmission %}<p>Transmission: {{ item.vehicle.transmission }}</p>{% endif %}
       <p>Mileage: {% if item.vehicle.current_mileage %}{{ '{:,}'.format(item.vehicle.current_mileage) }}{% else %}—{% endif %}
         {% if log_stats.last_mpg %} · last fill <strong>{{ log_stats.last_mpg }} mpg</strong>{% endif %}
+        {% if log_stats.active_codes %} · codes {% for c in log_stats.active_codes %}<a href="{{ url_for('items.detail', item_id=item.id, tab='log') }}">{{ c.title }}</a>{% if not loop.last %} {% endif %}{% endfor %}{% endif %}
         · Last oil: {{ item.vehicle.last_oil_change_date or '—' }}
         @ {{ item.vehicle.last_oil_change_mileage or '—' }}</p>
       {% if can_scan or can_maintain or can_edit %}
@@ -129,6 +130,7 @@
         <input name="mileage" inputmode="numeric" placeholder="87432" value="{{ item.vehicle.current_mileage or '' }}" style="max-width:9rem">
         <button class="btn" type="submit">Log miles</button>
         <a class="btn outline" href="{{ url_for('items.detail', item_id=item.id, tab='log') }}#add-log">Fill-up</a>
+        <a class="btn outline" href="{{ url_for('items.detail', item_id=item.id, tab='log') }}#add-log">Error code</a>
       </form>
       {% endif %}
       <div class="btn-row">
@@ -325,11 +327,11 @@
 
   {% if can_scan or can_maintain or can_edit or can_photo %}
   <details class="card add-fold" id="add-log">
-  <summary>Log {% if item.item_type=='vehicle' %}miles, fill-up, repair{% elif item.item_type=='tool' %}hours, fill-up, repair{% else %}a repair or note{% endif %}</summary>
+  <summary>Log {% if item.item_type=='vehicle' %}miles, fill-up, code, repair{% elif item.item_type=='tool' %}hours, fill-up, repair{% else %}a repair or note{% endif %}</summary>
   <form method="post" action="{{ url_for('items.add_log', item_id=item.id) }}" enctype="multipart/form-data">
     <label>This is</label>
     <select name="kind" id="log-kind">
-      {% if item.item_type == 'vehicle' %}<option value="miles">Miles</option><option value="fillup">Fill-up</option>{% endif %}
+      {% if item.item_type == 'vehicle' %}<option value="miles">Miles</option><option value="fillup">Fill-up</option><option value="code">Error code</option>{% endif %}
       {% if item.item_type == 'tool' %}<option value="hours">Hours</option><option value="fillup">Fill-up</option>{% endif %}
       <option value="repair">Repair / service</option>
       <option value="note">Note</option>
@@ -352,6 +354,16 @@
       <input name="station" placeholder="Costco, Shell">
       <input name="octane" placeholder="87" style="max-width:5rem">
     </div>
+    {% if item.item_type == 'vehicle' %}
+    <label>Error code (P0420, or several)</label>
+    <input name="code" placeholder="P0420 P0171" autocapitalize="characters">
+    <label>Code status</label>
+    <select name="code_status">
+      <option value="active">Active — light is on</option>
+      <option value="pending">Pending</option>
+      <option value="cleared">Cleared / went away</option>
+    </select>
+    {% endif %}
     <label>What / notes</label>
     <input name="title" placeholder="Oil change, new belt, pump receipt">
     <textarea name="notes" placeholder="What you did. Keep it short."></textarea>
@@ -372,6 +384,7 @@
           {% elif row.kind == 'miles' %}{{ '{:,.0f}'.format(row.reading|float) }} miles
           {% elif row.kind == 'hours' %}{{ row.reading }} hours
           {% elif row.kind == 'repair' %}{{ row.title or 'Repair' }}
+          {% elif row.kind == 'code' %}{{ row.title }}{% if row.extra_data and row.extra_data.get('meaning') %} · {{ row.extra_data.get('meaning') }}{% endif %}
           {% else %}{{ row.title or 'Note' }}{% endif %}
         </strong>
         <div class="muted">
@@ -382,6 +395,12 @@
             {% if row.reading %} · {{ '{:,.0f}'.format(row.reading|float) }} mi{% endif %}
             {% if row.extra_data and row.extra_data.get('station') %} · {{ row.extra_data.get('station') }}{% endif %}
           {% elif row.kind == 'repair' and row.reading %} · {{ row.reading }}{% endif %}
+          {% if row.kind == 'code' %}
+            {% if row.reading %} · {{ '{:,.0f}'.format(row.reading|float) }} mi{% endif %}
+            {% if row.extra_data and row.extra_data.get('status') %} · {{ row.extra_data.get('status') }}{% endif %}
+            {% if row.extra_data and row.extra_data.get('used_ai') %} · AI{% endif %}
+            {% if row.extra_data and row.extra_data.get('likely') %}<br>{{ row.extra_data.get('likely') }}{% endif %}
+          {% endif %}
           {% if row.notes %} · {{ row.notes }}{% endif %}
         </div>
         {% if log_photos.get(row.id) %}

@@ -8,6 +8,7 @@ from app.builddb.table_grocery_items import GroceryItem
 from app.builddb.table_items import Item
 from app.builddb.table_legal_cases import LegalCase, case_label
 from app.builddb.table_legal_records import LegalRecord
+from app.builddb.table_item_logs import ItemLog
 from app.builddb.table_notes import Note
 from app.builddb.table_tools import Tool
 from app.builddb.table_vehicle_parts import VehiclePart
@@ -87,6 +88,7 @@ def search_household(household_id: int, q: str, *, user_id: int, limit: int = 40
         "case_rows": [],
         "part_hosts": {},
         "part_where": {},
+        "code_rows": [],
     }
     if not toks:
         return empty
@@ -170,6 +172,22 @@ def search_household(household_id: int, q: str, *, user_id: int, limit: int = 40
         }
     part_where = {p.id: _part_where(p, hosts.get(p.vehicle_item_id)) for p in part_rows}
 
+    code_rows = []
+    if scope in ("all", "vehicles"):
+        log_hits = (
+            ItemLog.query.filter_by(household_id=household_id, kind="code")
+            .order_by(ItemLog.happened_on.desc(), ItemLog.id.desc())
+            .limit(200)
+            .all()
+        )
+        for r in log_hits:
+            extra = r.extra_data if isinstance(r.extra_data, dict) else {}
+            blob = f"{r.title or ''} {extra.get('meaning') or ''} {extra.get('likely') or ''} {extra.get('code') or ''}".lower()
+            if all(t in blob for t in toks):
+                code_rows.append(r)
+            if len(code_rows) >= 20:
+                break
+
     needle = (q or "").strip().lower()
     notes, legal, case_rows = [], [], []
     if scope == "all":
@@ -230,4 +248,5 @@ def search_household(household_id: int, q: str, *, user_id: int, limit: int = 40
         "case_rows": case_rows,
         "part_hosts": hosts,
         "part_where": part_where,
+        "code_rows": code_rows,
     }

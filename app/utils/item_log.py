@@ -153,6 +153,17 @@ def log_stats(item) -> dict:
         reading = item.vehicle.current_mileage
     elif item.item_type == "tool" and item.tool:
         reading = item.tool.hours_used
+    codes = [r for r in rows if r.kind == "code"]
+    latest = {}
+    for r in codes:
+        key = (r.title or "").upper()
+        if key and key not in latest:
+            latest[key] = r
+    active_codes = [
+        r
+        for r in latest.values()
+        if (r.extra_data or {}).get("status") != "cleared"
+    ]
     return {
         "reading": reading,
         "last_fill": last_fill,
@@ -165,4 +176,5 @@ def log_stats(item) -> dict:
         "year_mpg": avg(year_mpg),
         "year": year,
         "count": len(rows),
+        "active_codes": active_codes,
     }

@@ -1121,6 +1121,62 @@ def add_log(item_id):
     if octane:
         extra["octane"] = octane
     reading = request.form.get("reading") or request.form.get("mileage") or request.form.get("hours")
+    title = request.form.get("title") or request.form.get("type") or request.form.get("code")
+    if kind == "code":
+        from app.builddb.table_households import Household
+        from app.utils.dtc import lookup_dtc, parse_dtcs
+
+        blob = " ".join(filter(None, [title, request.form.get("notes"), request.form.get("code")]))
+        codes = parse_dtcs(blob)
+        if not codes and (title or "").strip():
+            codes = [(title or "").strip().upper()[:12]]
+        if not codes:
+            flash("Type a code like P0420.", "danger")
+            return redirect(url_for("items.detail", item_id=item.id, tab="log"))
+        household = Household.query.get(item.household_id)
+        status = (request.form.get("code_status") or "active").strip().lower()
+        if status not in ("active", "pending", "cleared"):
+            status = "active"
+        last = None
+        for code in codes:
+            info = lookup_dtc(code, vehicle=item.vehicle, household=household)
+            payload = dict(extra)
+            payload.update(info)
+            payload["code"] = code
+            payload["status"] = status
+            last = add_item_log(
+                item,
+                kind="code",
+                user_id=current_user.id,
+                reading=reading,
+                notes=request.form.get("notes") or request.form.get("body"),
+                title=code,
+                happened_on=happened,
+                extra=payload,
+            )
+        row = last
+        files = request.files.getlist("photo") or []
+        if not files:
+            one = request.files.get("photo")
+            files = [one] if one else []
+        for upload in files:
+            save_item_photo(
+                item,
+                upload,
+                request.form.get("caption") or (row.title if row else None),
+                current_user.id,
+                kind="photo",
+                log_id=row.id if row else None,
+            )
+        db.session.commit()
+        used = (row.extra_data or {}).get("used_ai") if row and isinstance(row.extra_data, dict) else False
+        flash(
+            ("Looked up " if used else "Logged ")
+            + ", ".join(codes)
+            + ("." if used else ". Turn AI on in Household to explain the code."),
+            "success",
+        )
+        return redirect(url_for("items.detail", item_id=item.id, tab="log"))
     row = add_item_log(
         item,
         kind=kind,
@@ -1129,7 +1185,7 @@ def add_log(item_id):
         gallons=request.form.get("gallons"),
         cost=request.form.get("cost"),
         notes=request.form.get("notes") or request.form.get("body"),
-        title=request.form.get("title") or request.form.get("type"),
+        title=title,
         happened_on=happened,
         extra=extra or None,
     )

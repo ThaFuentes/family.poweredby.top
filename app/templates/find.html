@@ -20,7 +20,7 @@
     {% endfor %}
   </div>
 </form>
-{% if q and not hits.item_rows and not hits.note_rows and not hits.part_rows and not hits.legal_rows and not hits.case_rows %}
+{% if q and not hits.item_rows and not hits.note_rows and not hits.part_rows and not hits.legal_rows and not hits.case_rows and not hits.code_rows %}
 <div class="card"><div class="empty"><strong>Nothing matches</strong>Try a shorter word.</div></div>
 {% endif %}
 {% if hits.item_rows %}
@@ -48,6 +48,20 @@
         <div class="muted">{{ hits.part_where.get(p.id) or (p.system ~ ' · ' ~ p.slot.replace('_',' ')) }}{% if p.model %} · {{ p.model }}{% endif %}{% if p.brand %} · {{ p.brand }}{% endif %}{% if p.serial_number %} · SN {{ p.serial_number }}{% endif %}{% if p.asset_id %} · ID {{ p.asset_id }}{% endif %}{% if not p.is_current %} · off it{% endif %}</div>
       </div>
       <span class="badge">Open</span>
+    </a>
+  {% endfor %}
+</div>
+{% endif %}
+{% if hits.code_rows %}
+<h2>Error codes</h2>
+<div class="card list">
+  {% for r in hits.code_rows %}
+    <a class="row" href="{{ url_for('items.detail', item_id=r.item_id, tab='log') }}">
+      <div>
+        <strong>{{ r.title }}{% if r.extra_data and r.extra_data.get('meaning') %} · {{ r.extra_data.get('meaning') }}{% endif %}</strong>
+        <div class="muted">{{ r.happened_on or '' }}{% if r.extra_data and r.extra_data.get('status') %} · {{ r.extra_data.get('status') }}{% endif %}{% if r.extra_data and r.extra_data.get('likely') %} · {{ r.extra_data.get('likely') }}{% endif %}</div>
+      </div>
+      <span class="badge">Code</span>
     </a>
   {% endfor %}
 </div>

@@ -1,13 +1,14 @@
 from app.builddb.builddb import db, evolve_table
 from app.utils.crypto import EncryptedText
 
-LOG_KINDS = ("miles", "hours", "fillup", "repair", "note")
+LOG_KINDS = ("miles", "hours", "fillup", "repair", "note", "code")
 LOG_LABELS = {
     "miles": "Miles",
     "hours": "Hours",
     "fillup": "Fill-up",
     "repair": "Repair",
     "note": "Note",
+    "code": "Error code",
 }
 
 
