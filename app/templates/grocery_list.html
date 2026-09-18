@@ -3,12 +3,14 @@
 {% block title %}Basket · Family OS{% endblock %}
 
 {% macro basket_row(row) %}
-  <label class="basket-row" data-entry-id="{{ row.id }}">
+  <div class="basket-row" data-entry-id="{{ row.id }}">
     {% if can_check %}
-    <input type="checkbox" class="basket-check" data-toggle="{{ row.id }}" {% if row.status == 'done' %}checked{% endif %}>
+    <label class="basket-check-wrap">
+      <input type="checkbox" class="basket-check" data-toggle="{{ row.id }}" {% if row.status == 'done' %}checked{% endif %} aria-label="Got {{ row.name }}">
+    </label>
     {% endif %}
     {{ row_pic(src=row.image_url, name=row.name) }}
-    <span>
+    <span class="basket-copy">
       <strong>{{ row.name }}</strong>
       <span class="muted">
         {% if row.added_reason == 'out' %}Had it — now out
@@ -19,21 +21,27 @@
         {% if row.quantity_needed %} · get {{ row.quantity_needed|qty_label }}{% endif %}
       </span>
     </span>
+    {% if can_check %}
+    <button type="button" class="btn sm secondary basket-drop" data-drop="{{ row.id }}" aria-label="Take {{ row.name }} off the basket">Drop</button>
+    {% endif %}
     <noscript>
       {% if can_check %}
       <form method="post" action="{{ url_for('groceries.list_done', entry_id=row.id) }}">
         <button class="btn sm secondary" type="submit">Got it</button>
       </form>
+      <form method="post" action="{{ url_for('groceries.list_remove', entry_id=row.id) }}">
+        <button class="btn sm secondary" type="submit">Drop</button>
+      </form>
       {% endif %}
     </noscript>
-  </label>
+  </div>
 {% endmacro %}
 
 {% block content %}
 <div class="page-head">
   <div>
     <h1>Basket</h1>
-    <p>Check it off as you walk. Scan the box to mark it got.</p>
+    <p>Check it off when you got it. Drop takes it off the list without adding stock.</p>
   </div>
   {% if can_add %}
   <a class="btn sm" href="#add-want" data-open-fold="add-want">Add</a>
@@ -71,5 +79,5 @@
 {% endif %}
 {% endblock %}
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/basket.js') }}?v=os1"></script>
+<script src="{{ url_for('static', filename='js/basket.js') }}?v=os2"></script>
 {% endblock %}

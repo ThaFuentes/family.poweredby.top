@@ -378,9 +378,16 @@ def list_toggle(entry_id):
 
 @groceries_bp.route("/list/<int:entry_id>/remove", methods=["POST"])
 @login_required
-@require_perm("edit_grocery")
 def list_remove(entry_id):
+    if not (can("scan") or can("edit_grocery")):
+        if request.headers.get("X-Requested-With") == "fetch":
+            return jsonify({"error": "not allowed"}), 403
+        flash("Ask a grown-up to take that off.", "warning")
+        return redirect(url_for("groceries.grocery_list"))
     row = scoped(GroceryListEntry).filter_by(id=entry_id).first_or_404()
     db.session.delete(row)
     db.session.commit()
+    if request.is_json or request.headers.get("X-Requested-With") == "fetch":
+        return jsonify({"ok": True, "id": entry_id, "removed": True})
+    flash("Off the basket. Stock is unchanged.", "info")
     return redirect(url_for("groceries.grocery_list"))

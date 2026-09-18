@@ -44,19 +44,25 @@
       html += "<h2>" + title + "</h2><div class=\"card list basket-list\" data-group=\"" + group + "\">";
       list.forEach(function (r) {
         html +=
-          '<label class="basket-row" data-entry-id="' +
+          '<div class="basket-row" data-entry-id="' +
           r.id +
-          '"><input type="checkbox" class="basket-check" data-toggle="' +
+          '"><label class="basket-check-wrap"><input type="checkbox" class="basket-check" data-toggle="' +
           r.id +
-          '">' +
+          '" aria-label="Got ' +
+          encode(r.name || "") +
+          '"></label>' +
           picHtml(r) +
-          "<span><strong>" +
+          '<span class="basket-copy"><strong>' +
           encode(r.name || "") +
           '</strong><span class="muted">' +
           reasonText(r.reason) +
           (r.quantity_needed ? " · get " + r.quantity_needed : "") +
           (r.place ? " · " + r.place : "") +
-          "</span></span></label>";
+          '</span></span><button type="button" class="btn sm secondary basket-drop" data-drop="' +
+          r.id +
+          '" aria-label="Take ' +
+          encode(r.name || "") +
+          ' off the basket">Drop</button></div>';
       });
       html += "</div>";
     }
@@ -95,10 +101,32 @@
     }
   }
 
+  async function drop(id) {
+    try {
+      await fetch("/groceries/list/" + id + "/remove", {
+        method: "POST",
+        headers: {
+          "X-CSRF-Token": csrfToken(),
+          "X-Requested-With": "fetch",
+        },
+      });
+      await refresh();
+    } catch (e) {
+      await refresh();
+    }
+  }
+
   root.addEventListener("change", function (e) {
     const box = e.target.closest("[data-toggle]");
     if (!box) return;
     toggle(box.getAttribute("data-toggle"), box.checked);
+  });
+  root.addEventListener("click", function (e) {
+    const btn = e.target.closest("[data-drop]");
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    drop(btn.getAttribute("data-drop"));
   });
 
   window.addEventListener("family-basket-refresh", refresh);

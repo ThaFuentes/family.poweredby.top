@@ -1128,13 +1128,16 @@ body.platform { padding-bottom: 1.5rem; }
 .basket-row {
   display: flex; align-items: center; gap: .85rem;
   padding: .95rem .85rem; border-bottom: 1px solid var(--edge);
-  cursor: pointer; min-height: 3.6rem;
+  min-height: 3.6rem;
 }
 .basket-row:last-child { border-bottom: 0; }
 .basket-row strong { display: block; }
+.basket-copy { min-width: 0; flex: 1; }
+.basket-check-wrap { display: flex; margin: 0; }
 .basket-check {
   width: 1.55rem; height: 1.55rem; flex-shrink: 0; accent-color: var(--green);
 }
+.basket-drop { flex: 0 0 auto; }
 .basket-row.got { opacity: .45; text-decoration: line-through; }
 .more-sheet {
   position: fixed;
