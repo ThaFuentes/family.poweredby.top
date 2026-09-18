@@ -831,8 +831,14 @@ def _install_prompt(item, g, host) -> dict:
     extra = g.extra_data if g is not None and isinstance(g.extra_data, dict) else {}
     kind = extra.get("kind") or item.category or ""
     system, slot = guess_slot(kind, name=item.name or "", category=item.category or "")
-    if host.item_type == "house" and ("filter" in (item.name or "").lower() or kind in ("filter", "hvac_filter")):
-        system, slot = "hvac", "filter"
+    house_slots = None
+    sys_lab = None
+    if host.item_type == "house":
+        from app.utils.house_systems import HOUSE_SLOTS, guess_house_slot, house_system_label
+
+        house_slots = HOUSE_SLOTS
+        system, slot = guess_house_slot(item.name or "", kind)
+        sys_lab = house_system_label(system)
     payload = grocery_payload(g, item, action="check") if g is not None else {
         "message": f"{item.name} — add to {host.name}?",
         "name": item.name,
@@ -851,8 +857,8 @@ def _install_prompt(item, g, host) -> dict:
             "kind": kind,
             "system": system,
             "slot": slot,
-            "system_label": system_label(system),
-            "slot_label": slot_label(system, slot),
+            "system_label": sys_lab or system_label(system),
+            "slot_label": slot_label(system, slot, house_slots),
             "message": f"{item.name} — did you install it on {host.name}?",
         }
     )

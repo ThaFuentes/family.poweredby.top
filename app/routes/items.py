@@ -140,12 +140,12 @@ def _calm_systems_flag() -> bool:
     return calm_systems()
 
 
-def _want_replace(status: str) -> bool:
+def _want_replace(status: str, *, house: bool = False) -> bool:
     if (status or "").strip().lower() != "installed":
         return False
     vals = request.form.getlist("replace_current")
     if not vals:
-        return True
+        return not house
     return str(vals[-1]).strip().lower() not in ("0", "false", "off", "no")
 
 
@@ -1047,6 +1047,10 @@ def _part_shop_fields():
         "cost": request.form.get("cost"),
         "warranty_until": request.form.get("warranty_until"),
         "notes": notes,
+        "model": (request.form.get("model") or "").strip()[:120] or None,
+        "serial_number": (request.form.get("serial_number") or request.form.get("serial") or "").strip()[:120] or None,
+        "asset_id": (request.form.get("asset_id") or "").strip()[:80] or None,
+        "part_number": (request.form.get("part_number") or "").strip()[:80] or None,
     }
 
 
@@ -1313,11 +1317,12 @@ def add_part(item_id):
             name=name,
             brand=request.form.get("brand"),
             spec=request.form.get("spec"),
-            part_number=request.form.get("part_number"),
             status=(request.form.get("status") or "installed").strip().lower(),
             installed_on=request.form.get("installed_on"),
             installed_mileage=request.form.get("installed_mileage"),
-            replace_current=_want_replace((request.form.get("status") or "installed")),
+            replace_current=_want_replace(
+                (request.form.get("status") or "installed"), house=True
+            ),
             **_part_shop_fields(),
         )
     else:
@@ -1335,7 +1340,6 @@ def add_part(item_id):
             name=name,
             brand=request.form.get("brand"),
             spec=request.form.get("spec"),
-            part_number=request.form.get("part_number"),
             status=status,
             installed_on=request.form.get("installed_on"),
             installed_mileage=request.form.get("installed_mileage")
@@ -1435,6 +1439,12 @@ def edit_part(item_id, part_id):
         row.spec = (request.form.get("spec") or "").strip()[:160] or None
     if "part_number" in request.form:
         row.part_number = (request.form.get("part_number") or "").strip()[:80] or None
+    if "model" in request.form:
+        row.model = (request.form.get("model") or "").strip()[:120] or None
+    if "serial_number" in request.form or "serial" in request.form:
+        row.serial_number = (request.form.get("serial_number") or request.form.get("serial") or "").strip()[:120] or None
+    if "asset_id" in request.form:
+        row.asset_id = (request.form.get("asset_id") or "").strip()[:80] or None
     row.notes = (request.form.get("part_notes") or request.form.get("notes") or "").strip() or None
     row.source = (request.form.get("source") or "").strip()[:200] or None
     if "cost" in request.form:

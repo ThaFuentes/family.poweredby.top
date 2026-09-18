@@ -87,7 +87,7 @@
       {% endif %}
     {% endif %}
     {% if item.item_type == 'house' %}
-      <p>HVAC filter, water heater, smoke, the panel. Same file as a car — just the building.</p>
+      <p>Kitchen, sink parts, TVs, pool chemicals, coop feed, HVAC — same file as a car, for the building. Scan a UPC on this page to drop it in.</p>
       <p class="btn-row">
         <a class="btn" href="{{ url_for('items.detail', item_id=item.id, tab='systems') }}">House systems</a>
         <a class="btn outline" href="{{ url_for('items.detail', item_id=item.id, tab='log') }}">Log / photos</a>
@@ -95,6 +95,9 @@
     {% endif %}
     {% if item.tool %}
       <p>Type: {{ item.tool.type or '—' }} · Power: {{ item.tool.power_source or '—' }}</p>
+      {% if item.tool.model or item.tool.serial_number or item.tool.asset_id %}
+      <p class="muted">{% if item.tool.model %}Model {{ item.tool.model }}{% endif %}{% if item.tool.serial_number %} · SN {{ item.tool.serial_number }}{% endif %}{% if item.tool.asset_id %} · ID {{ item.tool.asset_id }}{% endif %}</p>
+      {% endif %}
       <p>Oil: <strong>{{ item.tool.oil_type or '—' }}</strong> · Fuel: <strong>{{ item.tool.fuel_type or '—' }}</strong></p>
       <p class="muted">{{ item.tool.usage_notes or '' }}</p>
       <p class="muted">Hours: {{ item.tool.hours_used or '—' }} · Last maintenance: {{ item.tool.last_maintenance_at or 'never' }}{% if log_stats.last_mpg %} · last fill {{ log_stats.last_mpg }} mpg{% endif %}</p>

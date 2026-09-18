@@ -11,5 +11,6 @@ find_bp = Blueprint("find", __name__, url_prefix="/find")
 @login_required
 def index():
     q = (request.args.get("q") or "").strip()
-    hits = search_household(household_id(), q, user_id=current_user.id)
-    return render_template("find.html", hits=hits, q=q)
+    scope = (request.args.get("scope") or "all").strip().lower()
+    hits = search_household(household_id(), q, user_id=current_user.id, scope=scope)
+    return render_template("find.html", hits=hits, q=q, scope=hits.get("scope") or "all")

@@ -24,7 +24,7 @@
     {% if current_user.is_authenticated %}
     <form class="find-box" method="get" action="{{ url_for('find.index') }}" role="search">
       <label class="sr-only" for="top-find">Find</label>
-      <input id="top-find" name="q" placeholder="Find…" value="{{ request.args.get('q','') if request.endpoint == 'find.index' else '' }}" autocomplete="off">
+      <input id="top-find" name="q" placeholder="Panasonic TV, alternator…" value="{{ request.args.get('q','') if request.endpoint == 'find.index' else '' }}" autocomplete="off">
     </form>
     <nav class="desk-links no-print" aria-label="Shortcuts">
       <a href="{{ url_for('scan.scan_page') }}">Scan</a>

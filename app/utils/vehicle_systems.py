@@ -346,6 +346,9 @@ def install_part(
     brand: str | None = None,
     spec: str | None = None,
     part_number: str | None = None,
+    model: str | None = None,
+    serial_number: str | None = None,
+    asset_id: str | None = None,
     status: str = "installed",
     installed_on=None,
     installed_mileage=None,
@@ -407,6 +410,9 @@ def install_part(
         brand=(brand or "").strip()[:120] or None,
         spec=(spec or "").strip()[:160] or None,
         part_number=(part_number or "").strip()[:80] or None,
+        model=(model or "").strip()[:120] or None,
+        serial_number=(serial_number or "").strip()[:120] or None,
+        asset_id=(asset_id or "").strip()[:80] or None,
         status=status,
         is_current=status != "retired",
         installed_on=when,
@@ -441,12 +447,13 @@ def attach_scanned_part(
         return None
     system, slot = guess_slot(kind, name=name, category=getattr(catalog_item, "category", "") or "")
     catalog_slots = None
+    replace = (status or "installed") == "installed"
     if vehicle.item_type == "house":
-        from app.utils.house_systems import HOUSE_SLOTS
+        from app.utils.house_systems import HOUSE_SLOTS, guess_house_slot
 
         catalog_slots = HOUSE_SLOTS
-        if (kind or "") in ("filter", "hvac_filter") or "filter" in (name or "").lower():
-            system, slot = "hvac", "filter"
+        system, slot = guess_house_slot(name, kind or "")
+        replace = False
     spec = None
     if catalog_item is not None and getattr(catalog_item, "grocery", None):
         spec = catalog_item.grocery.size
@@ -462,7 +469,7 @@ def attach_scanned_part(
         catalog_item_id=getattr(catalog_item, "id", None),
         status=status or "installed",
         catalog_slots=catalog_slots,
-        replace_current=(status or "installed") == "installed",
+        replace_current=replace,
     )
 
 

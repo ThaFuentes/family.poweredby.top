@@ -49,7 +49,10 @@
     <dl class="facts">
       {% if focus.brand %}<div><dt>Brand</dt><dd>{{ focus.brand }}</dd></div>{% endif %}
       {% if focus.spec %}<div><dt>Spec</dt><dd>{{ focus.spec }}</dd></div>{% endif %}
-      {% if focus.part_number %}<div><dt>Part #</dt><dd>{{ focus.part_number }}</dd></div>{% endif %}
+      {% if focus.model %}<div><dt>Model</dt><dd>{{ focus.model }}</dd></div>{% endif %}
+      {% if focus.part_number %}<div><dt>Product #</dt><dd>{{ focus.part_number }}</dd></div>{% endif %}
+      {% if focus.serial_number %}<div><dt>Serial</dt><dd>{{ focus.serial_number }}</dd></div>{% endif %}
+      {% if focus.asset_id %}<div><dt>Internal ID</dt><dd>{{ focus.asset_id }}</dd></div>{% endif %}
       {% if focus.source %}<div><dt>Store</dt><dd>{{ focus.source }}</dd></div>{% endif %}
       {% if focus.cost %}<div><dt>Paid</dt><dd>${{ '%.2f'|format(focus.cost|float) }}</dd></div>{% endif %}
       {% if focus.installed_mileage %}<div><dt>Miles</dt><dd>{{ '{:,}'.format(focus.installed_mileage) }}</dd></div>{% endif %}
@@ -67,6 +70,14 @@
       <input name="brand" value="{{ focus.brand or '' }}">
       <label>Spec</label>
       <input name="spec" value="{{ focus.spec or '' }}">
+      <label>Model</label>
+      <input name="model" value="{{ focus.model or '' }}">
+      <label>Product / part number</label>
+      <input name="part_number" value="{{ focus.part_number or '' }}">
+      <label>Serial number</label>
+      <input name="serial_number" value="{{ focus.serial_number or '' }}">
+      <label>Internal ID</label>
+      <input name="asset_id" value="{{ focus.asset_id or '' }}" placeholder="House tag, asset #">
       <label>Installed on</label>
       <input type="date" name="installed_on" value="{{ focus.installed_on or '' }}">
       <label>Note</label>
@@ -137,7 +148,7 @@
     <summary>+ Add a part</summary>
   <form id="part-form" method="post" action="{{ url_for('items.add_part', item_id=item.id) }}" enctype="multipart/form-data" autocomplete="off">
     <input type="hidden" name="next" value="sheet">
-    <p class="muted">Saves onto this vehicle, then this sheet shows that part.</p>
+    <p class="muted">Saves onto this {% if systems_host == 'house' %}house{% else %}vehicle{% endif %}. Two TVs? Leave replace off.</p>
     <label>System</label>
     <select name="system" id="part-system">
       {% for s in systems_catalog %}
@@ -152,6 +163,14 @@
     <input name="brand" placeholder="Denso, Motorcraft…">
     <label>Spec (optional)</label>
     <input name="spec" id="part-spec">
+    <label>Model</label>
+    <input name="model" placeholder="UN55CU8000, XPS 15">
+    <label>Product / part number</label>
+    <input name="part_number" placeholder="SKU, MPN">
+    <label>Serial number</label>
+    <input name="serial_number" placeholder="From the plate">
+    <label>Internal ID</label>
+    <input name="asset_id" placeholder="Your tag, if you use one">
     <label>Installed on</label>
     <input type="date" name="installed_on" value="{{ today }}">
     {% if systems_host != 'house' %}
@@ -159,8 +178,8 @@
     <input name="installed_mileage" inputmode="numeric" value="{{ (item.vehicle.current_mileage if item.vehicle else '') }}">
     {% endif %}
     <input type="hidden" name="replace_current" value="0">
-    <label class="cal-check"><input type="checkbox" name="replace_current" id="replace-current" value="1" {% if open_add %}checked{% endif %}> Replace what’s on it?</label>
-    <p class="muted" id="replace-hint" style="margin:.15rem 0 .55rem">On: the old one moves to History. Off: add alongside.</p>
+    <label class="cal-check"><input type="checkbox" name="replace_current" id="replace-current" value="1" {% if open_add and systems_host != 'house' %}checked{% endif %}> Replace what’s on it?</label>
+    <p class="muted" id="replace-hint" style="margin:.15rem 0 .55rem">{% if systems_host == 'house' %}Leave off to add another of the same thing (second TV, second monitor).{% else %}On: the old one moves to History. Off: add alongside.{% endif %}</p>
     <label>On it now or spare</label>
     <select name="status" id="part-status">
       <option value="installed">On it now</option>

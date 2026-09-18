@@ -20,7 +20,12 @@ from app.utils.calendar import (
     subscribe_links,
     vevent,
 )
-from app.utils.house_systems import HOUSE_SLOTS, HOUSE_SYSTEMS, house_systems_payload
+from app.utils.house_systems import (
+    HOUSE_SLOTS,
+    HOUSE_SYSTEMS,
+    guess_house_slot,
+    house_systems_payload,
+)
 from app.utils.household_delete import confirm_matches
 from app.utils.identity import (
     default_household_name,
@@ -32,7 +37,7 @@ from app.utils.identity import (
 )
 from app.utils.places import DEFAULT_PLACES, _norm
 from app.utils.reminders_copy import parse_recurrence, recurrence_label, type_label
-from app.utils.search import _like
+from app.utils.search import _like, tokens
 from app.utils.vehicle_systems import group_parts, systems_payload, valid_slot, valid_system
 
 
@@ -57,6 +62,11 @@ class SearchEscapeTests(unittest.TestCase):
         self.assertTrue(like.startswith("%"))
         self.assertTrue(like.endswith("%"))
 
+    def test_tokens_split_and_cap(self):
+        self.assertEqual(tokens("Panasonic TV"), ["panasonic", "tv"])
+        self.assertEqual(tokens("alternator"), ["alternator"])
+        self.assertEqual(tokens("a"), [])
+
 
 class ReminderCopyTests(unittest.TestCase):
     def test_oil_english(self):
@@ -77,6 +87,43 @@ class HouseSystemTests(unittest.TestCase):
         ids = [p["id"] for p in payload]
         self.assertEqual(ids[0], HOUSE_SYSTEMS[0][0])
         self.assertTrue(any(s["id"] == "filter" for s in payload[0]["slots"]))
+
+    def test_electronics_and_kitchen(self):
+        ids = [p["id"] for p in house_systems_payload()]
+        self.assertIn("electronics", ids)
+        self.assertIn("fitness", ids)
+        elec = next(p for p in house_systems_payload() if p["id"] == "electronics")
+        slot_ids = [s["id"] for s in elec["slots"]]
+        self.assertIn("tv", slot_ids)
+        self.assertIn("laptop", slot_ids)
+        self.assertIn("threed_printer", slot_ids)
+        apps = next(p for p in house_systems_payload() if p["id"] == "appliances")
+        app_slots = [s["id"] for s in apps["slots"]]
+        self.assertIn("microwave", app_slots)
+        self.assertIn("air_fryer", app_slots)
+        self.assertIn("fridge", app_slots)
+
+    def test_guess_house_things(self):
+        self.assertEqual(guess_house_slot("Samsung 55 TV"), ("electronics", "tv"))
+        self.assertEqual(guess_house_slot("Dell XPS laptop"), ("electronics", "laptop"))
+        self.assertEqual(guess_house_slot("Ninja air fryer"), ("appliances", "air_fryer"))
+        self.assertEqual(guess_house_slot("NordicTrack treadmill"), ("fitness", "treadmill"))
+        self.assertEqual(guess_house_slot("GE microwave"), ("appliances", "microwave"))
+        self.assertEqual(guess_house_slot("Clorox pool shock"), ("pool", "shock"))
+        self.assertEqual(guess_house_slot("Hayward pool pump"), ("pool", "pump"))
+        self.assertEqual(guess_house_slot("Purina layer feed"), ("coop", "feed"))
+        self.assertEqual(guess_house_slot("timothy hay bale"), ("coop", "hay"))
+        self.assertEqual(guess_house_slot("Moen kitchen faucet"), ("plumbing", "faucet"))
+
+    def test_pool_and_coop_systems(self):
+        ids = [p["id"] for p in house_systems_payload()]
+        self.assertIn("pool", ids)
+        self.assertIn("coop", ids)
+        pool = next(p for p in house_systems_payload() if p["id"] == "pool")
+        self.assertIn("chlorine", [s["id"] for s in pool["slots"]])
+        coop = next(p for p in house_systems_payload() if p["id"] == "coop")
+        self.assertIn("feed", [s["id"] for s in coop["slots"]])
+        self.assertIn("hay", [s["id"] for s in coop["slots"]])
 
     def test_vehicle_payload_unchanged_default(self):
         self.assertEqual(valid_system("electrical"), "electrical")

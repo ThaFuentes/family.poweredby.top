@@ -57,6 +57,9 @@ def add():
         power_source=(request.form.get("power_source") or "").strip() or None,
         oil_type=(request.form.get("oil_type") or "").strip() or None,
         fuel_type=(request.form.get("fuel_type") or "").strip() or None,
+        model=(request.form.get("model") or "").strip()[:120] or None,
+        serial_number=(request.form.get("serial_number") or "").strip()[:120] or None,
+        asset_id=(request.form.get("asset_id") or "").strip()[:80] or None,
         usage_notes=(request.form.get("usage_notes") or "").strip() or None,
         maintenance_interval_hours=int(hours) if str(hours).isdigit() else None,
     )

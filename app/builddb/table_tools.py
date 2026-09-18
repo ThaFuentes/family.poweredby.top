@@ -19,6 +19,9 @@ class Tool(db.Model):
     maintenance_interval_hours = db.Column(db.Integer, nullable=True)
     last_maintenance_at = db.Column(db.DateTime, nullable=True)
     hours_used = db.Column(db.Numeric(12, 2), nullable=True)
+    model = db.Column(db.String(120), nullable=True)
+    serial_number = db.Column(db.String(120), nullable=True)
+    asset_id = db.Column(db.String(80), nullable=True)
     extra_data = db.Column(db.JSON, nullable=True)
 
     item = db.relationship("Item", back_populates="tool")
@@ -37,6 +40,9 @@ def create_table():
             ("maintenance_interval_hours", "INT NULL"),
             ("last_maintenance_at", "TIMESTAMP NULL"),
             ("hours_used", "DECIMAL(12,2) NULL"),
+            ("model", "VARCHAR(120) NULL"),
+            ("serial_number", "VARCHAR(120) NULL"),
+            ("asset_id", "VARCHAR(80) NULL"),
             ("extra_data", "JSON NULL"),
         ],
         indexes=[("idx_tools_household_id", "household_id")],

@@ -5,14 +5,19 @@
 <div class="page-head">
   <div>
     <h1>Find</h1>
-    <p>Name, brand, barcode, place, or a part number.</p>
+    <p>Cars, the house, tools, groceries — name, brand, slot, serial, model, internal ID.</p>
   </div>
 </div>
 <form class="card" method="get" action="{{ url_for('find.index') }}">
   <label for="q">Search</label>
   <div class="btn-row">
-    <input id="q" name="q" value="{{ q }}" placeholder="10mm, Civic battery, bar oil" autofocus>
+    <input id="q" name="q" value="{{ q }}" placeholder="Panasonic TV, alternator, layer feed" autofocus>
     <button class="btn" type="submit">Find</button>
+  </div>
+  <div class="tabs" style="margin-top:.7rem">
+    {% for key, lab in [('all','All'),('vehicles','Cars'),('house','House'),('tools','Tools'),('groceries','Groceries'),('parts','On it')] %}
+    <a class="{% if scope==key %}active{% endif %}" href="{{ url_for('find.index', q=q, scope=key) }}">{{ lab }}</a>
+    {% endfor %}
   </div>
 </form>
 {% if q and not hits.item_rows and not hits.note_rows and not hits.part_rows and not hits.legal_rows and not hits.case_rows %}
@@ -34,14 +39,15 @@
 </div>
 {% endif %}
 {% if hits.part_rows %}
-<h2>Parts</h2>
+<h2>On cars & the house</h2>
 <div class="card list">
   {% for p in hits.part_rows %}
-    <a class="row" href="{{ url_for('items.detail', item_id=p.vehicle_item_id, tab='systems') }}">
+    <a class="row" href="{{ url_for('items.detail', item_id=p.vehicle_item_id, tab='systems', next=request.full_path) }}" data-sheet="{{ url_for('items.parts_sheet', item_id=p.vehicle_item_id, system=p.system, part=p.id) }}" data-sheet-title="{{ p.name }}">
       <div>
         <strong>{{ p.name }}</strong>
-        <div class="muted">{{ p.system }} · {{ p.slot.replace('_',' ') }}{% if p.part_number %} · #{{ p.part_number }}{% endif %}</div>
+        <div class="muted">{{ hits.part_where.get(p.id) or (p.system ~ ' · ' ~ p.slot.replace('_',' ')) }}{% if p.model %} · {{ p.model }}{% endif %}{% if p.brand %} · {{ p.brand }}{% endif %}{% if p.serial_number %} · SN {{ p.serial_number }}{% endif %}{% if p.asset_id %} · ID {{ p.asset_id }}{% endif %}{% if not p.is_current %} · off it{% endif %}</div>
       </div>
+      <span class="badge">Open</span>
     </a>
   {% endfor %}
 </div>

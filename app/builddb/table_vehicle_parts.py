@@ -21,6 +21,9 @@ class VehiclePart(db.Model):
     brand = db.Column(db.String(120), nullable=True)
     spec = db.Column(db.String(160), nullable=True)
     part_number = db.Column(db.String(80), nullable=True)
+    model = db.Column(db.String(120), nullable=True)
+    serial_number = db.Column(db.String(120), nullable=True)
+    asset_id = db.Column(db.String(80), nullable=True)
     status = db.Column(db.String(20), nullable=False, default="installed")
     is_current = db.Column(db.Boolean, nullable=False, default=True)
     installed_on = db.Column(db.Date, nullable=True)
@@ -53,6 +56,9 @@ def create_table():
             ("brand", "VARCHAR(120) NULL"),
             ("spec", "VARCHAR(160) NULL"),
             ("part_number", "VARCHAR(80) NULL"),
+            ("model", "VARCHAR(120) NULL"),
+            ("serial_number", "VARCHAR(120) NULL"),
+            ("asset_id", "VARCHAR(80) NULL"),
             ("status", "VARCHAR(20) NOT NULL DEFAULT 'installed'"),
             ("is_current", "TINYINT(1) NOT NULL DEFAULT 1"),
             ("installed_on", "DATE NULL"),
