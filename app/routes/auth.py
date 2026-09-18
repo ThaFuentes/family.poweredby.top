@@ -18,9 +18,12 @@ auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
 def _stay_signed_in(user):
     """PWA / phone: keep this device signed in unless they uncheck it."""
-    remember = (request.form.get("remember") or "1").strip() not in ("0", "false", "off")
+    vals = request.form.getlist("remember")
+    raw = (vals[-1] if vals else "1").strip().lower()
+    remember = raw not in ("0", "false", "off", "no")
     session.permanent = True
-    login_user(user, remember=remember)
+    dur = timedelta(days=400) if remember else None
+    login_user(user, remember=remember, duration=dur)
 
 
 def _utcnow():

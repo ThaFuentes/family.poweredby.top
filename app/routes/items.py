@@ -54,7 +54,9 @@ def can_create_type(item_type: str) -> bool:
 PHOTO_KINDS = ("photo", "receipt", "serial", "connector")
 
 
-def save_item_photo(item, upload, caption=None, user_id=None, part_id=None, kind=None, warranty_until=None):
+def save_item_photo(
+    item, upload, caption=None, user_id=None, part_id=None, kind=None, warranty_until=None, log_id=None
+):
     """Save an encrypted household photo. Returns PhotoNote or None."""
     if not upload or not getattr(upload, "filename", None):
         return None
@@ -87,6 +89,7 @@ def save_item_photo(item, upload, caption=None, user_id=None, part_id=None, kind
         household_id=hid,
         item_id=item.id,
         part_id=int(part_id) if part_id else None,
+        log_id=int(log_id) if log_id else None,
         kind=kind,
         caption=(caption or "").strip() or None,
         image_path=f"{hid}/{item.id}/{name}",
@@ -124,6 +127,21 @@ def _parts_sheet_url(item, system=""):
     if system:
         return url_for("items.parts_sheet", item_id=item.id, system=system)
     return url_for("items.parts_sheet", item_id=item.id)
+
+
+def _calm_systems_flag() -> bool:
+    from app.utils.vehicle_systems import calm_systems
+
+    return calm_systems()
+
+
+def _want_replace(status: str) -> bool:
+    if (status or "").strip().lower() != "installed":
+        return False
+    vals = request.form.getlist("replace_current")
+    if not vals:
+        return True
+    return str(vals[-1]).strip().lower() not in ("0", "false", "off", "no")
 
 
 def _after_part_change(item, system=""):
@@ -535,6 +553,23 @@ def detail(item_id):
         .order_by(PhotoNote.created_at.desc())
         .all()
     )
+    item_logs = []
+    log_stats = {}
+    log_photos = {}
+    if item.item_type in ("vehicle", "tool", "house"):
+        from app.builddb.table_item_logs import ItemLog
+        from app.utils.item_log import log_stats as _log_stats
+
+        item_logs = (
+            ItemLog.query.filter_by(household_id=hid, item_id=item.id)
+            .order_by(ItemLog.happened_on.desc(), ItemLog.id.desc())
+            .limit(80)
+            .all()
+        )
+        log_stats = _log_stats(item)
+        for ph in photos:
+            if getattr(ph, "log_id", None):
+                log_photos.setdefault(ph.log_id, []).append(ph)
     reminders = (
         Reminder.query.filter_by(household_id=hid, linked_item_id=item.id, status="open")
         .order_by(Reminder.due_at.asc())
@@ -564,6 +599,7 @@ def detail(item_id):
     systems = []
     systems_catalog = []
     part_photos = {}
+    on_it_now, on_it_total = [], 0
     systems_host = item.item_type if item.item_type in ("vehicle", "house") else None
     if systems_host:
         from app.builddb.table_vehicle_parts import VehiclePart
@@ -590,6 +626,9 @@ def detail(item_id):
         else:
             systems = group_parts(vparts)
             systems_catalog = systems_payload()
+        from app.utils.vehicle_systems import overview_on_it as _overview_on_it
+
+        on_it_now, on_it_total = _overview_on_it(systems)
         for ph in photos:
             if ph.part_id:
                 part_photos.setdefault(ph.part_id, []).append(ph)
@@ -632,6 +671,13 @@ def detail(item_id):
         expires_on=((item.grocery.extra_data or {}).get("expires_on") if item.grocery and isinstance(item.grocery.extra_data, dict) else None),
         expires_guessed=bool((item.grocery.extra_data or {}).get("expires_guessed")) if item.grocery and isinstance(item.grocery.extra_data, dict) else False,
         last_part_source=((item.extra_data or {}).get("last_part_source") if isinstance(item.extra_data, dict) else None),
+        calm_systems=_calm_systems_flag(),
+        on_it_now=on_it_now,
+        on_it_total=on_it_total,
+        item_logs=item_logs,
+        log_stats=log_stats,
+        log_photos=log_photos,
+        today=datetime.utcnow().date().isoformat(),
     )
 
 
@@ -867,6 +913,21 @@ def maintenance(item_id):
             item.vehicle.last_oil_change_date = date
             if miles:
                 item.vehicle.last_oil_change_mileage = int(_dec(miles, "0"))
+    try:
+        from app.utils.item_log import add_item_log
+
+        add_item_log(
+            item,
+            kind="repair",
+            user_id=current_user.id,
+            reading=miles,
+            notes=(request.form.get("notes") or "").strip() or None,
+            title=mtype,
+            happened_on=date,
+            maintenance_id=rec.id,
+        )
+    except Exception:
+        pass
     rem = _follow_up_from_maintenance(item, mtype, date, miles, request.form)
     if rem is not None:
         db.session.add(rem)
@@ -1024,6 +1085,73 @@ def labels():
     return render_template("labels.html", items=rows)
 
 
+@items_bp.route("/<int:item_id>/log", methods=["POST"])
+@login_required
+def add_log(item_id):
+    if not (can("scan") or can("maintain") or can("edit_meta") or can("photo")):
+        abort(403)
+    item = _item_or_404(item_id)
+    if item.item_type not in ("vehicle", "tool", "house"):
+        abort(404)
+    from app.builddb.table_item_logs import LOG_KINDS
+    from app.utils.item_log import add_item_log
+
+    kind = (request.form.get("kind") or "note").strip().lower()
+    if kind not in LOG_KINDS:
+        kind = "note"
+    if kind == "miles" and item.item_type != "vehicle":
+        kind = "hours" if item.item_type == "tool" else "note"
+    if kind == "hours" and item.item_type != "tool":
+        kind = "miles" if item.item_type == "vehicle" else "note"
+    happened = _parse_day(request.form.get("happened_on") or "") or datetime.utcnow().date()
+    extra = {}
+    station = (request.form.get("station") or "").strip()[:120]
+    if station:
+        extra["station"] = station
+    octane = (request.form.get("octane") or "").strip()[:20]
+    if octane:
+        extra["octane"] = octane
+    reading = request.form.get("reading") or request.form.get("mileage") or request.form.get("hours")
+    row = add_item_log(
+        item,
+        kind=kind,
+        user_id=current_user.id,
+        reading=reading,
+        gallons=request.form.get("gallons"),
+        cost=request.form.get("cost"),
+        notes=request.form.get("notes") or request.form.get("body"),
+        title=request.form.get("title") or request.form.get("type"),
+        happened_on=happened,
+        extra=extra or None,
+    )
+    files = request.files.getlist("photo") or []
+    if not files:
+        one = request.files.get("photo")
+        files = [one] if one else []
+    for upload in files:
+        save_item_photo(
+            item,
+            upload,
+            request.form.get("caption") or (row.title if row else None),
+            current_user.id,
+            kind="receipt" if kind == "fillup" else "photo",
+            log_id=row.id if row else None,
+        )
+    db.session.commit()
+    if kind == "fillup":
+        extra_mpg = (row.extra_data or {}).get("mpg") if row and isinstance(row.extra_data, dict) else None
+        msg = f"Fill-up on {item.name}."
+        if extra_mpg:
+            msg = f"Fill-up · {extra_mpg:g} mpg."
+        flash(msg, "success")
+    elif kind in ("miles", "hours"):
+        unit = "miles" if kind == "miles" else "hours"
+        flash(f"{item.name} is at {row.reading:g} {unit}." if row and row.reading is not None else "Logged.", "success")
+    else:
+        flash("Saved to the log.", "success")
+    return redirect(url_for("items.detail", item_id=item.id, tab="log"))
+
+
 @items_bp.route("/<int:item_id>/mileage", methods=["POST"])
 @login_required
 def set_mileage(item_id):
@@ -1031,20 +1159,26 @@ def set_mileage(item_id):
         abort(403)
     item = _item_or_404(item_id)
     raw = (request.form.get("mileage") or request.form.get("hours") or "").replace(",", "").strip()
+    from app.utils.item_log import add_item_log
+
     if item.item_type == "vehicle" and item.vehicle:
         try:
-            item.vehicle.current_mileage = int(raw)
+            miles = int(raw)
         except Exception:
             flash("Type the miles as a number.", "danger")
             return redirect(url_for("items.detail", item_id=item.id))
+        item.vehicle.current_mileage = miles
+        add_item_log(item, kind="miles", user_id=current_user.id, reading=miles)
         db.session.commit()
         flash(f"{item.name} is at {item.vehicle.current_mileage:,} miles.", "success")
     elif item.item_type == "tool" and item.tool:
         try:
-            item.tool.hours_used = _dec(raw, "0")
+            hours = _dec(raw, "0")
         except Exception:
             flash("Type the hours as a number.", "danger")
             return redirect(url_for("items.detail", item_id=item.id))
+        item.tool.hours_used = hours
+        add_item_log(item, kind="hours", user_id=current_user.id, reading=hours)
         db.session.commit()
         flash(f"{item.name} is at {item.tool.hours_used} hours.", "success")
     else:
@@ -1052,6 +1186,8 @@ def set_mileage(item_id):
     nxt = (request.form.get("next") or "").strip()
     if nxt == "scan":
         return redirect(url_for("scan.scan_page"))
+    if nxt == "log":
+        return redirect(url_for("items.detail", item_id=item.id, tab="log"))
     return redirect(url_for("items.detail", item_id=item.id, tab="overview"))
 
 
@@ -1072,9 +1208,33 @@ def _load_systems(item):
     return group_parts(vparts), systems_payload()
 
 
+@items_bp.route("/<int:item_id>/systems-ui")
+@login_required
+def systems_ui(item_id):
+    from datetime import timedelta
+
+    from app.utils.vehicle_systems import COOKIE as _sys_cookie
+
+    item = _item_or_404(item_id)
+    mode = (request.args.get("mode") or "calm").strip().lower()
+    if mode not in ("calm", "classic"):
+        mode = "calm"
+    resp = redirect(url_for("items.detail", item_id=item.id, tab="systems"))
+    resp.set_cookie(
+        _sys_cookie,
+        mode,
+        max_age=int(timedelta(days=400).total_seconds()),
+        samesite="Lax",
+        httponly=False,
+    )
+    return resp
+
+
 @items_bp.route("/<int:item_id>/parts/sheet")
 @login_required
 def parts_sheet(item_id):
+    from datetime import date
+
     item = _item_or_404(item_id)
     if item.item_type not in ("vehicle", "house"):
         abort(404)
@@ -1086,8 +1246,14 @@ def parts_sheet(item_id):
     for ph in PhotoNote.query.filter_by(household_id=household_id(), item_id=item.id).all():
         if ph.part_id:
             part_photos.setdefault(ph.part_id, []).append(ph)
+    current_map = {}
+    for s in systems:
+        for p in s.get("on_it") or []:
+            key = f"{s['id']}:{p.slot}"
+            current_map.setdefault(key, []).append({"id": p.id, "name": p.name})
+    tmpl = "items/parts_sheet.html" if _calm_systems_flag() else "items/parts_sheet_classic.html"
     return render_template(
-        "items/parts_sheet.html",
+        tmpl,
         item=item,
         systems=systems,
         systems_catalog=systems_catalog,
@@ -1099,6 +1265,9 @@ def parts_sheet(item_id):
         can_maintain=can("maintain"),
         last_part_source=((item.extra_data or {}).get("last_part_source") if isinstance(item.extra_data, dict) else None),
         part_next="sheet",
+        today=date.today().isoformat(),
+        current_map=current_map,
+        calm_systems=_calm_systems_flag(),
     )
 
 
@@ -1131,7 +1300,7 @@ def add_part(item_id):
             status=(request.form.get("status") or "installed").strip().lower(),
             installed_on=request.form.get("installed_on"),
             installed_mileage=request.form.get("installed_mileage"),
-            replace_current=(request.form.get("status") or "installed").strip().lower() == "installed",
+            replace_current=_want_replace((request.form.get("status") or "installed")),
             **_part_shop_fields(),
         )
     else:
@@ -1139,6 +1308,7 @@ def add_part(item_id):
 
         system = valid_system(request.form.get("system"))
         slot = valid_slot(system, request.form.get("slot"))
+        status = (request.form.get("status") or "installed").strip().lower()
         row = install_part(
             hid=hid,
             vehicle_item_id=item.id,
@@ -1149,11 +1319,11 @@ def add_part(item_id):
             brand=request.form.get("brand"),
             spec=request.form.get("spec"),
             part_number=request.form.get("part_number"),
-            status=(request.form.get("status") or "installed").strip().lower(),
+            status=status,
             installed_on=request.form.get("installed_on"),
             installed_mileage=request.form.get("installed_mileage")
             or (item.vehicle.current_mileage if item.vehicle else None),
-            replace_current=(request.form.get("status") or "installed").strip().lower() == "installed",
+            replace_current=_want_replace(status),
             **_part_shop_fields(),
         )
     nfiles = attach_part_uploads(item, row, current_user.id)
@@ -1194,6 +1364,10 @@ def retire_part(item_id, part_id):
     )
     row.is_current = False
     row.status = "retired"
+    from datetime import date as _date
+
+    if not getattr(row, "removed_on", None):
+        row.removed_on = _date.today()
     try:
         from app.utils.activity import record
 

@@ -24,6 +24,7 @@ class VehiclePart(db.Model):
     status = db.Column(db.String(20), nullable=False, default="installed")
     is_current = db.Column(db.Boolean, nullable=False, default=True)
     installed_on = db.Column(db.Date, nullable=True)
+    removed_on = db.Column(db.Date, nullable=True)
     installed_mileage = db.Column(db.Integer, nullable=True)
     notes = db.Column(EncryptedText, nullable=True)
     source = db.Column(db.String(200), nullable=True)
@@ -55,6 +56,7 @@ def create_table():
             ("status", "VARCHAR(20) NOT NULL DEFAULT 'installed'"),
             ("is_current", "TINYINT(1) NOT NULL DEFAULT 1"),
             ("installed_on", "DATE NULL"),
+            ("removed_on", "DATE NULL"),
             ("installed_mileage", "INT NULL"),
             ("notes", "TEXT NULL"),
             ("source", "VARCHAR(200) NULL"),

@@ -104,8 +104,15 @@ class FamilySecurityTests(unittest.TestCase):
     def test_landing_and_manifest(self):
         self._logout()
         r = self.client.get("/")
-        self.assertEqual(r.status_code, 200)
-        body = r.data.decode("utf-8", "replace")
+        self.assertIn(r.status_code, (301, 302))
+        loc = r.headers.get("Location") or ""
+        self.assertIn("/auth/login", loc)
+        login = self.client.get("/auth/login")
+        self.assertEqual(login.status_code, 200)
+        self.assertIn(b"Stay signed in", login.data)
+        about = self.client.get("/about")
+        self.assertEqual(about.status_code, 200)
+        body = about.data.decode("utf-8", "replace")
         self.assertIn("Family key", body)
         self.assertIn("Service key", body)
         self.assertIn("FAM-", body)
@@ -115,7 +122,7 @@ class FamilySecurityTests(unittest.TestCase):
         self.assertEqual(man.status_code, 200)
         data = man.get_json()
         self.assertEqual(data.get("display"), "standalone")
-        self.assertEqual(data.get("start_url"), "/")
+        self.assertEqual(data.get("start_url"), "/auth/login")
         shots = data.get("screenshots") or []
         self.assertTrue(any((s.get("src") or "").endswith("intro-poster.jpg") for s in shots))
         sw = self.client.get("/sw.js")

@@ -3,7 +3,7 @@
 {% block content %}
 {% if item.item_type in ('vehicle', 'tool', 'house') %}
 <script>window.FAMILY_SCAN_HOST = {{ {'id': item.id, 'name': item.name, 'item_type': item.item_type}|tojson }};</script>
-<p class="scan-host-notice">Scan for this {% if item.item_type == 'vehicle' %}vehicle{% elif item.item_type == 'house' %}house{% else %}equipment{% endif %} — camera at the bottom. Undo if it’s the wrong thing.</p>
+<p class="scan-host-notice">Scan for this {% if item.item_type == 'vehicle' %}vehicle{% elif item.item_type == 'house' %}house{% else %}equipment{% endif %}{% if calm_systems %}.{% else %} — camera at the bottom. Undo if it’s the wrong thing.{% endif %}</p>
 {% endif %}
 <div class="page-head">
   <div>
@@ -11,11 +11,13 @@
     <p>{{ kind_label or item.item_type }}{% if item.category %} · {{ item.category }}{% endif %}{% if linked %} · for {{ linked.name }}{% endif %}{% if item.barcode %} · {{ item.barcode }}{% endif %}</p>
   </div>
   {% if tab == 'systems' and systems_host and (can_maintain or can_edit) %}
-  <button type="button" class="btn sm" data-sheet="{{ url_for('items.parts_sheet', item_id=item.id) }}" data-sheet-title="Add a part">Add part</button>
+  <button type="button" class="btn sm {% if calm_systems %}outline{% endif %}" data-sheet="{{ url_for('items.parts_sheet', item_id=item.id) }}" data-sheet-title="Add a part">+ Add part</button>
   {% elif tab == 'photos' and can_photo %}
   <a class="btn sm" href="#add-photo" data-open-fold="add-photo">Add photo</a>
   {% elif tab == 'notes' %}
   <a class="btn sm" href="#add-item-note" data-open-fold="add-item-note">Add note</a>
+  {% elif tab == 'log' and item.item_type in ('vehicle','tool','house') %}
+  <a class="btn sm" href="#add-log" data-open-fold="add-log">Log</a>
   {% endif %}
 </div>
 <div class="tabs">
@@ -23,6 +25,9 @@
   <a class="{% if tab=='systems' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='systems', next=stay) }}">Systems</a>
   {% endif %}
   <a class="{% if tab=='overview' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='overview', next=stay) }}">Overview</a>
+  {% if item.item_type in ('vehicle','tool','house') %}
+  <a class="{% if tab=='log' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='log', next=stay) }}">Log</a>
+  {% endif %}
   <a class="{% if tab=='photos' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='photos', next=stay) }}">Photos</a>
   <a class="{% if tab=='notes' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='notes', next=stay) }}">Notes</a>
   <a class="{% if tab=='maintenance' %}active{% endif %}" href="{{ url_for('items.detail', item_id=item.id, tab='maintenance', next=stay) }}">Maintenance</a>
@@ -30,7 +35,12 @@
 </div>
 
 {% if tab == 'systems' and systems_host %}
-  {% include "partials/vehicle_systems.html" %}
+  {% if calm_systems %}
+    {% include "partials/vehicle_systems.html" %}
+  {% else %}
+    {% include "partials/vehicle_systems_classic.html" %}
+    <p class="muted" style="margin:.85rem 0 0;font-size:.78rem"><a href="{{ url_for('items.systems_ui', item_id=item.id, mode='calm') }}">Try the calmer systems view</a></p>
+  {% endif %}
 {% elif tab == 'overview' %}
   <div class="card">
     {% if item.grocery %}
@@ -78,17 +88,21 @@
     {% endif %}
     {% if item.item_type == 'house' %}
       <p>HVAC filter, water heater, smoke, the panel. Same file as a car — just the building.</p>
-      <p><a class="btn" href="{{ url_for('items.detail', item_id=item.id, tab='systems') }}">House systems</a></p>
+      <p class="btn-row">
+        <a class="btn" href="{{ url_for('items.detail', item_id=item.id, tab='systems') }}">House systems</a>
+        <a class="btn outline" href="{{ url_for('items.detail', item_id=item.id, tab='log') }}">Log / photos</a>
+      </p>
     {% endif %}
     {% if item.tool %}
       <p>Type: {{ item.tool.type or '—' }} · Power: {{ item.tool.power_source or '—' }}</p>
       <p>Oil: <strong>{{ item.tool.oil_type or '—' }}</strong> · Fuel: <strong>{{ item.tool.fuel_type or '—' }}</strong></p>
       <p class="muted">{{ item.tool.usage_notes or '' }}</p>
-      <p class="muted">Hours: {{ item.tool.hours_used or '—' }} · Last maintenance: {{ item.tool.last_maintenance_at or 'never' }}</p>
+      <p class="muted">Hours: {{ item.tool.hours_used or '—' }} · Last maintenance: {{ item.tool.last_maintenance_at or 'never' }}{% if log_stats.last_mpg %} · last fill {{ log_stats.last_mpg }} mpg{% endif %}</p>
       {% if can_scan or can_maintain or can_edit %}
       <form method="post" action="{{ url_for('items.set_mileage', item_id=item.id) }}" class="btn-row">
         <input name="hours" inputmode="decimal" placeholder="Hours" value="{{ item.tool.hours_used or '' }}" style="max-width:9rem">
         <button class="btn" type="submit">Log hours</button>
+        <a class="btn outline" href="{{ url_for('items.detail', item_id=item.id, tab='log') }}#add-log">Fill-up / note</a>
       </form>
       {% endif %}
     {% endif %}
@@ -103,12 +117,15 @@
       {% endif %}
       {% if item.notes %}<p style="white-space:pre-wrap">{{ item.notes }}</p>{% endif %}
       {% if item.vehicle.transmission %}<p>Transmission: {{ item.vehicle.transmission }}</p>{% endif %}
-      <p>Mileage: {{ item.vehicle.current_mileage or '—' }} · Last oil: {{ item.vehicle.last_oil_change_date or '—' }}
+      <p>Mileage: {% if item.vehicle.current_mileage %}{{ '{:,}'.format(item.vehicle.current_mileage) }}{% else %}—{% endif %}
+        {% if log_stats.last_mpg %} · last fill <strong>{{ log_stats.last_mpg }} mpg</strong>{% endif %}
+        · Last oil: {{ item.vehicle.last_oil_change_date or '—' }}
         @ {{ item.vehicle.last_oil_change_mileage or '—' }}</p>
       {% if can_scan or can_maintain or can_edit %}
       <form method="post" action="{{ url_for('items.set_mileage', item_id=item.id) }}" class="btn-row">
         <input name="mileage" inputmode="numeric" placeholder="87432" value="{{ item.vehicle.current_mileage or '' }}" style="max-width:9rem">
         <button class="btn" type="submit">Log miles</button>
+        <a class="btn outline" href="{{ url_for('items.detail', item_id=item.id, tab='log') }}#add-log">Fill-up</a>
       </form>
       {% endif %}
       <div class="btn-row">
@@ -284,6 +301,101 @@
     <input type="hidden" name="next" value="{{ stay }}">
     <button class="btn secondary" type="submit">Delete item</button>
   </form>
+  {% endif %}
+{% elif tab == 'log' %}
+  {% set reading = log_stats.reading %}
+  <div class="card log-totals">
+    {% if item.item_type == 'vehicle' %}
+    <p class="qty">{% if reading %}{{ '{:,}'.format(reading|int) }}{% else %}—{% endif %} <span class="muted">miles</span></p>
+    {% elif item.item_type == 'tool' %}
+    <p class="qty">{{ reading or '—' }} <span class="muted">hours</span></p>
+    {% else %}
+    <h2 style="margin:0">House file</h2>
+    {% endif %}
+    {% if item.item_type in ('vehicle','tool') %}
+    <p class="muted">
+      {% if log_stats.last_mpg %}Last fill <strong>{{ log_stats.last_mpg }} mpg</strong>{% else %}No fill-up mpg yet{% endif %}
+      {% if log_stats.year_spent %} · {{ log_stats.year }}: ${{ '%.0f'|format(log_stats.year_spent) }} / {{ '%.1f'|format(log_stats.year_gallons) }} gal{% if log_stats.year_mpg %} · {{ log_stats.year_mpg }} mpg avg{% endif %}{% endif %}
+    </p>
+    {% endif %}
+  </div>
+
+  {% if can_scan or can_maintain or can_edit or can_photo %}
+  <details class="card add-fold" id="add-log">
+  <summary>Log {% if item.item_type=='vehicle' %}miles, fill-up, repair{% elif item.item_type=='tool' %}hours, fill-up, repair{% else %}a repair or note{% endif %}</summary>
+  <form method="post" action="{{ url_for('items.add_log', item_id=item.id) }}" enctype="multipart/form-data">
+    <label>This is</label>
+    <select name="kind" id="log-kind">
+      {% if item.item_type == 'vehicle' %}<option value="miles">Miles</option><option value="fillup">Fill-up</option>{% endif %}
+      {% if item.item_type == 'tool' %}<option value="hours">Hours</option><option value="fillup">Fill-up</option>{% endif %}
+      <option value="repair">Repair / service</option>
+      <option value="note">Note</option>
+    </select>
+    <label>Date</label>
+    <input type="date" name="happened_on" value="{{ today if today is defined else '' }}">
+    {% if item.item_type == 'vehicle' %}
+    <label>Odometer</label>
+    <input name="reading" inputmode="numeric" value="{{ item.vehicle.current_mileage or '' }}" placeholder="87432">
+    {% elif item.item_type == 'tool' %}
+    <label>Hours</label>
+    <input name="reading" inputmode="decimal" value="{{ item.tool.hours_used or '' }}">
+    {% endif %}
+    <label>Gallons (fill-up)</label>
+    <input name="gallons" inputmode="decimal" placeholder="12.4">
+    <label>$ paid</label>
+    <input name="cost" inputmode="decimal" placeholder="42.50">
+    <label>Station / octane (optional)</label>
+    <div class="btn-row">
+      <input name="station" placeholder="Costco, Shell">
+      <input name="octane" placeholder="87" style="max-width:5rem">
+    </div>
+    <label>What / notes</label>
+    <input name="title" placeholder="Oil change, new belt, pump receipt">
+    <textarea name="notes" placeholder="What you did. Keep it short."></textarea>
+    <label>Photo or receipt</label>
+    <input type="file" name="photo" accept="image/*,.pdf" multiple>
+    <div class="btn-row"><button class="btn" type="submit">Save</button></div>
+  </form>
+  </details>
+  {% endif %}
+
+  {% if item_logs %}
+  <div class="card list">
+    {% for row in item_logs %}
+    <div class="row" style="align-items:flex-start">
+      <div>
+        <strong>
+          {% if row.kind == 'fillup' %}Fill-up{% if row.extra_data and row.extra_data.get('mpg') %} · {{ row.extra_data.get('mpg') }} mpg{% endif %}
+          {% elif row.kind == 'miles' %}{{ '{:,.0f}'.format(row.reading|float) }} miles
+          {% elif row.kind == 'hours' %}{{ row.reading }} hours
+          {% elif row.kind == 'repair' %}{{ row.title or 'Repair' }}
+          {% else %}{{ row.title or 'Note' }}{% endif %}
+        </strong>
+        <div class="muted">
+          {{ row.happened_on or '' }}
+          {% if row.kind == 'fillup' %}
+            {% if row.gallons %} · {{ row.gallons }} gal{% endif %}
+            {% if row.cost %} · ${{ '%.2f'|format(row.cost|float) }}{% endif %}
+            {% if row.reading %} · {{ '{:,.0f}'.format(row.reading|float) }} mi{% endif %}
+            {% if row.extra_data and row.extra_data.get('station') %} · {{ row.extra_data.get('station') }}{% endif %}
+          {% elif row.kind == 'repair' and row.reading %} · {{ row.reading }}{% endif %}
+          {% if row.notes %} · {{ row.notes }}{% endif %}
+        </div>
+        {% if log_photos.get(row.id) %}
+        <div class="photo-strip" style="margin-top:.4rem">
+          {% for p in log_photos.get(row.id) %}
+          <a href="{{ url_for('items.serve_photo', photo_id=p.id) }}" target="_blank" rel="noopener">
+            <img src="{{ url_for('items.serve_photo', photo_id=p.id) }}" alt="{{ p.caption or '' }}">
+          </a>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card"><div class="empty"><strong>Nothing in the log yet</strong>Miles, a fill-up, a repair, a photo — it all lives here.</div></div>
   {% endif %}
 {% elif tab == 'photos' %}
   <div class="photo-grid">

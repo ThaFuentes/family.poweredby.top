@@ -8,8 +8,14 @@ if ROOT not in sys.path:
 
 from decimal import Decimal
 
+from datetime import date
+from types import SimpleNamespace
+
 from app.utils.vehicle_systems import (
+    fmt_day,
     guess_slot,
+    group_parts,
+    overview_on_it,
     parse_cost,
     systems_payload,
     valid_slot,
@@ -54,6 +60,63 @@ class VehicleSystemTests(unittest.TestCase):
         self.assertEqual(parse_cost("$89.50"), Decimal("89.50"))
         self.assertIsNone(parse_cost(""))
         self.assertEqual(guess_slot("auto_part", "Pioneer radio"), ("electronics", "radio"))
+
+    def test_fmt_day(self):
+        self.assertEqual(fmt_day(date(2026, 9, 12)), "Sep 12")
+        self.assertEqual(fmt_day(None), "")
+
+    def test_overview_keeps_three_newest(self):
+        parts = [
+            SimpleNamespace(
+                system="electrical",
+                slot="battery",
+                name="Old battery",
+                status="installed",
+                is_current=True,
+                installed_on=date(2024, 1, 1),
+                created_at=None,
+                replaced_id=None,
+            ),
+            SimpleNamespace(
+                system="electrical",
+                slot="alternator",
+                name="Denso",
+                status="installed",
+                is_current=True,
+                installed_on=date(2026, 9, 12),
+                created_at=None,
+                replaced_id=None,
+            ),
+            SimpleNamespace(
+                system="cooling",
+                slot="radiator",
+                name="Spectra",
+                status="installed",
+                is_current=True,
+                installed_on=date(2026, 8, 1),
+                created_at=None,
+                replaced_id=None,
+            ),
+            SimpleNamespace(
+                system="engine",
+                slot="oil",
+                name="Oil",
+                status="retired",
+                is_current=False,
+                installed_on=date(2020, 1, 1),
+                created_at=None,
+                replaced_id=None,
+            ),
+        ]
+        grouped = group_parts(parts)
+        elec = next(s for s in grouped if s["id"] == "electrical")
+        self.assertEqual(elec["newest"].name, "Denso")
+        self.assertEqual(elec["count"], 2)
+        rows, total = overview_on_it(grouped, limit=3)
+        names = [r["part"].name for r in rows]
+        self.assertEqual(names[0], "Denso")
+        self.assertIn("Spectra", names)
+        self.assertEqual(total, 3)
 
 
 if __name__ == "__main__":

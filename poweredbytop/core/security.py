@@ -462,7 +462,7 @@ def _is_public_safe_path(path: str) -> bool:
     ):
         return True
     # Guest home must never 403 first (Aegis/AX 302 to poweredby.top; AegisX PWA shell).
-    if p in ("/", "/main", "/home", "/landing", "/index", "/index.html"):
+    if p in ("/", "/main", "/home", "/landing", "/about", "/index", "/index.html"):
         try:
             from poweredbytop.config.site_profile import profile_for_current
 

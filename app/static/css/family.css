@@ -430,6 +430,12 @@ textarea { min-height: 5rem; }
 }
 .btn.ghost:hover { color: var(--green); }
 .btn.block { width: 100%; }
+.btn.outline {
+  background: transparent;
+  color: var(--btn);
+  border: 1.5px solid var(--btn);
+}
+.btn.outline:hover { color: var(--btn); filter: none; background: var(--btn-2); }
 .btn-row { display: flex; gap: .55rem; flex-wrap: wrap; margin-top: .9rem; align-items: center; }
 .btn.sm { padding: .45rem .75rem; min-height: 0; font-size: .82rem; border-radius: .7rem; }
 a.btn:hover { text-decoration: none; }
@@ -1449,6 +1455,7 @@ html.family-intro-out #family-intro{opacity:0;transition:opacity .4s ease}
 }
 .followup:last-child { border-bottom: 0; }
 .followup strong { display: block; margin: .15rem 0 0; }
+.log-totals .qty { margin: 0 0 .2rem; }
 .landing-brand {
   display: flex; align-items: center; gap: .75rem; color: var(--ink); min-width: 0;
 }

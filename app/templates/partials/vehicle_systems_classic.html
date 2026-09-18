@@ -1,0 +1,34 @@
+<p class="muted" style="margin:0 0 .85rem">{% if systems_host == 'house' %}Tap a system to see what's on it.{% else %}Tap a system to see what's on it.{% endif %} Add is a button after that.</p>
+
+<div class="card list">
+  <h2 style="margin:.2rem 0 .45rem">On it now</h2>
+  {% set ns = namespace(n=0) %}
+  {% for s in systems %}
+    {% for p in s.current %}
+      {% set ns.n = ns.n + 1 %}
+      <button type="button" class="row" style="width:100%;text-align:left;background:none;border:0;font:inherit;color:inherit;cursor:pointer" data-sheet="{{ url_for('items.parts_sheet', item_id=item.id, system=s.id) }}" data-sheet-title="{{ s.label }}">
+        <div>
+          <strong>{{ p.name }}</strong>
+          <div class="muted">{{ s.label }} · {{ p.slot.replace('_',' ') }}{% if p.status == 'spare' %} · spare{% else %} · on it{% endif %}{% if p.brand %} · {{ p.brand }}{% endif %}</div>
+        </div>
+        <span class="badge">Open</span>
+      </button>
+    {% endfor %}
+  {% endfor %}
+  {% if ns.n == 0 %}
+  <p class="muted" style="margin:0">Nothing logged yet.</p>
+  {% endif %}
+</div>
+
+<div class="grid sys-menu">
+  {% for s in systems %}
+  <button type="button" class="tile" data-sheet="{{ url_for('items.parts_sheet', item_id=item.id, system=s.id) }}" data-sheet-title="{{ s.label }}">
+    <span class="kicker">{% if s.count %}{{ s.count }} on it{% else %}Empty{% endif %}</span>
+    <span class="label">{{ s.label }}</span>
+    <span class="count">{{ s.hint }}</span>
+  </button>
+  {% endfor %}
+</div>
+{% if can_maintain or can_edit %}
+<button type="button" class="btn home-cal-btn" data-sheet="{{ url_for('items.parts_sheet', item_id=item.id) }}" data-sheet-title="Add a part">Add a part</button>
+{% endif %}

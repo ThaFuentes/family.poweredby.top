@@ -1,21 +1,29 @@
-<p class="muted" style="margin:0 0 .85rem">{% if systems_host == 'house' %}Tap a system to see what's on it.{% else %}Tap a system to see what's on it.{% endif %} Add is a button after that.</p>
+<p class="muted" style="margin:0 0 .55rem">Scan for this {% if systems_host == 'house' %}house{% else %}vehicle{% endif %}.</p>
+
+{% if can_maintain or can_edit %}
+<p class="btn-row" style="margin:0 0 .75rem">
+  <button type="button" class="btn sm outline" data-sheet="{{ url_for('items.parts_sheet', item_id=item.id) }}" data-sheet-title="Add a part">+ Add part</button>
+</p>
+{% endif %}
 
 <div class="card list">
   <h2 style="margin:.2rem 0 .45rem">On it now</h2>
-  {% set ns = namespace(n=0) %}
-  {% for s in systems %}
-    {% for p in s.current %}
-      {% set ns.n = ns.n + 1 %}
+  {% if on_it_now %}
+    {% for row in on_it_now %}
+      {% set s = row.system %}
+      {% set p = row.part %}
       <button type="button" class="row" style="width:100%;text-align:left;background:none;border:0;font:inherit;color:inherit;cursor:pointer" data-sheet="{{ url_for('items.parts_sheet', item_id=item.id, system=s.id) }}" data-sheet-title="{{ s.label }}">
         <div>
           <strong>{{ p.name }}</strong>
-          <div class="muted">{{ s.label }} · {{ p.slot.replace('_',' ') }}{% if p.status == 'spare' %} · spare{% else %} · on it{% endif %}{% if p.brand %} · {{ p.brand }}{% endif %}</div>
+          <div class="muted">{{ s.label }}{% if p.installed_on %} · Added {{ p.installed_on.strftime('%b') }} {{ p.installed_on.day }}{% endif %}</div>
         </div>
         <span class="badge">Open</span>
       </button>
     {% endfor %}
-  {% endfor %}
-  {% if ns.n == 0 %}
+    {% if on_it_total > on_it_now|length %}
+    <p class="muted" style="margin:.35rem 0 0">{{ on_it_total }} on it. Open a system for the rest.</p>
+    {% endif %}
+  {% else %}
   <p class="muted" style="margin:0">Nothing logged yet.</p>
   {% endif %}
 </div>
@@ -25,10 +33,8 @@
   <button type="button" class="tile" data-sheet="{{ url_for('items.parts_sheet', item_id=item.id, system=s.id) }}" data-sheet-title="{{ s.label }}">
     <span class="kicker">{% if s.count %}{{ s.count }} on it{% else %}Empty{% endif %}</span>
     <span class="label">{{ s.label }}</span>
-    <span class="count">{{ s.hint }}</span>
+    <span class="count">{% if s.newest %}{{ s.newest.name }}{% if s.newest.installed_on %} · added {{ s.newest.installed_on.strftime('%b') }} {{ s.newest.installed_on.day }}{% endif %}{% else %}{{ s.hint }}{% endif %}</span>
   </button>
   {% endfor %}
 </div>
-{% if can_maintain or can_edit %}
-<button type="button" class="btn home-cal-btn" data-sheet="{{ url_for('items.parts_sheet', item_id=item.id) }}" data-sheet-title="Add a part">Add a part</button>
-{% endif %}
+<p class="muted" style="margin:.85rem 0 0;font-size:.78rem">Trying a calmer systems view. <a href="{{ url_for('items.systems_ui', item_id=item.id, mode='classic') }}">Switch back</a></p>

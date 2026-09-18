@@ -17,6 +17,61 @@ def parse_cost(raw):
     return d.quantize(Decimal("0.01"))
 
 
+COOKIE = "family_systems_ui"
+
+
+def calm_systems() -> bool:
+    """Amy's calmer vehicle/house systems UI. Cookie or ?systems=classic to go back."""
+    try:
+        from flask import request
+
+        q = (request.args.get("systems") or "").strip().lower()
+        if q in ("classic", "old", "legacy"):
+            return False
+        if q in ("calm", "new"):
+            return True
+        c = (request.cookies.get(COOKIE) or "").strip().lower()
+        if c in ("classic", "old", "legacy"):
+            return False
+    except Exception:
+        pass
+    return True
+
+
+def fmt_day(value) -> str:
+    if value is None:
+        return ""
+    try:
+        return f"{value.strftime('%b')} {int(value.day)}"
+    except Exception:
+        return str(value)[:10]
+
+
+def part_when_key(part) -> str:
+    d = getattr(part, "installed_on", None)
+    if d is not None:
+        try:
+            return d.isoformat()
+        except Exception:
+            return str(d)
+    c = getattr(part, "created_at", None)
+    if c is None:
+        return ""
+    try:
+        return c.date().isoformat() if hasattr(c, "date") else str(c)
+    except Exception:
+        return str(c)
+
+
+def overview_on_it(grouped, limit: int = 3) -> tuple[list, int]:
+    rows = []
+    for s in grouped or []:
+        for p in s.get("on_it") or []:
+            rows.append({"system": s, "part": p})
+    rows.sort(key=lambda r: part_when_key(r["part"]), reverse=True)
+    return rows[:limit], len(rows)
+
+
 def parse_day(raw):
     from datetime import date
 
@@ -330,6 +385,8 @@ def install_part(
         for old in current:
             old.is_current = False
             old.status = "retired"
+            if getattr(old, "removed_on", None) is None:
+                old.removed_on = date.today()
             replaced_id = old.id
     miles = None
     if installed_mileage not in (None, ""):
@@ -456,22 +513,32 @@ def group_parts(parts, systems=None, slots=None) -> list[dict]:
     for sid, label, hint in catalog:
         rows = by_sys.get(sid) or []
         current = [p for p in rows if getattr(p, "is_current", False) and (p.status or "installed") != "retired"]
-        history = [p for p in rows if p not in current]
-        filled_slots = {p.slot for p in current}
+        current = sorted(current, key=part_when_key, reverse=True)
+        on_it = [p for p in current if (p.status or "installed") != "spare"]
+        spares = [p for p in current if (p.status or "") == "spare"]
+        history = sorted([p for p in rows if p not in current], key=part_when_key, reverse=True)
+        filled_slots = {p.slot for p in on_it}
         empty = [
             {"id": slot, "label": slabel, "hint": shint}
             for slot, slabel, shint in slot_map.get(sid) or ()
             if slot not in filled_slots
         ]
+        newest = on_it[0] if on_it else None
+        replaced_ids = {getattr(p, "replaced_id", None) for p in rows}
+        replaced_ids.discard(None)
         grouped.append(
             {
                 "id": sid,
                 "label": label,
                 "hint": hint,
                 "current": current,
+                "on_it": on_it,
+                "spares": spares,
+                "newest": newest,
                 "history": history,
                 "empty_slots": empty,
-                "count": len(current),
+                "count": len(on_it),
+                "replaced_ids": replaced_ids,
             }
         )
     return grouped

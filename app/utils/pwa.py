@@ -118,7 +118,7 @@ def _brand() -> dict:
         "short": "Family",
         "title": "Family OS",
         "desc": "Household operating system — scan, stock, maintain.",
-        "guest_start": "/",
+        "guest_start": "/auth/login",
         "authed_start": "/open",
     }
 

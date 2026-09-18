@@ -101,6 +101,15 @@ def add_from_lookup():
     return redirect(url_for("items.detail", item_id=item.id, tab="systems"))
 
 
+def _vehicle_want_replace(status: str) -> bool:
+    if (status or "").strip().lower() != "installed":
+        return False
+    vals = request.form.getlist("replace_current")
+    if not vals:
+        return True
+    return str(vals[-1]).strip().lower() not in ("0", "false", "off", "no")
+
+
 def _vehicle_item(item_id):
     item = _item_or_404(item_id)
     if item.item_type != "vehicle":
@@ -136,7 +145,7 @@ def add_part(item_id):
         source=request.form.get("source"),
         cost=request.form.get("cost"),
         warranty_until=request.form.get("warranty_until"),
-        replace_current=status == "installed",
+        replace_current=_vehicle_want_replace(status),
     )
     nfiles = attach_part_uploads(item, row, current_user.id)
     db.session.commit()
@@ -159,6 +168,10 @@ def retire_part(item_id, part_id):
     )
     row.is_current = False
     row.status = "retired"
+    from datetime import date as _date
+
+    if not getattr(row, "removed_on", None):
+        row.removed_on = _date.today()
     db.session.commit()
     flash(f"{row.name} is off {item.name}. Still in Used to be on it if you need the old one.", "info")
     return redirect(url_for("items.detail", item_id=item.id, tab="systems"))

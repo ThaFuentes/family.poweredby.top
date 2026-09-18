@@ -19,59 +19,65 @@
   {% if shown %}
   <h1 style="margin:.2rem 0 .35rem;font-size:1.2rem">{{ shown.label }}</h1>
   <p class="muted">{{ shown.hint }}</p>
-  {% for p in shown.current %}
-  <article class="card" style="margin:.55rem 0">
+
+  <h2 style="margin:1rem 0 .35rem;font-size:1rem">On it now</h2>
+  {% for p in shown.on_it or shown.current %}
+  <article class="card" style="margin:.55rem 0" id="part-{{ p.id }}">
     <div class="muted" style="font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;font-weight:800">{{ p.slot.replace('_',' ') }}</div>
     <strong>{{ p.name }}</strong>
     <div class="muted">
-      {% if p.status == 'spare' %}Spare in the garage{% else %}On it now{% endif %}
-      {% if p.brand %} · {{ p.brand }}{% endif %}
-      {% if p.spec %} · {{ p.spec }}{% endif %}
-      {% if p.part_number %} · #{{ p.part_number }}{% endif %}
+      {% if p.brand %}{{ p.brand }}{% endif %}{% if p.spec %}{% if p.brand %} · {% endif %}{{ p.spec }}{% endif %}
+      {% if p.installed_on %} · Added {{ p.installed_on.strftime('%b') }} {{ p.installed_on.day }}{% endif %}
     </div>
     {% if can_maintain or can_edit %}
     <details class="more">
-      <summary>Change this part</summary>
+      <summary>Open</summary>
+      <p class="muted" style="margin:.35rem 0">
+        {% if p.installed_on %}Installed {{ p.installed_on }}{% endif %}
+        {% if p.installed_mileage %} · {{ p.installed_mileage }} mi{% endif %}
+        {% if p.source %} · {{ p.source }}{% endif %}
+        {% if p.notes %}<br>{{ p.notes }}{% endif %}
+      </p>
       <form method="post" action="{{ url_for('items.edit_part', item_id=item.id, part_id=p.id) }}" enctype="multipart/form-data">
         <input type="hidden" name="next" value="sheet">
         <label>Name</label>
         <input name="name" value="{{ p.name }}">
+        <label>Brand</label>
+        <input name="brand" value="{{ p.brand or '' }}">
+        <label>Spec</label>
+        <input name="spec" value="{{ p.spec or '' }}">
+        <label>Installed on</label>
+        <input type="date" name="installed_on" value="{{ p.installed_on or '' }}">
         <label>This part only</label>
         <textarea name="part_notes">{{ p.notes or '' }}</textarea>
-        <label>Where you got it</label>
-        <input name="source" value="{{ p.source or '' }}">
-        <label>What you paid</label>
-        <input name="cost" inputmode="decimal" value="{% if p.cost %}{{ '%.2f'|format(p.cost|float) }}{% endif %}">
         <div class="btn-row"><button class="btn sm" type="submit">Save</button></div>
       </form>
+      <form method="post" action="{{ url_for('items.retire_part', item_id=item.id, part_id=p.id) }}" style="margin-top:.4rem" onsubmit="return confirm('Take {{ p.name }} off this system?')">
+        <input type="hidden" name="next" value="sheet">
+        <button class="btn sm danger" type="submit">Take it off</button>
+      </form>
     </details>
-    <form method="post" action="{{ url_for('items.retire_part', item_id=item.id, part_id=p.id) }}" style="margin-top:.4rem">
-      <input type="hidden" name="next" value="sheet">
-      <button class="btn sm secondary" type="submit">Took it off</button>
-    </form>
     {% endif %}
   </article>
   {% else %}
   <p class="muted">Nothing on this system yet.</p>
   {% endfor %}
 
-  {% if shown.empty_slots and (can_maintain or can_edit) %}
-  <p class="muted">Empty slots — tap one to fill the form.</p>
-  <div class="slot-chips">
-    {% for sl in shown.empty_slots %}
-      <button type="button" class="chip" data-fill-part data-system="{{ shown.id }}" data-slot="{{ sl.id }}">+ {{ sl.label }}</button>
-    {% endfor %}
-  </div>
+  {% if shown.spares %}
+  <p class="muted" style="margin:.7rem 0 .2rem">Spares</p>
+  {% for p in shown.spares %}
+  <div class="muted" style="padding:.35rem 0">{{ p.name }}{% if p.brand %} · {{ p.brand }}{% endif %}</div>
+  {% endfor %}
   {% endif %}
 
   {% if shown.history %}
   <details class="more">
-    <summary>Used to be on it ({{ shown.history|length }})</summary>
+    <summary>History ({{ shown.history|length }})</summary>
     {% for p in shown.history %}
     <div class="muted" style="padding:.45rem 0;border-top:1px solid var(--edge)">
       <strong>{{ p.name }}</strong>
       · {{ p.slot.replace('_',' ') }}
-      · {% if p.status == 'retired' %}took it off{% elif p.status == 'spare' %}was a spare{% else %}{{ p.status }}{% endif %}
+      · {% if p.id in (shown.replaced_ids or []) %}replaced{% if p.removed_on %} {{ p.removed_on.strftime('%b') }} {{ p.removed_on.day }}{% endif %}{% elif p.removed_on %}took it off {{ p.removed_on.strftime('%b') }} {{ p.removed_on.day }}{% else %}took it off{% endif %}
       {% if p.spec %} · {{ p.spec }}{% endif %}
     </div>
     {% endfor %}
@@ -79,15 +85,14 @@
   {% endif %}
   {% else %}
   <h1 style="margin:.2rem 0 .35rem;font-size:1.2rem">Add a part</h1>
-  <p class="muted">One part at a time. Notes stay on this part.</p>
+  <p class="muted">What it is, when it went on. Replace moves the old one to History.</p>
   {% endif %}
 
   {% if can_maintain or can_edit %}
-  <details class="add-fold card" id="add-part-fold">
-    <summary>Add a part</summary>
+  <details class="add-fold card" id="add-part-fold" {% if not shown or not shown.on_it %}open{% endif %}>
+    <summary>{% if shown and shown.on_it %}Replace / add part{% else %}Add a part{% endif %}</summary>
   <form id="part-form" method="post" action="{{ url_for('items.add_part', item_id=item.id) }}" enctype="multipart/form-data" autocomplete="off">
     <input type="hidden" name="next" value="sheet">
-    <p class="muted">{% if shown %}New on {{ shown.label }}.{% else %}One part at a time.{% endif %}</p>
     <label>System</label>
     <select name="system" id="part-system">
       {% for s in systems_catalog %}
@@ -96,30 +101,40 @@
     </select>
     <label>What</label>
     <select name="slot" id="part-slot"></select>
-    <label>Call it (optional)</label>
-    <input name="name" placeholder="Blank = Alternator, Radiator…">
-    <label>Brand (optional)</label>
-    <input name="brand">
-    <label>Spec</label>
+    <p class="muted" id="slot-hint" style="margin:.2rem 0 .55rem"></p>
+    <label>Call it / brand (optional)</label>
+    <input name="name" placeholder="Blank = Alternator, Battery…">
+    <input name="brand" placeholder="Denso, Motorcraft…">
+    <label>Spec (optional)</label>
     <input name="spec" id="part-spec">
-    <label>Where you got it</label>
-    <input name="source" value="{{ last_part_source or '' }}" placeholder="AutoZone, Amazon…">
-    <label>What you paid</label>
-    <input name="cost" inputmode="decimal">
+    <label>Installed on</label>
+    <input type="date" name="installed_on" value="{{ today }}">
+    {% if systems_host != 'house' %}
+    <label>Mileage (optional)</label>
+    <input name="installed_mileage" inputmode="numeric" value="{{ (item.vehicle.current_mileage if item.vehicle else '') }}">
+    {% endif %}
+    <input type="hidden" name="replace_current" value="0">
+    <label class="cal-check"><input type="checkbox" name="replace_current" id="replace-current" value="1" checked> Replace what’s on it?</label>
+    <p class="muted" id="replace-hint" style="margin:.15rem 0 .55rem">On: the old one moves to History with today’s date. Off: add alongside.</p>
     <label>On it now or spare</label>
-    <select name="status">
+    <select name="status" id="part-status">
       <option value="installed">On it now</option>
       <option value="spare">Spare in the garage</option>
     </select>
-    <label>{% if systems_host == 'house' %}Hours / reading (optional){% else %}Mileage when you put it on{% endif %}</label>
-    <input name="installed_mileage" inputmode="numeric" value="{{ (item.vehicle.current_mileage if item.vehicle else '') }}">
-    <label>This part only</label>
-    <textarea name="part_notes" placeholder="How this one comes off, the 3-pin…"></textarea>
-    <label>Photo</label>
-    <input type="file" name="photo" accept="image/*" capture="environment">
-    <label>Receipt</label>
-    <input type="file" name="receipt" accept="image/*,.pdf">
-    <div class="btn-row"><button class="btn" type="submit">Save part</button></div>
+    <details class="more">
+      <summary>Store, cost, photo</summary>
+      <label>Where you got it</label>
+      <input name="source" value="{{ last_part_source or '' }}" placeholder="AutoZone, Amazon…">
+      <label>What you paid</label>
+      <input name="cost" inputmode="decimal">
+      <label>This part only</label>
+      <textarea name="part_notes" placeholder="How this one comes off…"></textarea>
+      <label>Photo</label>
+      <input type="file" name="photo" accept="image/*" capture="environment">
+      <label>Receipt</label>
+      <input type="file" name="receipt" accept="image/*,.pdf">
+    </details>
+    <div class="btn-row"><button class="btn" type="submit">Save</button></div>
   </form>
   </details>
   {% endif %}
@@ -127,13 +142,33 @@
   <script>
   (function () {
     const catalog = {{ systems_catalog|tojson }};
+    const currentMap = {{ current_map|tojson }};
     const sys = document.getElementById("part-system");
     const slot = document.getElementById("part-slot");
     const spec = document.getElementById("part-spec");
+    const hint = document.getElementById("slot-hint");
+    const replaceBox = document.getElementById("replace-current");
+    const replaceHint = document.getElementById("replace-hint");
+    const statusEl = document.getElementById("part-status");
     if (!sys || !slot) return;
     function slotsFor(id) {
       const row = catalog.find(function (s) { return s.id === id; });
       return (row && row.slots) || [];
+    }
+    function onSlot() {
+      const rows = slotsFor(sys.value);
+      const picked = rows.find(function (r) { return r.id === slot.value; });
+      if (hint) hint.textContent = (picked && picked.hint) || "";
+      if (spec && picked && picked.hint && !spec.value) spec.placeholder = picked.hint;
+      const key = sys.value + ":" + slot.value;
+      const have = currentMap[key] || [];
+      if (replaceHint) {
+        if (have.length) {
+          replaceHint.textContent = "On: " + have[0].name + " moves to History. Off: add alongside.";
+        } else {
+          replaceHint.textContent = "Nothing in this slot yet — this just adds it.";
+        }
+      }
     }
     function fillSlots(keep) {
       const rows = slotsFor(sys.value);
@@ -146,23 +181,18 @@
         if (r.id === current) o.selected = true;
         slot.appendChild(o);
       });
-      const picked = rows.find(function (r) { return r.id === slot.value; });
-      if (spec && picked && picked.hint && !spec.value) spec.placeholder = picked.hint;
+      onSlot();
     }
     sys.addEventListener("change", function () { fillSlots(""); });
-    fillSlots({{ (shown.empty_slots[0].id if shown and shown.empty_slots else '')|tojson }});
-    document.querySelectorAll("[data-fill-part]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        sys.value = btn.getAttribute("data-system");
-        fillSlots(btn.getAttribute("data-slot"));
-        const fold = document.getElementById("add-part-fold");
-        if (fold) fold.open = true;
-        const form = document.getElementById("part-form");
-        if (form) form.scrollIntoView({ behavior: "smooth", block: "start" });
+    slot.addEventListener("change", onSlot);
+    if (statusEl && replaceBox) {
+      statusEl.addEventListener("change", function () {
+        replaceBox.disabled = statusEl.value !== "installed";
       });
-    });
+    }
+    fillSlots({{ (shown.empty_slots[0].id if shown and shown.empty_slots else (shown.on_it[0].slot if shown and shown.on_it else ''))|tojson }});
   })();
   </script>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=os10"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=os14"></script>
 </body>
 </html>

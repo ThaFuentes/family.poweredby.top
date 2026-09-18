@@ -17,10 +17,17 @@ def open_start():
     return redirect(start_url(current_user))
 
 
+@home_bp.route("/about")
+def about():
+    if current_user.is_authenticated:
+        return redirect(url_for("home.home"))
+    return render_template("landing.html")
+
+
 @home_bp.route("/")
 def home():
     if not current_user.is_authenticated:
-        return render_template("landing.html")
+        return redirect(url_for("auth.login"))
     hid = household_id()
     try:
         from app.utils.notify import maybe_flush_due_emails

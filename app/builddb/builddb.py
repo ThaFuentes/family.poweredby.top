@@ -220,6 +220,7 @@ def init_tenant_system(app):
                 "table_vehicles",
                 "table_vehicle_parts",
                 "table_maintenance_records",
+                "table_item_logs",
                 "table_reminders",
                 "table_photo_notes",
                 "table_notes",

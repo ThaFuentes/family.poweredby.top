@@ -93,13 +93,28 @@ def create_app():
     from datetime import timedelta
 
     # Phone PWA: stay signed in. Wrapper default is 1 day and does not slide.
-    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+    # Re-apply after init_security so Family wins. 400 days + sliding refresh.
+    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=400)
     app.config["SESSION_REFRESH_EACH_REQUEST"] = True
-    app.config["REMEMBER_COOKIE_DURATION"] = timedelta(days=30)
+    app.config["REMEMBER_COOKIE_DURATION"] = timedelta(days=400)
     app.config["REMEMBER_COOKIE_HTTPONLY"] = True
     app.config["REMEMBER_COOKIE_SECURE"] = bool(app.config.get("SESSION_COOKIE_SECURE"))
     app.config["REMEMBER_COOKIE_SAMESITE"] = "Lax"
     app.config["REMEMBER_COOKIE_NAME"] = "pbt_family_remember"
+
+    @app.before_request
+    def _slide_family_login():
+        """Keep a signed-in phone from dropping after the wrapper's 1-day vetting window."""
+        import time
+        from flask import session
+        from flask_login import current_user as _cu
+
+        if not getattr(_cu, "is_authenticated", False):
+            return None
+        session.permanent = True
+        if session.get("pbt_vetted"):
+            session["pbt_vetted_ts"] = int(time.time())
+        return None
 
     from werkzeug.middleware.proxy_fix import ProxyFix
 
