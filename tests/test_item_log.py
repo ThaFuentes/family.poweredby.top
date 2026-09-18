@@ -44,6 +44,21 @@ class DtcTests(unittest.TestCase):
         self.assertFalse(hit["used_ai"])
 
 
+class PhotoBytesTests(unittest.TestCase):
+    def test_roundtrip_and_empty_on_bad_key(self):
+        from app.utils import crypto
+
+        crypto._fernet = None
+        png = (
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00"
+            b"\x00\x01\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        wrapped = crypto.encrypt_bytes(png)
+        self.assertTrue(wrapped.startswith(crypto._FILE_MAGIC))
+        self.assertEqual(crypto.decrypt_bytes(wrapped), png)
+
+
 class StashImageTests(unittest.TestCase):
     def test_jpeg_mapped(self):
         self.assertEqual(_MIME_EXT["image/jpeg"], ".jpg")

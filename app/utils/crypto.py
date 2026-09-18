@@ -6,7 +6,6 @@ A missing or rotated key never 500s a page — decrypt falls back to the raw val
 from __future__ import annotations
 
 import os
-from io import BytesIO
 from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -55,16 +54,49 @@ def _fernet_from_secret(secret: str) -> Fernet:
     return Fernet(base64.urlsafe_b64encode(material))
 
 
+def _shared_key_path() -> Path:
+    return _project_root() / "uploads" / ".family_data_key"
+
+
+def _read_shared_key() -> str:
+    try:
+        p = _shared_key_path()
+        if p.is_file():
+            return p.read_text(encoding="utf-8").strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _write_shared_key(key: str) -> None:
+    try:
+        p = _shared_key_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        if p.is_file() and p.read_text(encoding="utf-8").strip():
+            return
+        p.write_text(key.strip() + "\n", encoding="utf-8")
+        try:
+            os.chmod(p, 0o600)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 def get_platform_fernet() -> Fernet | None:
     global _fernet
     if _fernet is not None:
         return _fernet
-    key = (os.getenv("FAMILY_DATA_KEY") or "").strip()
+    key = (os.getenv("FAMILY_DATA_KEY") or "").strip() or _read_shared_key()
     if not key:
         generated = Fernet.generate_key().decode("ascii")
-        os.environ["FAMILY_DATA_KEY"] = generated
         _persist_key(generated)
-        key = generated
+        _write_shared_key(generated)
+        key = _read_shared_key() or generated
+        os.environ["FAMILY_DATA_KEY"] = key
+    else:
+        os.environ["FAMILY_DATA_KEY"] = key
+        _write_shared_key(key)
     try:
         _fernet = _fernet_from_secret(key)
         return _fernet
@@ -160,7 +192,8 @@ def encrypt_bytes(data: bytes) -> bytes:
         return data
     if data.startswith(_FILE_MAGIC):
         return data
-    f = get_fernet()
+    # Files on disk use the site key so every Passenger worker can read them.
+    f = get_platform_fernet()
     if f is None:
         return data
     try:
@@ -173,10 +206,14 @@ def decrypt_bytes(data: bytes) -> bytes:
     if not data:
         return data
     keys = _fernets_to_try()
+    platform = get_platform_fernet()
+    if platform is not None and platform not in keys:
+        keys.append(platform)
     if not keys:
         return data
     blob = data
-    if blob.startswith(_FILE_MAGIC):
+    wrapped = blob.startswith(_FILE_MAGIC)
+    if wrapped:
         blob = blob[len(_FILE_MAGIC) :]
     elif not looks_encrypted(blob):
         return data
@@ -185,6 +222,8 @@ def decrypt_bytes(data: bytes) -> bytes:
             return f.decrypt(blob)
         except (InvalidToken, Exception):
             continue
+    if wrapped or looks_encrypted(data):
+        return b""
     return data
 
 
@@ -217,8 +256,23 @@ def read_decrypted_file(path: str) -> bytes:
     return decrypt_bytes(raw)
 
 
-def sendable_image(path: str, mimetype: str):
-    from flask import send_file
+def send_bytes(data: bytes, mimetype: str, filename: str = "file"):
+    """Passenger stdout is not a real file — never send_file(BytesIO) (fileno)."""
+    from flask import Response, abort
 
+    if not data:
+        abort(404)
+    if data.startswith(_FILE_MAGIC) or looks_encrypted(data):
+        abort(404)
+    name = os.path.basename(filename or "file").replace('"', "")
+    resp = Response(data, mimetype=mimetype or "application/octet-stream")
+    resp.headers["Content-Length"] = str(len(data))
+    resp.headers["Content-Disposition"] = f'inline; filename="{name}"'
+    resp.headers["Cache-Control"] = "private, max-age=86400"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    return resp
+
+
+def sendable_image(path: str, mimetype: str):
     data = read_decrypted_file(path)
-    return send_file(BytesIO(data), mimetype=mimetype, download_name=os.path.basename(path).replace(".enc", ""))
+    return send_bytes(data, mimetype, os.path.basename(path).replace(".enc", ""))

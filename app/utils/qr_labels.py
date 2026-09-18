@@ -1,6 +1,6 @@
 import io
 import os
-from flask import current_app, send_file
+from flask import current_app
 
 try:
     import qrcode
@@ -25,5 +25,6 @@ def qr_png_response(payload: str, filename: str = "qr.png"):
     img = qrcode.make(payload)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
-    buf.seek(0)
-    return send_file(buf, mimetype="image/png", download_name=filename)
+    from app.utils.crypto import send_bytes
+
+    return send_bytes(buf.getvalue(), "image/png", filename)

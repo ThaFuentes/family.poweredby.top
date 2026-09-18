@@ -38,6 +38,7 @@ instance/
 **/*_token*
 **/secrets/
 .master_key
+uploads/.family_data_key
 
 # Local-only
 local_testing/
