@@ -1,0 +1,84 @@
+{% set f = card.fields %}
+{% set eid = card.row.id %}
+<article class="card vault-card" id="login-{{ eid }}">
+  <div class="vault-card-head">
+    <div>
+      <h2>{{ f.title or 'Untitled' }}</h2>
+      <p class="muted">
+        {{ card.share }}
+        {% if card.owner and not card.mine %} · {{ card.owner.name or card.owner.username }}{% endif %}
+        {% if card.grants %} · {{ card.grants|join(' · ') }}{% endif %}
+      </p>
+    </div>
+    {% if card.href %}
+    <a class="btn sm" href="{{ card.href }}" rel="noopener noreferrer" target="_blank">Open site</a>
+    {% endif %}
+  </div>
+
+  <div class="vault-secrets">
+    <div class="secret-row">
+      <span class="kicker">Email / username</span>
+      <div class="secret-line">
+        <input id="v-login-{{ eid }}" value="{{ f.login }}" readonly autocomplete="off">
+        <button type="button" class="btn sm secondary" data-copy="{{ f.login }}">Copy</button>
+      </div>
+    </div>
+    <div class="secret-row">
+      <span class="kicker">Password</span>
+      <div class="secret-line">
+        <input id="v-secret-{{ eid }}" type="password" value="{{ f.secret }}" readonly autocomplete="off">
+        <button type="button" class="btn sm" data-reveal="#v-secret-{{ eid }}">Show</button>
+        <button type="button" class="btn sm secondary" data-copy="{{ f.secret }}">Copy</button>
+      </div>
+    </div>
+    <div class="secret-row">
+      <span class="kicker">Site</span>
+      <p class="secret-plain">{{ f.url or '—' }}</p>
+    </div>
+    <div class="secret-row">
+      <span class="kicker">What it’s for</span>
+      <p class="secret-plain">{{ f.purpose or '—' }}</p>
+    </div>
+    <div class="secret-row">
+      <span class="kicker">Details</span>
+      <p class="secret-plain" style="white-space:pre-wrap">{{ f.details or '—' }}</p>
+    </div>
+  </div>
+
+  {% if card.can_manage %}
+  <details class="vault-more">
+    <summary>Who can see it</summary>
+    <form method="post" action="{{ url_for('vault.share', entry_id=eid) }}">
+      {% include "partials/vault_share.html" %}
+      <div class="btn-row"><button class="btn" type="submit">Save who can see it</button></div>
+    </form>
+  </details>
+  <details class="vault-more">
+    <summary>Edit this login</summary>
+    <form method="post" action="{{ url_for('vault.edit', entry_id=eid) }}" autocomplete="off">
+      <label>Title</label>
+      <input name="title" required maxlength="200" value="{{ f.title }}" autocomplete="off">
+      <div class="desk-form">
+        <div>
+          <label>Site URL</label>
+          <input name="url" maxlength="500" value="{{ f.url }}" inputmode="url" autocomplete="off">
+        </div>
+        <div>
+          <label>Email / username</label>
+          <input name="login" maxlength="300" value="{{ f.login }}" autocomplete="off">
+        </div>
+      </div>
+      <label>Password</label>
+      <input type="password" name="secret" maxlength="500" value="{{ f.secret }}" autocomplete="new-password">
+      <label>What it’s for</label>
+      <input name="purpose" maxlength="500" value="{{ f.purpose }}" autocomplete="off">
+      <label>Details</label>
+      <textarea name="details" maxlength="4000">{{ f.details }}</textarea>
+      <div class="btn-row"><button class="btn" type="submit">Save changes</button></div>
+    </form>
+  </details>
+  <form method="post" action="{{ url_for('vault.delete', entry_id=eid) }}" onsubmit="return confirm('Remove this login from the vault?')">
+    <button class="btn sm secondary" type="submit">Delete</button>
+  </form>
+  {% endif %}
+</article>

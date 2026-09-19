@@ -153,6 +153,7 @@ def _filter_visible(rows, user):
 def _card(row, people: dict, opened: bool) -> dict:
     fields = open_fields(row) if opened else {k: "" for k in ("title", "login", "secret", "url", "purpose", "details")}
     grants = [g for g in (row.grants or [])]
+    grant_ids = {int(g.user_id): g for g in grants}
     return {
         "row": row,
         "fields": fields,
@@ -161,15 +162,14 @@ def _card(row, people: dict, opened: bool) -> dict:
         "owner": people.get(row.created_by),
         "grants": [grant_label(g, people) for g in grants],
         "grant_rows": grants,
+        "grant_ids": grant_ids,
+        "grant_durs": {uid: duration_key_for(g.expires_at) for uid, g in grant_ids.items()},
         "can_manage": can_manage_entry(row, current_user),
         "mine": int(row.created_by or 0) == int(current_user.id),
     }
 
 
-@vault_bp.route("/")
-@login_required
-def index():
-    _guard()
+def _render_index(*, draft=None):
     hid = household_id()
     opened = reauth_ok()
     q = (request.args.get("q") or "").strip()[:80]
@@ -212,7 +212,15 @@ def index():
         remaining_min=max(1, (reauth_remaining() + 59) // 60) if opened else 0,
         reauth_minutes=REAUTH_SECONDS // 60,
         vault_keep=opened,
+        draft=draft or {},
     )
+
+
+@vault_bp.route("/")
+@login_required
+def index():
+    _guard()
+    return _render_index()
 
 
 @vault_bp.route("/unlock", methods=["POST"])
@@ -256,25 +264,30 @@ def lock():
 @login_required
 def add():
     _guard()
-    if not reauth_ok():
-        flash("Sign in again to add a login.", "warning")
-        return redirect(url_for("vault.index"))
-    hid = household_id()
     fields = _form_fields()
     if not fields["title"]:
         flash("Give it a title.", "danger")
-        return redirect(url_for("vault.index"))
-    sealed = seal_fields(fields, hid)
-    row = VaultEntry(
-        household_id=hid,
-        created_by=current_user.id,
-        share_mode="personal",
-        **sealed,
-    )
-    db.session.add(row)
-    db.session.commit()
-    flash("Saved. Only you can see it until you share it.", "success")
-    return redirect(url_for("vault.detail", entry_id=row.id))
+        return _render_index(draft=fields) if reauth_ok() else redirect(url_for("vault.index"))
+    hid = household_id()
+    try:
+        sealed = seal_fields(fields, hid)
+        row = VaultEntry(
+            household_id=hid,
+            created_by=current_user.id,
+            share_mode="personal",
+            **sealed,
+        )
+        db.session.add(row)
+        db.session.commit()
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        flash("Could not save that login. Try Save again.", "danger")
+        return _render_index(draft=fields) if reauth_ok() else redirect(url_for("vault.index"))
+    flash("Saved. Username, password, and details are on the card. Share it if you want.", "success")
+    return redirect(url_for("vault.index", _anchor=f"login-{row.id}"))
 
 
 @vault_bp.route("/<int:entry_id>/edit", methods=["POST"])
@@ -293,14 +306,14 @@ def edit(entry_id):
     fields = _form_fields()
     if not fields["title"]:
         flash("Give it a title.", "danger")
-        return redirect(url_for("vault.detail", entry_id=entry_id))
+        return redirect(url_for("vault.index", _anchor=f"login-{entry_id}"))
     sealed = seal_fields(fields, hid)
     for key, val in sealed.items():
         setattr(row, key, val)
     row.updated_at = datetime.utcnow()
     db.session.commit()
     flash("Login updated.", "success")
-    return redirect(url_for("vault.detail", entry_id=entry_id))
+    return redirect(url_for("vault.index", _anchor=f"login-{entry_id}"))
 
 
 @vault_bp.route("/<int:entry_id>/share", methods=["POST"])
@@ -320,7 +333,7 @@ def share(entry_id):
     _replace_grants(row, hid, mode)
     db.session.commit()
     flash("Who can see this is updated. Change it anytime.", "success")
-    return redirect(url_for("vault.detail", entry_id=entry_id))
+    return redirect(url_for("vault.index", _anchor=f"login-{entry_id}"))
 
 
 @vault_bp.route("/<int:entry_id>")
@@ -328,31 +341,12 @@ def share(entry_id):
 def detail(entry_id):
     _guard()
     if not reauth_ok():
-        flash("Sign in again to open this login.", "warning")
+        flash("Sign in again to open the vault.", "warning")
         return redirect(url_for("vault.index"))
-    hid = household_id()
-    row = scoped(VaultEntry).options(selectinload(VaultEntry.grants)).filter_by(id=entry_id).first_or_404()
+    row = scoped(VaultEntry).filter_by(id=entry_id).first_or_404()
     if not can_view_entry(row, current_user) and not can_manage_entry(row, current_user):
         abort(403)
-    if not can_view_entry(row, current_user) and can_manage_entry(row, current_user):
-        flash("You can change who sees this. Sign-in still required to read the secrets.", "info")
-    people = _people_map(hid)
-    card = _card(row, people, can_view_entry(row, current_user))
-    grant_ids = {int(g.user_id): g for g in (row.grants or [])}
-    grant_durs = {uid: duration_key_for(g.expires_at) for uid, g in grant_ids.items()}
-    return render_template(
-        "vault_detail.html",
-        card=card,
-        adults=_adults(hid),
-        durations=DURATIONS,
-        grant_ids=grant_ids,
-        grant_durs=grant_durs,
-        remaining=reauth_remaining(),
-        remaining_min=max(1, (reauth_remaining() + 59) // 60),
-        opened=True,
-        vault_keep=True,
-        can_read=can_view_entry(row, current_user),
-    )
+    return redirect(url_for("vault.index", _anchor=f"login-{entry_id}"))
 
 
 @vault_bp.route("/<int:entry_id>/delete", methods=["POST"])

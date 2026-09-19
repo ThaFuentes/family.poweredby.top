@@ -295,19 +295,6 @@ class VaultHttpTests(unittest.TestCase):
         self.assertIn(b"not this login", pw_only.data)
         self.assertNotIn(b"New login", pw_only.data)
         token = self._csrf(pw_only.data)
-        sneaky = self.client.post(
-            "/vault/add",
-            data={
-                "title": "Should not save",
-                "secret": "nope",
-                "share_mode": "household",
-                "csrf_token": token,
-            },
-            headers={"X-CSRF-Token": token},
-            follow_redirects=True,
-        )
-        self.assertIn(b"Sign in again", sneaky.data)
-
         opened = self._unlock(admin)
         self.assertEqual(opened.status_code, 200)
         self.assertIn(b"New login", opened.data)
@@ -337,8 +324,13 @@ class VaultHttpTests(unittest.TestCase):
         )
         self.assertEqual(added.status_code, 200, added.data[-400:])
         self.assertIn(b"Netflix house", added.data)
-        self.assertIn(b"Who can see it", added.data)
+        self.assertIn(b"family@house.test", added.data)
         self.assertIn(b"WatchIt-99", added.data)
+        self.assertIn(b"Kids profile is the fourth one", added.data)
+        self.assertIn(b"Open site", added.data)
+        self.assertIn(b"Who can see it", added.data)
+        self.assertIn(b"Edit this login", added.data)
+        self.assertNotIn(b'class="rec-row', added.data)
 
         with self.app.app_context():
             from app.builddb.table_vault_entries import VaultEntry

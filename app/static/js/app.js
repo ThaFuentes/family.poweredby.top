@@ -283,10 +283,7 @@
         },
       }).catch(function () {});
     }
-    setInterval(ping, 30000);
-    document.addEventListener("input", ping);
-    document.addEventListener("keydown", ping);
-    document.addEventListener("pointerdown", ping);
+    setInterval(ping, 60000);
     ping();
   })();
 })();
