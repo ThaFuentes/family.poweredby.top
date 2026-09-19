@@ -32,6 +32,7 @@ from app.utils.password_vault import (
     lock_reauth,
     mark_reauth,
     open_fields,
+    touch_reauth,
     parse_duration,
     reauth_ok,
     reauth_remaining,
@@ -74,6 +75,15 @@ def _nostore(resp):
 @vault_bp.after_request
 def _vault_headers(response):
     return _nostore(response)
+
+
+@vault_bp.before_request
+def _slide_open_vault():
+    if request.endpoint in ("vault.lock", "vault.unlock"):
+        return None
+    if reauth_ok():
+        touch_reauth()
+    return None
 
 
 def _guard():
@@ -201,6 +211,7 @@ def index():
         remaining=reauth_remaining() if opened else 0,
         remaining_min=max(1, (reauth_remaining() + 59) // 60) if opened else 0,
         reauth_minutes=REAUTH_SECONDS // 60,
+        vault_keep=opened,
     )
 
 
@@ -218,8 +229,18 @@ def unlock():
         flash("That is not this login. Use the same username and password you sign in with.", "danger")
         return redirect(url_for("vault.index"))
     mark_reauth()
-    flash("Vault open. It locks again in a few minutes.", "success")
+    flash("Vault open. It stays open while you use it.", "success")
     return redirect(url_for("vault.index"))
+
+
+@vault_bp.route("/stay", methods=["POST"])
+@login_required
+def stay():
+    _guard()
+    if not reauth_ok():
+        return {"ok": False}, 401
+    touch_reauth()
+    return {"ok": True, "left": reauth_remaining()}
 
 
 @vault_bp.route("/lock", methods=["POST"])
@@ -329,6 +350,7 @@ def detail(entry_id):
         remaining=reauth_remaining(),
         remaining_min=max(1, (reauth_remaining() + 59) // 60),
         opened=True,
+        vault_keep=True,
         can_read=can_view_entry(row, current_user),
     )
 

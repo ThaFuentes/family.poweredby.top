@@ -265,4 +265,28 @@
         if (stepper) stepper.classList.remove("busy");
       });
   }
+
+  (function vaultKeep() {
+    if (!document.getElementById("vault-keep")) return;
+    var last = 0;
+    function ping() {
+      if (document.hidden) return;
+      var now = Date.now();
+      if (now - last < 8000) return;
+      last = now;
+      fetch("/vault/stay", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "X-CSRF-Token": csrfToken(),
+          "X-Requested-With": "fetch",
+        },
+      }).catch(function () {});
+    }
+    setInterval(ping, 30000);
+    document.addEventListener("input", ping);
+    document.addEventListener("keydown", ping);
+    document.addEventListener("pointerdown", ping);
+    ping();
+  })();
 })();

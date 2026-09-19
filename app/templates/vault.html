@@ -15,7 +15,7 @@
 
 {% if not opened %}
 <div class="card vault-lock">
-  <p class="muted">Type the same username and password you use to open Family OS. Not the family lock. The vault locks itself after {{ reauth_minutes }} minutes.</p>
+  <p class="muted">Type the same username and password you use to open Family OS. Not the family lock. It stays open while you use it.</p>
   <form method="post" action="{{ url_for('vault.unlock') }}" autocomplete="off">
     <label>Username</label>
     <input name="username" required autocomplete="off" autocapitalize="off" placeholder="your username">
@@ -26,7 +26,8 @@
 </div>
 {% else %}
 
-<p class="muted vault-open-note">Open for about {{ remaining_min }} min on this device.</p>
+<p class="muted vault-open-note">Stays open while you use it. Tap Lock when you’re done.</p>
+<div id="vault-keep" hidden></div>
 
 <div class="tabs">
   <a class="{% if scope=='all' %}active{% endif %}" href="{{ url_for('vault.index', q=q) }}">All</a>

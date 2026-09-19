@@ -7,13 +7,14 @@
     <p>
       <a href="{{ url_for('vault.index') }}">Vault</a>
       · {{ card.share }}
-      {% if remaining_min %} · locks in {{ remaining_min }} min{% endif %}
+      · stays open while you use it
     </p>
   </div>
   <form method="post" action="{{ url_for('vault.lock') }}">
     <button class="btn sm secondary" type="submit">Lock</button>
   </form>
 </div>
+<div id="vault-keep" hidden></div>
 
 {% if can_read %}
 {% set f = card.fields %}

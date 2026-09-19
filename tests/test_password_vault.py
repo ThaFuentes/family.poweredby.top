@@ -9,6 +9,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from app.utils.password_vault import (
+    REAUTH_SECONDS,
     can_manage_entry,
     can_view_entry,
     confirm_app_login,
@@ -187,6 +188,9 @@ class FullLoginTests(unittest.TestCase):
 
 
 class HelperTests(unittest.TestCase):
+    def test_idle_window_lets_them_write(self):
+        self.assertGreaterEqual(REAUTH_SECONDS, 45 * 60)
+
     def test_href(self):
         self.assertEqual(href_for("https://netflix.com"), "https://netflix.com")
         self.assertEqual(href_for("netflix.com"), "https://netflix.com")
@@ -307,6 +311,15 @@ class VaultHttpTests(unittest.TestCase):
         opened = self._unlock(admin)
         self.assertEqual(opened.status_code, 200)
         self.assertIn(b"New login", opened.data)
+        self.assertIn(b"Stays open while you use it", opened.data)
+        token = self._csrf(opened.data)
+        stay = self.client.post(
+            "/vault/stay",
+            data={"csrf_token": token},
+            headers={"X-CSRF-Token": token},
+        )
+        self.assertEqual(stay.status_code, 200)
+        self.assertTrue(stay.get_json().get("ok"))
         token = self._csrf(opened.data)
         added = self.client.post(
             "/vault/add",

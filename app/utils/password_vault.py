@@ -21,7 +21,8 @@ SECRET_FIELDS = ("title", "login", "secret", "url", "purpose", "details")
 SHARE_MODES = ("household", "personal", "selected")
 SESSION_UID = "family_pwvault_uid"
 SESSION_TS = "family_pwvault_ts"
-REAUTH_SECONDS = 10 * 60
+# Idle lock only. Using the vault (page load, typing, save) resets this.
+REAUTH_SECONDS = 45 * 60
 DURATIONS = (
     ("forever", "Forever"),
     ("1h", "1 hour"),
@@ -273,6 +274,14 @@ def mark_reauth(user=None) -> None:
     u = user if user is not None else current_user
     session[SESSION_UID] = int(getattr(u, "id", 0) or 0)
     session[SESSION_TS] = int(time.time())
+
+
+def touch_reauth(user=None) -> bool:
+    """Reset the idle clock if the vault is already open."""
+    if not reauth_ok(user):
+        return False
+    mark_reauth(user)
+    return True
 
 
 def lock_reauth() -> None:
