@@ -317,7 +317,6 @@ class VaultHttpTests(unittest.TestCase):
                 "url": "https://netflix.com",
                 "purpose": "Streaming",
                 "details": "Kids profile is the fourth one",
-                "share_mode": "household",
                 "csrf_token": token,
             },
             headers={"X-CSRF-Token": token},
@@ -325,25 +324,32 @@ class VaultHttpTests(unittest.TestCase):
         )
         self.assertEqual(added.status_code, 200, added.data[-400:])
         self.assertIn(b"Netflix house", added.data)
-        self.assertNotIn(b"WatchIt-99", added.data)
+        self.assertIn(b"Who can see it", added.data)
+        self.assertIn(b"WatchIt-99", added.data)
 
         with self.app.app_context():
             from app.builddb.table_vault_entries import VaultEntry
 
             row = VaultEntry.query.order_by(VaultEntry.id.desc()).first()
             self.assertIsNotNone(row)
+            self.assertEqual(row.share_mode, "personal")
             self.assertNotEqual(row.title, "Netflix house")
             self.assertNotIn("WatchIt-99", row.secret or "")
             self.assertNotIn("family@house.test", row.login or "")
             self.assertNotIn("netflix.com", (row.url or "").lower())
             self.assertTrue((row.title or "").startswith("gAAAAA"))
             netflix_id = row.id
-        detail = self.client.get(f"/vault/{netflix_id}")
-        self.assertEqual(detail.status_code, 200)
-        self.assertIn(b"family@house.test", detail.data)
-        self.assertIn(b"WatchIt-99", detail.data)
-        self.assertIn(b"Kids profile is the fourth one", detail.data)
-        self.assertIn("no-store", detail.headers.get("Cache-Control", ""))
+        token = self._csrf(added.data)
+        shared = self.client.post(
+            f"/vault/{netflix_id}/share",
+            data={"share_mode": "household", "csrf_token": token},
+            headers={"X-CSRF-Token": token},
+            follow_redirects=True,
+        )
+        self.assertEqual(shared.status_code, 200)
+        self.assertIn(b"Whole household", shared.data)
+        self.assertIn(b"family@house.test", shared.data)
+        self.assertIn("no-store", shared.headers.get("Cache-Control", ""))
 
         page = self.client.get("/members/")
         token = self._csrf(page.data)
@@ -389,6 +395,23 @@ class VaultHttpTests(unittest.TestCase):
                 "login": "water-user",
                 "secret": "Pipe-Secret",
                 "purpose": "City utilities",
+                "csrf_token": token,
+            },
+            headers={"X-CSRF-Token": token},
+            follow_redirects=True,
+        )
+        self.assertEqual(water.status_code, 200)
+        self.assertIn(b"Water bill", water.data)
+        with self.app.app_context():
+            from app.builddb.table_vault_entries import VaultEntry
+
+            water_row = VaultEntry.query.order_by(VaultEntry.id.desc()).first()
+            self.assertEqual(water_row.share_mode, "personal")
+            water_id = water_row.id
+        token = self._csrf(water.data)
+        water_share = self.client.post(
+            f"/vault/{water_id}/share",
+            data={
                 "share_mode": "selected",
                 "person": str(spouse_id),
                 f"for_{spouse_id}": "1h",
@@ -397,16 +420,16 @@ class VaultHttpTests(unittest.TestCase):
             headers={"X-CSRF-Token": token},
             follow_redirects=True,
         )
-        self.assertEqual(water.status_code, 200)
-        self.assertIn(b"Water bill", water.data)
+        self.assertEqual(water_share.status_code, 200)
+        self.assertIn(b"These people", water_share.data)
 
+        token = self._csrf(self.client.get("/vault/").data)
         private = self.client.post(
             "/vault/add",
             data={
                 "title": "Only Pat bank",
                 "login": "pat-bank",
                 "secret": "Bank-Only",
-                "share_mode": "personal",
                 "csrf_token": token,
             },
             headers={"X-CSRF-Token": token},

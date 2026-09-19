@@ -4,7 +4,7 @@
 <div class="page-head">
   <div>
     <h1>Vault</h1>
-    <p>Household logins. Title, site, username, password, and what it’s for — all encrypted. Open it with your username and password each time.</p>
+    <p>Save a login first. Then pick who can see it — everyone, just you, or certain people for a while. Change that anytime.</p>
   </div>
   {% if opened %}
   <form method="post" action="{{ url_for('vault.lock') }}">
@@ -65,30 +65,7 @@
   <input name="purpose" maxlength="500" placeholder="Streaming, the city water portal, work bots…" autocomplete="off">
   <label>Details</label>
   <textarea name="details" maxlength="4000" placeholder="Account pin, recovery email, notes for the house"></textarea>
-  <label>Who can see it</label>
-  <select name="share_mode" id="share-mode">
-    <option value="household">Whole household</option>
-    <option value="personal">Just me</option>
-    <option value="selected">These people</option>
-  </select>
-  <div class="people-pick" id="people-pick" hidden>
-    <p class="muted">Pick who, and how long they keep it. You always keep it.</p>
-    {% for p in adults if p.id != current_user.id %}
-    <label class="person-row">
-      <span>
-        <input type="checkbox" name="person" value="{{ p.id }}">
-        {{ p.name or p.username }}
-      </span>
-      <select name="for_{{ p.id }}">
-        {% for key, lab in durations %}
-        <option value="{{ key }}">{{ lab }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    {% else %}
-    <p class="muted">No other adults in this house yet. Add someone on Household, then share.</p>
-    {% endfor %}
-  </div>
+  <p class="muted">Save it first. After that you pick who can see it — everyone, just you, or certain people for a while. You can change that anytime.</p>
   <div class="btn-row"><button class="btn" type="submit">Save in vault</button></div>
 </form>
 </details>
@@ -107,19 +84,7 @@
     {% endif %}
   </a>
 {% else %}
-  <div class="card"><div class="empty"><strong>Nothing in the vault yet</strong>Add Netflix, the water bill, work bots — then pick who can open them.</div></div>
+  <div class="card"><div class="empty"><strong>Nothing in the vault yet</strong>Save a login. Then decide who can see it.</div></div>
 {% endfor %}
 {% endif %}
-{% endblock %}
-{% block scripts %}
-<script>
-(function () {
-  var sel = document.getElementById("share-mode");
-  var box = document.getElementById("people-pick");
-  if (!sel || !box) return;
-  function sync() { box.hidden = sel.value !== "selected"; }
-  sel.addEventListener("change", sync);
-  sync();
-})();
-</script>
 {% endblock %}

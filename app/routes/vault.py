@@ -243,20 +243,17 @@ def add():
     if not fields["title"]:
         flash("Give it a title.", "danger")
         return redirect(url_for("vault.index"))
-    mode = _share_from_form()
     sealed = seal_fields(fields, hid)
     row = VaultEntry(
         household_id=hid,
         created_by=current_user.id,
-        share_mode=mode,
+        share_mode="personal",
         **sealed,
     )
     db.session.add(row)
-    db.session.flush()
-    _replace_grants(row, hid, mode)
     db.session.commit()
-    flash("Saved in the vault.", "success")
-    return redirect(url_for("vault.index"))
+    flash("Saved. Only you can see it until you share it.", "success")
+    return redirect(url_for("vault.detail", entry_id=row.id))
 
 
 @vault_bp.route("/<int:entry_id>/edit", methods=["POST"])
@@ -270,20 +267,38 @@ def edit(entry_id):
     row = scoped(VaultEntry).options(selectinload(VaultEntry.grants)).filter_by(id=entry_id).first_or_404()
     if not can_manage_entry(row, current_user):
         abort(403)
+    if not can_view_entry(row, current_user):
+        abort(403)
+    fields = _form_fields()
+    if not fields["title"]:
+        flash("Give it a title.", "danger")
+        return redirect(url_for("vault.detail", entry_id=entry_id))
+    sealed = seal_fields(fields, hid)
+    for key, val in sealed.items():
+        setattr(row, key, val)
+    row.updated_at = datetime.utcnow()
+    db.session.commit()
+    flash("Login updated.", "success")
+    return redirect(url_for("vault.detail", entry_id=entry_id))
+
+
+@vault_bp.route("/<int:entry_id>/share", methods=["POST"])
+@login_required
+def share(entry_id):
+    _guard()
+    if not reauth_ok():
+        flash("Sign in again to change who sees this.", "warning")
+        return redirect(url_for("vault.index"))
+    hid = household_id()
+    row = scoped(VaultEntry).options(selectinload(VaultEntry.grants)).filter_by(id=entry_id).first_or_404()
+    if not can_manage_entry(row, current_user):
+        abort(403)
     mode = _share_from_form()
-    if can_view_entry(row, current_user):
-        fields = _form_fields()
-        if not fields["title"]:
-            flash("Give it a title.", "danger")
-            return redirect(url_for("vault.detail", entry_id=entry_id))
-        sealed = seal_fields(fields, hid)
-        for key, val in sealed.items():
-            setattr(row, key, val)
     row.share_mode = mode
     row.updated_at = datetime.utcnow()
     _replace_grants(row, hid, mode)
     db.session.commit()
-    flash("Vault entry updated.", "success")
+    flash("Who can see this is updated. Change it anytime.", "success")
     return redirect(url_for("vault.detail", entry_id=entry_id))
 
 

@@ -63,9 +63,17 @@
 {% endif %}
 
 {% if card.can_manage %}
+<details class="card add-fold" id="share-vault" open>
+<summary>Who can see it</summary>
+<p class="muted">Change this anytime. You always keep it.</p>
+<form method="post" action="{{ url_for('vault.share', entry_id=card.row.id) }}">
+  {% include "partials/vault_share.html" %}
+  <div class="btn-row"><button class="btn" type="submit">Save who can see it</button></div>
+</form>
+</details>
 {% if can_read %}
 <details class="card add-fold" id="edit-vault">
-<summary>Edit</summary>
+<summary>Edit login</summary>
 <form method="post" action="{{ url_for('vault.edit', entry_id=card.row.id) }}" autocomplete="off">
   <label>Title</label>
   <input name="title" required maxlength="200" value="{{ card.fields.title }}" autocomplete="off">
@@ -85,16 +93,7 @@
   <input name="purpose" maxlength="500" value="{{ card.fields.purpose }}" autocomplete="off">
   <label>Details</label>
   <textarea name="details" maxlength="4000">{{ card.fields.details }}</textarea>
-  {% include "partials/vault_share.html" %}
   <div class="btn-row"><button class="btn" type="submit">Save changes</button></div>
-</form>
-</details>
-{% else %}
-<details class="card add-fold" id="edit-vault" open>
-<summary>Who can see it</summary>
-<form method="post" action="{{ url_for('vault.edit', entry_id=card.row.id) }}">
-  {% include "partials/vault_share.html" %}
-  <div class="btn-row"><button class="btn" type="submit">Save access</button></div>
 </form>
 </details>
 {% endif %}

@@ -1,7 +1,7 @@
 <label>Who can see it</label>
 <select name="share_mode" id="share-mode">
-  <option value="household" {% if card.row.share_mode=='household' %}selected{% endif %}>Whole household</option>
   <option value="personal" {% if card.row.share_mode=='personal' %}selected{% endif %}>Just me</option>
+  <option value="household" {% if card.row.share_mode=='household' %}selected{% endif %}>Whole household</option>
   <option value="selected" {% if card.row.share_mode=='selected' %}selected{% endif %}>These people</option>
 </select>
 <div class="people-pick" id="people-pick" {% if card.row.share_mode != 'selected' %}hidden{% endif %}>
