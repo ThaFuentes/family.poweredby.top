@@ -208,16 +208,14 @@ def index():
 @login_required
 def unlock():
     _guard()
-    household = request.form.get("household") or ""
     username = request.form.get("username") or ""
     password = request.form.get("password") or ""
     if not confirm_app_login(
         current_user,
-        household=household,
         username=username,
         password=password,
     ):
-        flash("That is not this login. Use the same household, username, and password you sign in with.", "danger")
+        flash("That is not this login. Use the same username and password you sign in with.", "danger")
         return redirect(url_for("vault.index"))
     mark_reauth()
     flash("Vault open. It locks again in a few minutes.", "success")

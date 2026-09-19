@@ -4,7 +4,7 @@
 <div class="page-head">
   <div>
     <h1>Vault</h1>
-    <p>Household logins. Title, site, username, password, and what it’s for — all encrypted. Open it with your full Family OS login each time.</p>
+    <p>Household logins. Title, site, username, password, and what it’s for — all encrypted. Open it with your username and password each time.</p>
   </div>
   {% if opened %}
   <form method="post" action="{{ url_for('vault.lock') }}">
@@ -15,10 +15,8 @@
 
 {% if not opened %}
 <div class="card vault-lock">
-  <p class="muted">Type the same household handle, username, and password you use to open Family OS. Not the family lock. The vault locks itself after {{ reauth_minutes }} minutes.</p>
+  <p class="muted">Type the same username and password you use to open Family OS. Not the family lock. The vault locks itself after {{ reauth_minutes }} minutes.</p>
   <form method="post" action="{{ url_for('vault.unlock') }}" autocomplete="off">
-    <label>Household handle</label>
-    <input name="household" required autocomplete="off" autocapitalize="off" placeholder="the handle you sign in with">
     <label>Username</label>
     <input name="username" required autocomplete="off" autocapitalize="off" placeholder="your username">
     <label>Password</label>

@@ -2,9 +2,8 @@
 
 Every secret field is Fernet-encrypted at rest (title, login, password, URL,
 purpose, details). Ciphertext stays in the model; we only decrypt after the
-person re-enters their full Family OS login (household handle, username, and
-password). Access is household, just the owner, or named people with an
-optional expiry.
+person re-enters their Family OS username and password. Access is household,
+just the owner, or named people with an optional expiry.
 """
 from __future__ import annotations
 
@@ -218,24 +217,6 @@ def can_manage_entry(entry, user) -> bool:
     return _is_leader(user)
 
 
-def _household_login_match(user, typed: str) -> bool:
-    from app.utils.identity import norm_handle
-
-    raw = (typed or "").strip()
-    if not raw:
-        return False
-    house = getattr(user, "household", None)
-    if house is None:
-        return False
-    handle = (getattr(house, "handle", None) or "").strip()
-    name = (getattr(house, "name", None) or "").strip()
-    if handle and norm_handle(raw) == norm_handle(handle):
-        return True
-    if name and raw.lower() == name.lower():
-        return True
-    return False
-
-
 def _username_login_match(user, typed: str) -> bool:
     from app.utils.identity import norm_username
 
@@ -248,15 +229,12 @@ def _username_login_match(user, typed: str) -> bool:
     return norm_username(ident) == norm_username(getattr(user, "username", None) or "")
 
 
-def confirm_app_login(user, *, household: str, username: str, password: str) -> bool:
-    """True only if this is the signed-in person's full Family OS login.
+def confirm_app_login(user, *, username: str, password: str) -> bool:
+    """True only if this is the signed-in person's username and password.
 
-    Household handle (or house name), username (or contact email), and password.
     Not the family lock. Not password alone.
     """
     if user is None or not getattr(user, "is_authenticated", False):
-        return False
-    if not _household_login_match(user, household):
         return False
     if not _username_login_match(user, username):
         return False
