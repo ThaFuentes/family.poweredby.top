@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Removed · Vault</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
+  {% include "partials/theme_head.html" %}
+</head>
+<body class="sheet-body">
+{% if ping_saved %}
+<script>try { window.parent.postMessage({ family: "sheet-saved" }, "*"); } catch (e) {}</script>
+{% endif %}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+<div class="card">
+  <strong>Removed</strong>
+  <p class="muted">Close this sheet. It’s gone from the vault.</p>
+</div>
+</body>
+</html>

@@ -49,6 +49,7 @@
   <details class="vault-more">
     <summary>Who can see it</summary>
     <form method="post" action="{{ url_for('vault.share', entry_id=eid) }}">
+      <input type="hidden" name="next" value="sheet">
       {% include "partials/vault_share.html" %}
       <div class="btn-row"><button class="btn" type="submit">Save who can see it</button></div>
     </form>
@@ -56,6 +57,7 @@
   <details class="vault-more">
     <summary>Edit this login</summary>
     <form method="post" action="{{ url_for('vault.edit', entry_id=eid) }}" autocomplete="off">
+      <input type="hidden" name="next" value="sheet">
       <label>Title</label>
       <input name="title" required maxlength="200" value="{{ f.title }}" autocomplete="off">
       <div class="desk-form">
@@ -78,6 +80,7 @@
     </form>
   </details>
   <form method="post" action="{{ url_for('vault.delete', entry_id=eid) }}" onsubmit="return confirm('Remove this login from the vault?')">
+    <input type="hidden" name="next" value="sheet">
     <button class="btn sm secondary" type="submit">Delete</button>
   </form>
   {% endif %}

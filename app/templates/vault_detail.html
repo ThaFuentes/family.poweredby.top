@@ -1,117 +1,53 @@
-{% extends "base.html" %}
-{% block title %}{{ card.fields.title or 'Login' }} · Vault · Family OS{% endblock %}
-{% block content %}
-<div class="page-head">
-  <div>
-    <h1>{{ card.fields.title or 'Login' }}</h1>
-    <p>
-      <a href="{{ url_for('vault.index') }}">Vault</a>
-      · {{ card.share }}
-      · stays open while you use it
-    </p>
-  </div>
-  <form method="post" action="{{ url_for('vault.lock') }}">
-    <button class="btn sm secondary" type="submit">Lock</button>
-  </form>
-</div>
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{{ card.fields.title or 'Login' }} · Vault</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
+  {% include "partials/theme_head.html" %}
+</head>
+<body class="sheet-body">
 <div id="vault-keep" hidden></div>
-
+{% if ping_saved %}
+<script>try { window.parent.postMessage({ family: "sheet-saved" }, "*"); } catch (e) {}</script>
+{% endif %}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
 {% if can_read %}
-{% set f = card.fields %}
-<div class="card vault-secrets">
-  {% if f.url %}
-  <div class="secret-row">
-    <span class="kicker">Site</span>
-    <a href="{{ card.href }}" rel="noopener noreferrer" target="_blank">{{ f.url }}</a>
-    <button type="button" class="btn sm secondary" data-copy="{{ f.url }}">Copy</button>
-  </div>
-  {% endif %}
-  {% if f.login %}
-  <div class="secret-row">
-    <span class="kicker">Email / username</span>
-    <input id="v-login" value="{{ f.login }}" readonly autocomplete="off">
-    <button type="button" class="btn sm secondary" data-copy="{{ f.login }}">Copy</button>
-  </div>
-  {% endif %}
-  {% if f.secret %}
-  <div class="secret-row">
-    <span class="kicker">Password</span>
-    <input id="v-secret" type="password" value="{{ f.secret }}" readonly autocomplete="off">
-    <button type="button" class="btn sm secondary" data-reveal="#v-secret">Show</button>
-    <button type="button" class="btn sm secondary" data-copy="{{ f.secret }}">Copy</button>
-  </div>
-  {% endif %}
-  {% if f.purpose %}
-  <div class="secret-row">
-    <span class="kicker">What it’s for</span>
-    <p>{{ f.purpose }}</p>
-  </div>
-  {% endif %}
-  {% if f.details %}
-  <div class="secret-row">
-    <span class="kicker">Details</span>
-    <p style="white-space:pre-wrap">{{ f.details }}</p>
-  </div>
-  {% endif %}
-  {% if card.grants %}
-  <p class="muted">{{ card.grants|join(' · ') }}</p>
-  {% endif %}
-</div>
+  {% include "partials/vault_card.html" %}
 {% else %}
 <div class="card">
+  <h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">{{ card.fields.title or 'Login' }}</h1>
   <p class="muted">You can change who sees this. The secrets stay sealed unless this login is shared with you.</p>
 </div>
-{% endif %}
-
 {% if card.can_manage %}
-<details class="card add-fold" id="share-vault" open>
-<summary>Who can see it</summary>
-<p class="muted">Change this anytime. You always keep it.</p>
-<form method="post" action="{{ url_for('vault.share', entry_id=card.row.id) }}">
-  {% include "partials/vault_share.html" %}
-  <div class="btn-row"><button class="btn" type="submit">Save who can see it</button></div>
-</form>
-</details>
-{% if can_read %}
-<details class="card add-fold" id="edit-vault">
-<summary>Edit login</summary>
-<form method="post" action="{{ url_for('vault.edit', entry_id=card.row.id) }}" autocomplete="off">
-  <label>Title</label>
-  <input name="title" required maxlength="200" value="{{ card.fields.title }}" autocomplete="off">
-  <div class="desk-form">
-    <div>
-      <label>Site URL</label>
-      <input name="url" maxlength="500" value="{{ card.fields.url }}" inputmode="url" autocomplete="off">
-    </div>
-    <div>
-      <label>Email / username</label>
-      <input name="login" maxlength="300" value="{{ card.fields.login }}" autocomplete="off">
-    </div>
-  </div>
-  <label>Password</label>
-  <input type="password" name="secret" maxlength="500" value="{{ card.fields.secret }}" autocomplete="new-password">
-  <label>What it’s for</label>
-  <input name="purpose" maxlength="500" value="{{ card.fields.purpose }}" autocomplete="off">
-  <label>Details</label>
-  <textarea name="details" maxlength="4000">{{ card.fields.details }}</textarea>
-  <div class="btn-row"><button class="btn" type="submit">Save changes</button></div>
-</form>
+<details class="vault-more" open>
+  <summary>Who can see it</summary>
+  <form method="post" action="{{ url_for('vault.share', entry_id=card.row.id) }}">
+    <input type="hidden" name="next" value="sheet">
+    {% include "partials/vault_share.html" %}
+    <div class="btn-row"><button class="btn" type="submit">Save who can see it</button></div>
+  </form>
 </details>
 {% endif %}
-<form method="post" action="{{ url_for('vault.delete', entry_id=card.row.id) }}" onsubmit="return confirm('Remove this login from the vault?')">
-  <button class="btn sm secondary" type="submit">Delete</button>
-</form>
 {% endif %}
-{% endblock %}
-{% block scripts %}
+<script src="{{ url_for('static', filename='js/app.js') }}?v=os21"></script>
 <script>
 (function () {
-  var sel = document.getElementById("share-mode");
-  var box = document.getElementById("people-pick");
-  if (!sel || !box) return;
-  function sync() { box.hidden = sel.value !== "selected"; }
-  sel.addEventListener("change", sync);
-  sync();
+  document.querySelectorAll(".share-mode").forEach(function (sel) {
+    var box = document.getElementById(sel.getAttribute("data-people") || "");
+    if (!box) return;
+    function sync() { box.hidden = sel.value !== "selected"; }
+    sel.addEventListener("change", sync);
+    sync();
+  });
 })();
 </script>
-{% endblock %}
+</body>
+</html>

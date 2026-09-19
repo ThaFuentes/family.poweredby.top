@@ -21,6 +21,7 @@ from app.utils.password_vault import (
     parse_duration,
     seal_fields,
     share_label,
+    site_label,
 )
 
 
@@ -196,6 +197,11 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(href_for("netflix.com"), "https://netflix.com")
         self.assertEqual(href_for(""), "")
 
+    def test_site_label(self):
+        self.assertEqual(site_label("https://www.netflix.com/browse"), "netflix.com")
+        self.assertEqual(site_label("netflix.com"), "netflix.com")
+        self.assertEqual(site_label(""), "")
+
     def test_share_label(self):
         self.assertEqual(share_label("household"), "Whole household")
         self.assertEqual(share_label("selected"), "These people")
@@ -297,8 +303,9 @@ class VaultHttpTests(unittest.TestCase):
         token = self._csrf(pw_only.data)
         opened = self._unlock(admin)
         self.assertEqual(opened.status_code, 200)
-        self.assertIn(b"New login", opened.data)
+        self.assertIn(b"Add a login", opened.data)
         self.assertIn(b"Stays open while you use it", opened.data)
+        self.assertNotIn(b'name="secret"', opened.data)
         token = self._csrf(opened.data)
         stay = self.client.post(
             "/vault/stay",
@@ -324,13 +331,8 @@ class VaultHttpTests(unittest.TestCase):
         )
         self.assertEqual(added.status_code, 200, added.data[-400:])
         self.assertIn(b"Netflix house", added.data)
-        self.assertIn(b"family@house.test", added.data)
-        self.assertIn(b"WatchIt-99", added.data)
-        self.assertIn(b"Kids profile is the fourth one", added.data)
-        self.assertIn(b"Open site", added.data)
-        self.assertIn(b"Who can see it", added.data)
-        self.assertIn(b"Edit this login", added.data)
-        self.assertNotIn(b'class="rec-row', added.data)
+        self.assertIn(b"Add a login", added.data)
+        self.assertNotIn(b"WatchIt-99", added.data)
 
         with self.app.app_context():
             from app.builddb.table_vault_entries import VaultEntry
@@ -344,17 +346,25 @@ class VaultHttpTests(unittest.TestCase):
             self.assertNotIn("netflix.com", (row.url or "").lower())
             self.assertTrue((row.title or "").startswith("gAAAAA"))
             netflix_id = row.id
-        token = self._csrf(added.data)
+        sheet = self.client.get(f"/vault/{netflix_id}")
+        self.assertEqual(sheet.status_code, 200)
+        self.assertIn(b"family@house.test", sheet.data)
+        self.assertIn(b"WatchIt-99", sheet.data)
+        self.assertIn(b"Kids profile is the fourth one", sheet.data)
+        self.assertIn(b"Open site", sheet.data)
+        self.assertIn(b"Who can see it", sheet.data)
+        self.assertIn(b"Edit this login", sheet.data)
+        self.assertIn("no-store", sheet.headers.get("Cache-Control", ""))
+        token = self._csrf(sheet.data)
         shared = self.client.post(
             f"/vault/{netflix_id}/share",
-            data={"share_mode": "household", "csrf_token": token},
+            data={"share_mode": "household", "next": "sheet", "csrf_token": token},
             headers={"X-CSRF-Token": token},
             follow_redirects=True,
         )
         self.assertEqual(shared.status_code, 200)
         self.assertIn(b"Whole household", shared.data)
         self.assertIn(b"family@house.test", shared.data)
-        self.assertIn("no-store", shared.headers.get("Cache-Control", ""))
 
         page = self.client.get("/members/")
         token = self._csrf(page.data)

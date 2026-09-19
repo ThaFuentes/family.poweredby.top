@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>New login · Vault</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
+  {% include "partials/theme_head.html" %}
+</head>
+<body class="sheet-body">
+{% set draft = draft or {} %}
+<div id="vault-keep" hidden></div>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+<h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">New login</h1>
+<p class="muted">Save it first. Then pick who can see it.</p>
+<form method="post" action="{{ url_for('vault.add') }}" autocomplete="off">
+  <input type="hidden" name="next" value="sheet">
+  <label>Title</label>
+  <input name="title" required maxlength="200" value="{{ draft.title or '' }}" placeholder="Aminos AI Bots, Netflix, Water bill" autocomplete="off">
+  <div class="desk-form">
+    <div>
+      <label>Site URL</label>
+      <input name="url" maxlength="500" value="{{ draft.url or '' }}" placeholder="https://…" inputmode="url" autocomplete="off">
+    </div>
+    <div>
+      <label>Email / username</label>
+      <input name="login" maxlength="300" value="{{ draft.login or '' }}" placeholder="the login" autocomplete="off">
+    </div>
+  </div>
+  <label>Password</label>
+  <input type="password" name="secret" maxlength="500" value="{{ draft.secret or '' }}" placeholder="the password" autocomplete="new-password">
+  <label>What it’s for</label>
+  <input name="purpose" maxlength="500" value="{{ draft.purpose or '' }}" placeholder="Streaming, city water, work bots…" autocomplete="off">
+  <label>Details</label>
+  <textarea name="details" maxlength="4000" placeholder="PIN, recovery email, notes">{{ draft.details or '' }}</textarea>
+  <div class="btn-row"><button class="btn" type="submit">Save in vault</button></div>
+</form>
+<script src="{{ url_for('static', filename='js/app.js') }}?v=os21"></script>
+</body>
+</html>

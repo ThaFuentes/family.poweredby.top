@@ -29,6 +29,7 @@ from app.utils.password_vault import (
     grant_label,
     href_for,
     is_child,
+    site_label,
     lock_reauth,
     mark_reauth,
     open_fields,
@@ -158,6 +159,7 @@ def _card(row, people: dict, opened: bool) -> dict:
         "row": row,
         "fields": fields,
         "href": href_for(fields.get("url") or ""),
+        "site": site_label(fields.get("url") or ""),
         "share": share_label(row.share_mode),
         "owner": people.get(row.created_by),
         "grants": [grant_label(g, people) for g in grants],
@@ -167,6 +169,36 @@ def _card(row, people: dict, opened: bool) -> dict:
         "can_manage": can_manage_entry(row, current_user),
         "mine": int(row.created_by or 0) == int(current_user.id),
     }
+
+
+def _wants_sheet() -> bool:
+    nxt = (request.form.get("next") or request.args.get("next") or "").strip().lower()
+    return nxt == "sheet"
+
+
+def _render_new(*, draft=None, ping_saved=False):
+    return render_template(
+        "vault_new.html",
+        draft=draft or {},
+        ping_saved=ping_saved,
+    )
+
+
+def _render_detail(entry_id, *, ping_saved=False):
+    hid = household_id()
+    row = scoped(VaultEntry).options(selectinload(VaultEntry.grants)).filter_by(id=entry_id).first_or_404()
+    if not can_view_entry(row, current_user) and not can_manage_entry(row, current_user):
+        abort(403)
+    people = _people_map(hid)
+    can_read = can_view_entry(row, current_user)
+    return render_template(
+        "vault_detail.html",
+        card=_card(row, people, can_read),
+        adults=_adults(hid),
+        durations=DURATIONS,
+        can_read=can_read,
+        ping_saved=ping_saved,
+    )
 
 
 def _render_index(*, draft=None):
@@ -267,6 +299,8 @@ def add():
     fields = _form_fields()
     if not fields["title"]:
         flash("Give it a title.", "danger")
+        if _wants_sheet() and reauth_ok():
+            return _render_new(draft=fields)
         return _render_index(draft=fields) if reauth_ok() else redirect(url_for("vault.index"))
     hid = household_id()
     try:
@@ -285,9 +319,13 @@ def add():
         except Exception:
             pass
         flash("Could not save that login. Try Save again.", "danger")
+        if _wants_sheet() and reauth_ok():
+            return _render_new(draft=fields)
         return _render_index(draft=fields) if reauth_ok() else redirect(url_for("vault.index"))
-    flash("Saved. Username, password, and details are on the card. Share it if you want.", "success")
-    return redirect(url_for("vault.index", _anchor=f"login-{row.id}"))
+    flash("Saved. Only you can see it until you share it.", "success")
+    if _wants_sheet():
+        return redirect(url_for("vault.detail", entry_id=row.id, next="sheet", saved=1))
+    return redirect(url_for("vault.index"))
 
 
 @vault_bp.route("/<int:entry_id>/edit", methods=["POST"])
@@ -306,14 +344,18 @@ def edit(entry_id):
     fields = _form_fields()
     if not fields["title"]:
         flash("Give it a title.", "danger")
-        return redirect(url_for("vault.index", _anchor=f"login-{entry_id}"))
+        if _wants_sheet():
+            return redirect(url_for("vault.detail", entry_id=entry_id, next="sheet"))
+        return redirect(url_for("vault.index"))
     sealed = seal_fields(fields, hid)
     for key, val in sealed.items():
         setattr(row, key, val)
     row.updated_at = datetime.utcnow()
     db.session.commit()
     flash("Login updated.", "success")
-    return redirect(url_for("vault.index", _anchor=f"login-{entry_id}"))
+    if _wants_sheet():
+        return redirect(url_for("vault.detail", entry_id=entry_id, next="sheet", saved=1))
+    return redirect(url_for("vault.index"))
 
 
 @vault_bp.route("/<int:entry_id>/share", methods=["POST"])
@@ -333,7 +375,19 @@ def share(entry_id):
     _replace_grants(row, hid, mode)
     db.session.commit()
     flash("Who can see this is updated. Change it anytime.", "success")
-    return redirect(url_for("vault.index", _anchor=f"login-{entry_id}"))
+    if _wants_sheet():
+        return redirect(url_for("vault.detail", entry_id=entry_id, next="sheet", saved=1))
+    return redirect(url_for("vault.index"))
+
+
+@vault_bp.route("/new")
+@login_required
+def new():
+    _guard()
+    if not reauth_ok():
+        flash("Sign in again to add a login.", "warning")
+        return redirect(url_for("vault.index"))
+    return _render_new()
 
 
 @vault_bp.route("/<int:entry_id>")
@@ -343,10 +397,8 @@ def detail(entry_id):
     if not reauth_ok():
         flash("Sign in again to open the vault.", "warning")
         return redirect(url_for("vault.index"))
-    row = scoped(VaultEntry).filter_by(id=entry_id).first_or_404()
-    if not can_view_entry(row, current_user) and not can_manage_entry(row, current_user):
-        abort(403)
-    return redirect(url_for("vault.index", _anchor=f"login-{entry_id}"))
+    ping = (request.args.get("saved") or "") == "1"
+    return _render_detail(entry_id, ping_saved=ping)
 
 
 @vault_bp.route("/<int:entry_id>/delete", methods=["POST"])
@@ -362,4 +414,6 @@ def delete(entry_id):
     db.session.delete(row)
     db.session.commit()
     flash("Removed from the vault.", "info")
+    if _wants_sheet():
+        return render_template("vault_gone.html", ping_saved=True)
     return redirect(url_for("vault.index"))

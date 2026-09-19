@@ -72,7 +72,9 @@
       frame.hidden = true;
     }
     document.body.classList.remove("sheet-open");
-    if (reload && location.pathname.indexOf("/items/") === 0) location.reload();
+    if (reload && (location.pathname.indexOf("/items/") === 0 || location.pathname.indexOf("/vault") === 0)) {
+      location.reload();
+    }
   }
   window.addEventListener("message", function (e) {
     if (!e.data || e.data.family !== "sheet-saved") return;

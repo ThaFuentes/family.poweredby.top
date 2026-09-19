@@ -379,3 +379,16 @@ def href_for(url: str) -> str:
     if lower.startswith("mailto:"):
         return raw
     return "https://" + raw
+
+
+def site_label(url: str) -> str:
+    raw = (url or "").strip()
+    if not raw:
+        return ""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(href_for(raw))
+    host = (parsed.netloc or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return host or raw
