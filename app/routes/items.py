@@ -16,6 +16,7 @@ from flask import (
 )
 from flask_login import login_required, current_user
 from sqlalchemy import or_
+from sqlalchemy.orm import selectinload
 
 from app.builddb.builddb import db
 from app.builddb.table_items import Item, ITEM_TYPES
@@ -581,7 +582,8 @@ def detail(item_id):
         .all()
     )
     item_notes = (
-        Note.query.filter_by(household_id=hid, item_id=item.id)
+        Note.query.options(selectinload(Note.files))
+        .filter_by(household_id=hid, item_id=item.id)
         .filter(or_(Note.visibility == "household", Note.user_id == current_user.id))
         .order_by(Note.updated_at.desc())
         .all()

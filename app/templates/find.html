@@ -98,10 +98,11 @@
 <h2>Notes</h2>
 <div class="card list">
   {% for n in hits.note_rows %}
-    <a class="row" href="{{ url_for('notes.index') }}">
+    <a class="row" href="{{ url_for('notes.index') }}#note-{{ n.id }}">
       <div>
         <strong>{{ n.title }}</strong>
         {% if n.body %}<div class="muted">{{ n.body[:120] }}</div>{% endif %}
+        {% if n.files %}<div class="muted">{{ n.files|length }} file{% if n.files|length != 1 %}s{% endif %}</div>{% endif %}
       </div>
     </a>
   {% endfor %}

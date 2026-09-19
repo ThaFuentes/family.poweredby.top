@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from sqlalchemy import and_, or_
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.builddb.table_grocery_items import GroceryItem
 from app.builddb.table_items import Item
@@ -192,7 +192,8 @@ def search_household(household_id: int, q: str, *, user_id: int, limit: int = 40
     notes, legal, case_rows = [], [], []
     if scope == "all":
         notes_all = (
-            Note.query.filter_by(household_id=household_id)
+            Note.query.options(selectinload(Note.files))
+            .filter_by(household_id=household_id)
             .filter(or_(Note.visibility == "household", Note.user_id == user_id))
             .order_by(Note.updated_at.desc())
             .limit(200)
@@ -200,6 +201,9 @@ def search_household(household_id: int, q: str, *, user_id: int, limit: int = 40
         )
         for n in notes_all:
             blob = f"{n.title or ''} {n.body or ''}".lower()
+            for f in n.files or []:
+                blob += f" {f.original_name or ''} {f.caption or ''}"
+            blob = blob.lower()
             if needle and all(t in blob for t in toks):
                 notes.append(n)
             if len(notes) >= 20:

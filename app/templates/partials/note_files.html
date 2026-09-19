@@ -1,0 +1,39 @@
+{% set files = n.files or [] %}
+{% if files %}
+<div class="photo-grid rec-files note-files">
+  {% for f in files %}
+    {% set ext = (f.original_name or f.stored_path or '')|lower %}
+    {% set is_pdf = '.pdf' in ext or f.mime == 'application/pdf' %}
+    {% if is_pdf %}
+    <a class="rec-pdf" href="{{ url_for('notes.serve_file', file_id=f.id) }}" target="_blank" rel="noopener">
+      <strong>{{ f.original_name or 'PDF' }}</strong>
+      <span class="muted">Open PDF</span>
+    </a>
+    {% else %}
+    <a href="{{ url_for('notes.serve_file', file_id=f.id) }}" target="_blank" rel="noopener">
+      <img src="{{ url_for('notes.serve_file', file_id=f.id) }}" alt="{{ f.caption or f.original_name or 'Photo' }}">
+    </a>
+    {% endif %}
+  {% endfor %}
+</div>
+{% if can_manage %}
+{% for f in files %}
+<form class="btn-row" method="post" action="{{ url_for('notes.delete_file', file_id=f.id) }}" onsubmit="return confirm('Remove this file?')">
+  {% if from_item %}<input type="hidden" name="from_item" value="1">{% endif %}
+  <span class="muted">{{ f.original_name or 'file' }}</span>
+  <button class="btn sm secondary" type="submit">Remove file</button>
+</form>
+{% endfor %}
+{% endif %}
+{% endif %}
+{% if can_manage %}
+<form method="post" action="{{ url_for('notes.add_file', note_id=n.id) }}" enctype="multipart/form-data" style="margin-top:.55rem">
+  {% if from_item %}<input type="hidden" name="from_item" value="1">{% endif %}
+  <label>Add a photo or PDF</label>
+  <input type="file" name="file" accept="image/*" capture="environment">
+  <input type="file" name="file" accept="image/*,.pdf" multiple>
+  <label>Caption (optional)</label>
+  <input name="caption" placeholder="What this is">
+  <div class="btn-row"><button class="btn sm" type="submit">Save files</button></div>
+</form>
+{% endif %}

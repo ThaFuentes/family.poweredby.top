@@ -1478,6 +1478,7 @@ html.family-intro-out #family-intro{opacity:0;transition:opacity .4s ease}
   background: var(--green-soft); border-radius: 1rem; color: var(--ink);
 }
 .rec-files a img { width: 100%; height: 150px; object-fit: cover; border-radius: 1rem; }
+.note-files { margin-top: .55rem; }
 .followup {
   padding: .85rem 0;
   border-bottom: 1px solid var(--edge);

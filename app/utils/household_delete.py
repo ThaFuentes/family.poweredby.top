@@ -15,6 +15,7 @@ from app.builddb.table_items import Item
 from app.builddb.table_legal_files import LegalFile
 from app.builddb.table_legal_records import LegalRecord
 from app.builddb.table_maintenance_records import MaintenanceRecord
+from app.builddb.table_note_files import NoteFile
 from app.builddb.table_notes import Note
 from app.builddb.table_password_resets import PasswordReset
 from app.builddb.table_photo_notes import PhotoNote
@@ -61,6 +62,7 @@ def delete_household(household: Household) -> str:
     PhotoNote.query.filter_by(household_id=hid).delete(synchronize_session=False)
     LegalFile.query.filter_by(household_id=hid).delete(synchronize_session=False)
     LegalRecord.query.filter_by(household_id=hid).delete(synchronize_session=False)
+    NoteFile.query.filter_by(household_id=hid).delete(synchronize_session=False)
     Note.query.filter_by(household_id=hid).delete(synchronize_session=False)
     VaultGrant.query.filter_by(household_id=hid).delete(synchronize_session=False)
     VaultEntry.query.filter_by(household_id=hid).delete(synchronize_session=False)

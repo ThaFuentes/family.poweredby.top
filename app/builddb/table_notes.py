@@ -24,6 +24,12 @@ class Note(db.Model):
     )
 
     item = db.relationship("Item")
+    files = db.relationship(
+        "NoteFile",
+        back_populates="note",
+        cascade="all, delete-orphan",
+        order_by="NoteFile.id",
+    )
 
 
 def create_table():
