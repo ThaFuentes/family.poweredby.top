@@ -11,6 +11,7 @@ if ROOT not in sys.path:
 from app.utils.password_vault import (
     can_manage_entry,
     can_view_entry,
+    confirm_app_login,
     decrypt_vault_text,
     encrypt_vault_text,
     grant_is_live,
@@ -140,6 +141,77 @@ class AccessTests(unittest.TestCase):
         self.assertTrue(can_manage_entry(row, leader))
 
 
+class FullLoginTests(unittest.TestCase):
+    def _pat(self):
+        house = SimpleNamespace(handle="fuentes", name="Fuentes house")
+        return _user(
+            username="pat",
+            email="pat@house.test",
+            household=house,
+            check_password=lambda p: p == "FamilyTest1!",
+        )
+
+    def test_full_login_opens(self):
+        self.assertTrue(
+            confirm_app_login(
+                self._pat(),
+                household="fuentes",
+                username="pat",
+                password="FamilyTest1!",
+            )
+        )
+
+    def test_house_name_also_counts(self):
+        self.assertTrue(
+            confirm_app_login(
+                self._pat(),
+                household="Fuentes house",
+                username="pat",
+                password="FamilyTest1!",
+            )
+        )
+
+    def test_password_alone_fails(self):
+        self.assertFalse(
+            confirm_app_login(
+                self._pat(),
+                household="",
+                username="",
+                password="FamilyTest1!",
+            )
+        )
+
+    def test_wrong_user_fails(self):
+        self.assertFalse(
+            confirm_app_login(
+                self._pat(),
+                household="fuentes",
+                username="maya",
+                password="FamilyTest1!",
+            )
+        )
+
+    def test_wrong_house_fails(self):
+        self.assertFalse(
+            confirm_app_login(
+                self._pat(),
+                household="otherhouse",
+                username="pat",
+                password="FamilyTest1!",
+            )
+        )
+
+    def test_wrong_password_fails(self):
+        self.assertFalse(
+            confirm_app_login(
+                self._pat(),
+                household="fuentes",
+                username="pat",
+                password="nope",
+            )
+        )
+
+
 class HelperTests(unittest.TestCase):
     def test_href(self):
         self.assertEqual(href_for("https://netflix.com"), "https://netflix.com")
@@ -208,12 +280,22 @@ class VaultHttpTests(unittest.TestCase):
         }
         return self.client.post("/auth/register", data=data, follow_redirects=True)
 
-    def _unlock(self):
+    def _unlock(self, username):
+        with self.app.app_context():
+            from app.builddb.table_users import User
+
+            u = User.query.filter_by(username=username).first()
+            handle = (u.household.handle or u.household.name or "") if u else ""
         page = self.client.get("/vault/")
         token = self._csrf(page.data)
         return self.client.post(
             "/vault/unlock",
-            data={"password": "FamilyTest1!", "csrf_token": token},
+            data={
+                "household": handle,
+                "username": username,
+                "password": "FamilyTest1!",
+                "csrf_token": token,
+            },
             headers={"X-CSRF-Token": token},
             follow_redirects=True,
         )
@@ -228,9 +310,19 @@ class VaultHttpTests(unittest.TestCase):
         locked = self.client.get("/vault/")
         self.assertEqual(locked.status_code, 200)
         self.assertIn(b"Open vault", locked.data)
+        self.assertIn(b"Household handle", locked.data)
         self.assertNotIn(b"Netflix house", locked.data)
 
         token = self._csrf(locked.data)
+        pw_only = self.client.post(
+            "/vault/unlock",
+            data={"password": "FamilyTest1!", "csrf_token": token},
+            headers={"X-CSRF-Token": token},
+            follow_redirects=True,
+        )
+        self.assertIn(b"not this login", pw_only.data)
+        self.assertNotIn(b"New login", pw_only.data)
+        token = self._csrf(pw_only.data)
         sneaky = self.client.post(
             "/vault/add",
             data={
@@ -244,7 +336,7 @@ class VaultHttpTests(unittest.TestCase):
         )
         self.assertIn(b"Sign in again", sneaky.data)
 
-        opened = self._unlock()
+        opened = self._unlock(admin)
         self.assertEqual(opened.status_code, 200)
         self.assertIn(b"New login", opened.data)
         token = self._csrf(opened.data)
@@ -305,7 +397,7 @@ class VaultHttpTests(unittest.TestCase):
         member_locked = self.client.get("/vault/")
         self.assertEqual(member_locked.status_code, 200)
         self.assertNotIn(b"WatchIt-99", member_locked.data)
-        member_open = self._unlock()
+        member_open = self._unlock(member)
         self.assertIn(b"Netflix house", member_open.data)
 
         self._logout()
@@ -314,7 +406,7 @@ class VaultHttpTests(unittest.TestCase):
             data={"username": admin, "password": "FamilyTest1!"},
             follow_redirects=True,
         )
-        self._unlock()
+        self._unlock(admin)
         token = self._csrf(self.client.get("/vault/").data)
         with self.app.app_context():
             from app.builddb.table_users import User
@@ -360,7 +452,7 @@ class VaultHttpTests(unittest.TestCase):
             data={"username": member, "password": "FamilyTest1!"},
             follow_redirects=True,
         )
-        spouse_open = self._unlock()
+        spouse_open = self._unlock(member)
         body = spouse_open.data
         self.assertIn(b"Water bill", body)
         self.assertIn(b"Netflix house", body)
