@@ -1,0 +1,26 @@
+<label>Who can see it</label>
+<select name="share_mode" id="share-mode">
+  <option value="household" {% if card.row.share_mode=='household' %}selected{% endif %}>Whole household</option>
+  <option value="personal" {% if card.row.share_mode=='personal' %}selected{% endif %}>Just me</option>
+  <option value="selected" {% if card.row.share_mode=='selected' %}selected{% endif %}>These people</option>
+</select>
+<div class="people-pick" id="people-pick" {% if card.row.share_mode != 'selected' %}hidden{% endif %}>
+  <p class="muted">Pick who, and how long they keep it. You always keep it.</p>
+  {% for p in adults if p.id != current_user.id %}
+  {% set g = grant_ids.get(p.id) if grant_ids is defined else none %}
+  {% set dur = grant_durs.get(p.id, 'forever') if grant_durs is defined else 'forever' %}
+  <label class="person-row">
+    <span>
+      <input type="checkbox" name="person" value="{{ p.id }}" {% if g %}checked{% endif %}>
+      {{ p.name or p.username }}
+    </span>
+    <select name="for_{{ p.id }}">
+      {% for key, lab in durations %}
+      <option value="{{ key }}" {% if dur==key %}selected{% endif %}>{{ lab }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% else %}
+  <p class="muted">No other adults in this house yet.</p>
+  {% endfor %}
+</div>

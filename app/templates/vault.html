@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Vault · Family OS{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Vault</h1>
+    <p>Household logins. Title, site, username, password, and what it’s for — all encrypted. Open it with your password each time.</p>
+  </div>
+  {% if opened %}
+  <form method="post" action="{{ url_for('vault.lock') }}">
+    <button class="btn sm secondary" type="submit">Lock</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if not opened %}
+<div class="card vault-lock">
+  <p class="muted">Sign in again to see usernames, passwords, URLs, and details. The vault locks itself after {{ reauth_minutes }} minutes.</p>
+  <form method="post" action="{{ url_for('vault.unlock') }}">
+    <label>Your Family OS password</label>
+    <input type="password" name="password" required autocomplete="current-password" autocapitalize="off">
+    <div class="btn-row"><button class="btn" type="submit">Open vault</button></div>
+  </form>
+</div>
+{% else %}
+
+<p class="muted vault-open-note">Open for about {{ remaining_min }} min on this device.</p>
+
+<div class="tabs">
+  <a class="{% if scope=='all' %}active{% endif %}" href="{{ url_for('vault.index', q=q) }}">All</a>
+  <a class="{% if scope=='house' %}active{% endif %}" href="{{ url_for('vault.index', scope='house', q=q) }}">Household</a>
+  <a class="{% if scope=='mine' %}active{% endif %}" href="{{ url_for('vault.index', scope='mine', q=q) }}">Just me</a>
+  <a class="{% if scope=='shared' %}active{% endif %}" href="{{ url_for('vault.index', scope='shared', q=q) }}">These people</a>
+</div>
+
+<form class="card vault-find" method="get" action="{{ url_for('vault.index') }}">
+  {% if scope and scope != 'all' %}<input type="hidden" name="scope" value="{{ scope }}">{% endif %}
+  <label class="sr-only" for="vault-q">Find a login</label>
+  <div class="btn-row">
+    <input id="vault-q" name="q" value="{{ q }}" placeholder="Netflix, water bill, Aminos…" autocomplete="off">
+    <button class="btn" type="submit">Find</button>
+  </div>
+</form>
+
+<details class="card add-fold" id="add-vault" {% if not cards %}open{% endif %}>
+<summary>New login</summary>
+<form method="post" action="{{ url_for('vault.add') }}" autocomplete="off">
+  <label>Title</label>
+  <input name="title" required maxlength="200" placeholder="Aminos AI Bots, Netflix, Water bill" autocomplete="off">
+  <div class="desk-form">
+    <div>
+      <label>Site URL</label>
+      <input name="url" maxlength="500" placeholder="https://…" inputmode="url" autocomplete="off">
+    </div>
+    <div>
+      <label>Email / username</label>
+      <input name="login" maxlength="300" placeholder="the login" autocomplete="off">
+    </div>
+  </div>
+  <label>Password</label>
+  <input type="password" name="secret" maxlength="500" placeholder="the password" autocomplete="new-password">
+  <label>What it’s for</label>
+  <input name="purpose" maxlength="500" placeholder="Streaming, the city water portal, work bots…" autocomplete="off">
+  <label>Details</label>
+  <textarea name="details" maxlength="4000" placeholder="Account pin, recovery email, notes for the house"></textarea>
+  <label>Who can see it</label>
+  <select name="share_mode" id="share-mode">
+    <option value="household">Whole household</option>
+    <option value="personal">Just me</option>
+    <option value="selected">These people</option>
+  </select>
+  <div class="people-pick" id="people-pick" hidden>
+    <p class="muted">Pick who, and how long they keep it. You always keep it.</p>
+    {% for p in adults if p.id != current_user.id %}
+    <label class="person-row">
+      <span>
+        <input type="checkbox" name="person" value="{{ p.id }}">
+        {{ p.name or p.username }}
+      </span>
+      <select name="for_{{ p.id }}">
+        {% for key, lab in durations %}
+        <option value="{{ key }}">{{ lab }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% else %}
+    <p class="muted">No other adults in this house yet. Add someone on Household, then share.</p>
+    {% endfor %}
+  </div>
+  <div class="btn-row"><button class="btn" type="submit">Save in vault</button></div>
+</form>
+</details>
+
+{% for card in cards %}
+  {% set f = card.fields %}
+  <a class="rec-row vault-row" href="{{ url_for('vault.detail', entry_id=card.row.id) }}">
+    <strong>{{ f.title or 'Untitled' }}</strong>
+    <span class="rec-kind muted">
+      {{ card.share }}
+      {% if card.owner and not card.mine %} · {{ card.owner.name or card.owner.username }}{% endif %}
+      {% if f.purpose %} · {{ f.purpose }}{% endif %}
+    </span>
+    {% if card.grants %}
+    <span class="muted">{{ card.grants|join(' · ') }}</span>
+    {% endif %}
+  </a>
+{% else %}
+  <div class="card"><div class="empty"><strong>Nothing in the vault yet</strong>Add Netflix, the water bill, work bots — then pick who can open them.</div></div>
+{% endfor %}
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var sel = document.getElementById("share-mode");
+  var box = document.getElementById("people-pick");
+  if (!sel || !box) return;
+  function sync() { box.hidden = sel.value !== "selected"; }
+  sel.addEventListener("change", sync);
+  sync();
+})();
+</script>
+{% endblock %}

@@ -45,7 +45,7 @@
   <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='lock') }}" data-sheet-title="Family lock">
     <span class="kicker">{% if vault_on %}On{% else %}Off{% endif %}</span>
     <span class="label">Family lock</span>
-    <span class="count">Notes and photos</span>
+    <span class="count">Notes, photos, vault</span>
   </button>
   {% endif %}
   {% if current_user.is_admin or is_leader %}

@@ -117,6 +117,14 @@
     <span class="count">{% if counts.notes %}{{ counts.notes }} saved{% else %}Car, project, just you{% endif %}</span>
   </a>
   {% endif %}
+  {% if current_user.role != 'child' and 'vault' in dash.tile_set %}
+  <a class="tile" href="{{ url_for('vault.index') }}">
+    <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/><path d="M12 15v2"/></svg></span>
+    <span class="kicker">Logins</span>
+    <span class="label">Vault</span>
+    <span class="count">Encrypted passwords, usernames, sites</span>
+  </a>
+  {% endif %}
   {% if current_user.role != 'child' and 'legal' in dash.tile_set %}
   <a class="tile" href="{{ url_for('legal.index') }}">
     <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h8l4 4v14H7z"/><path d="M15 3v4h4"/><path d="M10 12h6M10 16h4"/></svg></span>

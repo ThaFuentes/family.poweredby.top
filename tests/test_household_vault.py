@@ -80,6 +80,7 @@ class DashboardPrefsTests(unittest.TestCase):
         prefs = dashboard_prefs(user)
         self.assertEqual(prefs["start"], "home")
         self.assertIn("scan", prefs["tile_set"])
+        self.assertIn("vault", prefs["tile_set"])
         self.assertTrue(prefs["show_needs"])
 
     def test_child_defaults_scan(self):
@@ -89,6 +90,7 @@ class DashboardPrefsTests(unittest.TestCase):
         prefs = dashboard_prefs(user)
         self.assertEqual(prefs["start"], "scan")
         self.assertNotIn("legal", prefs["tile_set"])
+        self.assertNotIn("vault", prefs["tile_set"])
 
     def test_saved_start(self):
         from app.utils.dashboard import dashboard_prefs

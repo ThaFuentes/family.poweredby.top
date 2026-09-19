@@ -273,8 +273,10 @@ def register():
 def logout():
     try:
         from app.utils.household_vault import lock_session
+        from app.utils.password_vault import lock_reauth
 
         lock_session()
+        lock_reauth()
     except Exception:
         pass
     logout_user()

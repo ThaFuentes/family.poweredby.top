@@ -20,7 +20,7 @@
       <div class="auth-hero">
         <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
         <h1>Family lock</h1>
-        <p class="muted">This household encrypts its notes and photos with a lock only you know.{% if hint %} Hint: {{ hint }}{% endif %}</p>
+        <p class="muted">This household encrypts its notes, photos, and password vault with a lock only you know.{% if hint %} Hint: {{ hint }}{% endif %}</p>
       </div>
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}

@@ -224,6 +224,7 @@ def create_app():
     from app.routes.legal import legal_bp
     from app.routes.sort import sort_bp
     from app.routes.security import security_bp
+    from app.routes.vault import vault_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(home_bp)
@@ -243,6 +244,7 @@ def create_app():
     app.register_blueprint(legal_bp)
     app.register_blueprint(sort_bp)
     app.register_blueprint(security_bp)
+    app.register_blueprint(vault_bp)
 
     @app.before_request
     def _block_paused_household():

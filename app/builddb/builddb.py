@@ -171,6 +171,8 @@ def _schema_ready() -> bool:
         names = set(inspect(db.engine).get_table_names())
         if "household_activity" not in names:
             return False
+        if "vault_entries" not in names or "vault_grants" not in names:
+            return False
         items = {c["name"] for c in inspect(db.engine).get_columns("items")}
         if "removed_at" not in items:
             return False
@@ -239,6 +241,8 @@ def init_tenant_system(app):
                 "table_reminders",
                 "table_photo_notes",
                 "table_notes",
+                "table_vault_entries",
+                "table_vault_grants",
                 "table_legal_cases",
                 "table_legal_records",
                 "table_legal_followups",

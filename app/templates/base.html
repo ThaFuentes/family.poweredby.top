@@ -31,6 +31,7 @@
       {% if current_user.role != 'child' %}
       <a href="{{ url_for('sort.index') }}">Sort</a>
       <a href="{{ url_for('legal.index') }}">Records</a>
+      <a href="{{ url_for('vault.index') }}">Vault</a>
       <a href="{{ url_for('members.index') }}">Household</a>
       {% endif %}
     </nav>
@@ -44,6 +45,7 @@
         <a href="{{ url_for('notes.index') }}">Notes</a>
         <a href="{{ url_for('house.index') }}">House</a>
         {% if current_user.role != 'child' %}
+        <a href="{{ url_for('vault.index') }}">Vault</a>
         <a href="{{ url_for('sort.index') }}">Sort</a>
         <a href="{{ url_for('legal.index') }}">Records</a>
         {% endif %}
@@ -101,6 +103,9 @@
     <a href="{{ url_for('vehicles.index') }}">Vehicles</a>
     <a href="{{ url_for('house.index') }}">House</a>
     <a href="{{ url_for('notes.index') }}">Notes</a>
+    {% if current_user.role != 'child' %}
+    <a href="{{ url_for('vault.index') }}">Vault</a>
+    {% endif %}
     <a href="{{ url_for('find.index') }}">Find</a>
     <a href="{{ url_for('reminders.index') }}">Due</a>
     {% if current_user.role != 'child' %}
@@ -150,7 +155,7 @@
   <script>window.FAMILY_CAN_CREATE = {{ 'true' if can('edit_grocery') or can('edit_meta') or can('maintain') else 'false' }};</script>
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="{{ url_for('static', filename='js/scan.js') }}?v=os35"></script>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=os17"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=os18"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

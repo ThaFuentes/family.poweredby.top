@@ -2,11 +2,11 @@ from functools import wraps
 from flask import abort, flash, redirect, url_for
 from flask_login import current_user
 
-# Child: scan only. Member: scan + groceries + maintenance + photos.
+# Child: scan only. Member: scan + groceries + maintenance + photos + vault.
 # Admin: full control including metadata and members.
 ROLE_PERMS = {
     "child": frozenset({"scan", "view"}),
-    "member": frozenset({"scan", "view", "edit_grocery", "maintain", "photo", "legal"}),
+    "member": frozenset({"scan", "view", "edit_grocery", "maintain", "photo", "legal", "vault"}),
     "admin": frozenset(
         {
             "scan",
@@ -15,6 +15,7 @@ ROLE_PERMS = {
             "maintain",
             "photo",
             "legal",
+            "vault",
             "edit_meta",
             "members",
             "settings",

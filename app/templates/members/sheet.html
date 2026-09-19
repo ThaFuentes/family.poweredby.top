@@ -266,7 +266,7 @@
   {% if vault_on %}
   <p class="muted">Hint: <strong>{{ vault_hint }}</strong>. {% if vault_unlocked %}Unlocked on this device.{% else %}This device still needs the lock.{% endif %} We cannot recover it.</p>
   {% else %}
-  <p class="muted">Optional. Example <strong>FAMOS-ourphrase</strong>. Write it down.</p>
+  <p class="muted">Optional. Example <strong>FAMOS-ourphrase</strong>. Write it down. Notes, photos, and the password vault use this lock when it’s on.</p>
   <form method="post" action="{{ url_for('members.save_vault') }}">
     {% include "members/_next.html" %}
     <label>Family lock</label>

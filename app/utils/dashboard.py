@@ -13,6 +13,7 @@ STARTS = (
     ("tools", "Tools"),
     ("vehicles", "Vehicles"),
     ("notes", "Notes"),
+    ("vault", "Vault"),
     ("find", "Find"),
     ("reminders", "Reminders"),
 )
@@ -26,6 +27,7 @@ TILES = (
     ("vehicles", "Vehicles"),
     ("sort", "Sort"),
     ("notes", "Notes"),
+    ("vault", "Vault"),
     ("legal", "Records"),
     ("reminders", "Reminders"),
 )
@@ -42,6 +44,7 @@ _ENDPOINTS = {
     "tools": "tools.index",
     "vehicles": "vehicles.index",
     "notes": "notes.index",
+    "vault": "vault.index",
     "find": "find.index",
     "reminders": "reminders.index",
 }

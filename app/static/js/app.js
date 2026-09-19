@@ -136,6 +136,16 @@
       copyText(btn.getAttribute("data-copy") || "", btn);
       return;
     }
+    var reveal = e.target.closest("[data-reveal]");
+    if (reveal) {
+      e.preventDefault();
+      var target = document.querySelector(reveal.getAttribute("data-reveal") || "");
+      if (!target) return;
+      var hide = target.getAttribute("type") === "password";
+      target.setAttribute("type", hide ? "text" : "password");
+      reveal.textContent = hide ? "Hide" : "Show";
+      return;
+    }
     var deltaBtn = e.target.closest("[data-qty-delta]");
     if (deltaBtn) {
       e.preventDefault();

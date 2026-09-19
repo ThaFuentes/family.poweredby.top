@@ -24,6 +24,8 @@ from app.builddb.table_service_passes import ServicePass
 from app.builddb.table_tools import Tool
 from app.builddb.table_trusted_emails import TrustedEmail
 from app.builddb.table_users import User
+from app.builddb.table_vault_entries import VaultEntry
+from app.builddb.table_vault_grants import VaultGrant
 from app.builddb.table_vehicle_parts import VehiclePart
 from app.builddb.table_vehicles import Vehicle
 
@@ -60,6 +62,8 @@ def delete_household(household: Household) -> str:
     LegalFile.query.filter_by(household_id=hid).delete(synchronize_session=False)
     LegalRecord.query.filter_by(household_id=hid).delete(synchronize_session=False)
     Note.query.filter_by(household_id=hid).delete(synchronize_session=False)
+    VaultGrant.query.filter_by(household_id=hid).delete(synchronize_session=False)
+    VaultEntry.query.filter_by(household_id=hid).delete(synchronize_session=False)
     GroceryListEntry.query.filter_by(household_id=hid).delete(synchronize_session=False)
     Reminder.query.filter_by(household_id=hid).delete(synchronize_session=False)
     MaintenanceRecord.query.filter_by(household_id=hid).delete(synchronize_session=False)

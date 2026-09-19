@@ -1708,3 +1708,36 @@ html.family-intro-out #family-intro{opacity:0;transition:opacity .4s ease}
   .auth-page .wrap { width: min(440px, 100%); }
   #family-pwa-install { max-width: 22rem; left: auto; right: 1.5rem; }
 }
+
+.vault-lock { margin-bottom: 1rem; }
+.vault-open-note { margin: -.35rem 0 .85rem; }
+.vault-find { margin-bottom: .85rem; }
+.vault-row { margin-bottom: .55rem; }
+.people-pick {
+  display: grid;
+  gap: .45rem;
+  margin: .35rem 0 .7rem;
+}
+.person-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  font-weight: 650;
+}
+.person-row select { width: auto; min-width: 8rem; margin: 0; }
+.vault-secrets .secret-row {
+  display: grid;
+  gap: .25rem;
+  padding: .65rem 0;
+  border-bottom: 1px solid var(--edge);
+}
+.vault-secrets .secret-row:last-child { border-bottom: 0; }
+.vault-secrets .secret-row .kicker { margin: 0; }
+.vault-secrets .secret-row p { margin: 0; }
+.vault-secrets .secret-row input {
+  margin: 0;
+  font-weight: 650;
+}
+.vault-secrets .secret-row .btn { justify-self: start; }
+.vault-secrets .secret-row a { font-weight: 700; word-break: break-all; }
