@@ -5,8 +5,6 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from sqlalchemy import and_, case, func, or_
-from sqlalchemy.orm import joinedload
-
 from app.builddb.builddb import db
 from app.builddb.table_grocery_items import GroceryItem
 from app.builddb.table_grocery_list import GroceryListEntry
@@ -35,25 +33,6 @@ HOME_TTL = 90
 
 def _utcnow():
     return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def _expires_on(g: GroceryItem):
-    try:
-        from app.utils.lots import soonest
-
-        day = soonest(g)
-        if day is not None:
-            return day
-    except Exception:
-        pass
-    extra = g.extra_data if isinstance(getattr(g, "extra_data", None), dict) else {}
-    raw = extra.get("expires_on")
-    if not raw:
-        return None
-    try:
-        return datetime.strptime(str(raw)[:10], "%Y-%m-%d").date()
-    except Exception:
-        return None
 
 
 def activity_line(event: ScanEvent, people: dict[int, User]) -> str:
@@ -92,20 +71,11 @@ def _snap_item(item) -> SimpleNamespace | None:
 
 def _snapshot_needs(needs: dict) -> dict:
     out = dict(needs)
-    out["expiring"] = [
-        {
-            "item": _snap_item(row.get("item")),
-            "expires_on": row.get("expires_on"),
-            "gone": row.get("gone"),
-            "qty": row.get("qty"),
-            "place": row.get("place"),
-        }
-        for row in needs.get("expiring") or []
-    ]
+    out["expiring"] = []
     out["out_items"] = [_snap_item(i) for i in needs.get("out_items") or []]
     out["low_items"] = [_snap_item(i) for i in needs.get("low_items") or []]
-    out["dated"] = int(needs.get("dated") or 0)
-    out["expired"] = int(needs.get("expired") or 0)
+    out["dated"] = 0
+    out["expired"] = 0
     return out
 
 
@@ -183,59 +153,6 @@ def household_needs(household_id: int, *, is_child: bool = False) -> dict:
                 }
             )
 
-    expiring = []
-    dated_n = 0
-    expired_n = 0
-    horizon = (now + timedelta(days=14)).date()
-    pantry_rows = (
-        GroceryItem.query.options(joinedload(GroceryItem.item))
-        .filter_by(household_id=hid)
-        .limit(400)
-        .all()
-    )
-    today = now.date()
-    from app.utils.lots import dated_packs
-
-    for g in pantry_rows:
-        item = g.item
-        if not item or int(getattr(item, "household_id", 0) or 0) != hid:
-            continue
-        if getattr(item, "removed_at", None):
-            continue
-        packs = dated_packs(g, item)
-        if not packs:
-            exp = _expires_on(g)
-            if exp is None:
-                continue
-            packs = [
-                {
-                    "item": item,
-                    "expires_on": exp,
-                    "gone": exp < today,
-                    "qty": None,
-                    "place": (getattr(g, "default_location", None) or "").strip() or None,
-                }
-            ]
-        for pack in packs:
-            day = pack.get("expires_on")
-            if day is None:
-                continue
-            dated_n += 1
-            gone = bool(pack.get("gone") or day < today)
-            if gone:
-                expired_n += 1
-            if day > horizon and not gone:
-                continue
-            expiring.append(
-                {
-                    "item": item,
-                    "expires_on": day,
-                    "gone": gone,
-                    "qty": pack.get("qty"),
-                    "place": pack.get("place"),
-                }
-            )
-
     out_items = []
     low_items = []
     if not is_child:
@@ -272,9 +189,9 @@ def household_needs(household_id: int, *, is_child: bool = False) -> dict:
         "low": low_n,
         "want": want_n,
         "due": due,
-        "expiring": expiring[:8],
-        "dated": dated_n,
-        "expired": expired_n,
+        "expiring": [],
+        "dated": 0,
+        "expired": 0,
         "activity": [],
         "out_items": out_items[:8],
         "low_items": low_items[:8],

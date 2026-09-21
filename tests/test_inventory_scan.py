@@ -12,7 +12,7 @@ from app.utils.thumbs import https_url, item_thumb_url
 from app.utils.part_icons import icon_for, part_icon_key
 from app.utils.stay import same_site_path
 from app.utils.barcode_lookup import is_placeholder_name, parse_pack_count, upc_forms, catalog_code
-from app.utils.shelf_life import apply_shelf_life, guess_shelf_days, is_meat
+from app.utils.shelf_life import _clamp_days, ai_shelf_days, apply_shelf_life, guess_shelf_days, is_meat
 from app.utils.lots import (
     align_quantity,
     apply_partial,
@@ -128,6 +128,49 @@ class ShelfLifeTests(unittest.TestCase):
     def test_cereal(self):
         self.assertEqual(guess_shelf_days(name="Cheerios cereal", kind="food", location="pantry"), 180)
         self.assertEqual(guess_shelf_days(name="Unknown snack", kind="food", location="pantry"), 90)
+
+    def test_ai_fills_when_heuristic_does_not(self):
+        from unittest.mock import patch
+
+        g = SimpleNamespace(
+            quantity=Decimal("1"),
+            brand="Raid",
+            default_location="Garage",
+            extra_data={"kind": "household"},
+        )
+        item = SimpleNamespace(name="Raid ant killer", category="", household_id=None)
+        with patch("app.utils.ai.complete_json", return_value=(True, {"days": 730, "note": "about 2 years"})):
+            with patch("app.utils.ai.get_ai_config", return_value={"ready": True}):
+                days = ai_shelf_days(item, g, household=SimpleNamespace())
+        self.assertEqual(days, 730)
+        self.assertEqual(g.extra_data.get("ai_shelf_days"), 730)
+        self.assertEqual(ai_shelf_days(item, g, household=SimpleNamespace()), 730)
+
+    def test_ai_skips_things_that_do_not_expire(self):
+        from unittest.mock import patch
+
+        g = SimpleNamespace(quantity=Decimal("1"), brand="", default_location="Pantry", extra_data={"kind": "household"})
+        item = SimpleNamespace(name="Toilet paper", category="", household_id=None)
+        with patch("app.utils.ai.complete_json", return_value=(True, {"days": None, "note": "does not expire"})):
+            with patch("app.utils.ai.get_ai_config", return_value={"ready": True}):
+                self.assertIsNone(ai_shelf_days(item, g, household=SimpleNamespace()))
+        self.assertTrue(g.extra_data.get("ai_shelf_none"))
+
+    def test_clamp_days(self):
+        self.assertEqual(_clamp_days(730), 730)
+        self.assertIsNone(_clamp_days(0))
+        self.assertIsNone(_clamp_days(99999))
+        self.assertIsNone(_clamp_days("no"))
+
+    def test_apply_typical_on_undated_leftover(self):
+        g = SimpleNamespace(quantity=Decimal("2"), extra_data={"kind": "household"}, default_location="Garage", brand="")
+        item = SimpleNamespace(name="Off bug spray", category="", household_id=None)
+        apply_partial(g, [{"qty": 1, "expires_on": "2027-06-01"}])
+        apply_shelf_life(item, g)
+        lots = lots_list(g)
+        self.assertEqual(lots[0]["expires_on"], "2027-06-01")
+        self.assertTrue(any(lot.get("guessed") for lot in lots))
+        self.assertEqual(undated_qty(g), Decimal("0"))
 
     def test_oil_can_still_be_dated_by_hand(self):
         g = SimpleNamespace(quantity=Decimal("2"), extra_data={"kind": "motor_oil"})

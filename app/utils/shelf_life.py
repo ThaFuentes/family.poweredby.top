@@ -107,14 +107,123 @@ def guess_shelf_days(name="", category="", kind="", location="", frozen=None) ->
     return 90
 
 
-def apply_shelf_life(item, g, *, force: bool = False) -> str | None:
-    from app.utils.lots import apply_guess, extra_of, has_manual_lot, soonest
+def _save_extra(g, extra: dict) -> None:
+    from sqlalchemy.orm.attributes import flag_modified
+
+    g.extra_data = extra
+    try:
+        flag_modified(g, "extra_data")
+    except Exception:
+        pass
+
+
+def _clamp_days(raw) -> int | None:
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if n < 1 or n > 3650:
+        return None
+    return n
+
+
+def ai_shelf_days(item, g, household=None) -> int | None:
+    """Typical days from the household AI key. Cached on the grocery row."""
+    from app.utils.lots import extra_of
+
+    extra = extra_of(g)
+    if extra.get("ai_shelf_none"):
+        return None
+    cached = _clamp_days(extra.get("ai_shelf_days"))
+    if cached:
+        return cached
+    if household is None:
+        hid = getattr(item, "household_id", None)
+        if hid:
+            try:
+                from app.builddb.table_households import Household
+
+                household = Household.query.get(int(hid))
+            except Exception:
+                household = None
+    if household is None:
+        return None
+    try:
+        from app.utils.ai import complete_json, get_ai_config
+    except Exception:
+        return None
+    try:
+        cfg = get_ai_config(household, household_only=True)
+    except Exception:
+        return None
+    if not cfg.get("ready"):
+        return None
+    name = getattr(item, "name", "") or ""
+    brand = getattr(g, "brand", "") or ""
+    loc = getattr(g, "default_location", "") or ""
+    kind = extra.get("kind") if isinstance(extra.get("kind"), str) else ""
+    frozen = extra.get("frozen")
+    prompt = (
+        f"Product: {name}\n"
+        f"Brand: {brand}\n"
+        f"Kind: {kind}\n"
+        f"Where: {loc}\n"
+        f"Frozen: {frozen}\n"
+        "Typical unopened household shelf life from the day it is brought home, "
+        "if nobody typed the printed date. JSON only: "
+        '{"days":730,"note":"unopened bug spray, about 2 years"}. '
+        "days is an integer 1-3650, or null if it does not expire "
+        "(toilet paper, trash bags, tools). "
+        "Bug spray/pesticide ~2 years, motor oil ~5 years unopened, "
+        "sunscreen ~1 year, bleach ~1 year, milk fridge ~10 days, "
+        "canned ~2 years, AA batteries ~5 years. No markdown."
+    )
+    try:
+        ok, data = complete_json(
+            prompt,
+            system="Household pantry dating. Short JSON only. Not a chatbot.",
+            max_tokens=160,
+            timeout=8,
+            household=household,
+            household_only=True,
+        )
+    except Exception:
+        return None
+    if not ok or not isinstance(data, dict) or data.get("error"):
+        return None
+    days = _clamp_days(data.get("days"))
+    if days is None:
+        years = data.get("years")
+        try:
+            y = float(years)
+        except (TypeError, ValueError):
+            y = 0
+        if y > 0:
+            days = _clamp_days(int(round(y * 365)))
+    extra = extra_of(g)
+    note = str(data.get("note") or "").strip()[:160]
+    if days:
+        extra["ai_shelf_days"] = days
+        extra.pop("ai_shelf_none", None)
+        if note:
+            extra["ai_shelf_note"] = note
+        extra["expires_days_source"] = "ai"
+        _save_extra(g, extra)
+        return days
+    extra["ai_shelf_none"] = True
+    extra.pop("ai_shelf_days", None)
+    _save_extra(g, extra)
+    return None
+
+
+def apply_shelf_life(item, g, *, force: bool = False, household=None) -> str | None:
+    from app.utils.lots import apply_guess, extra_of, soonest, undated_qty
 
     extra = extra_of(g)
     if extra.get("expires_cleared") and not force:
         day = soonest(g)
         return day.isoformat() if day else extra.get("expires_on")
-    if has_manual_lot(g) and not force:
+    if not force and undated_qty(g) <= 0:
         day = soonest(g)
         return day.isoformat() if day else extra.get("expires_on")
     kind = extra.get("kind") if isinstance(extra.get("kind"), str) else ""
@@ -124,22 +233,10 @@ def apply_shelf_life(item, g, *, force: bool = False) -> str | None:
     if is_meat(name, category, kind) and extra.get("frozen") is None:
         if loc.lower() == "freezer":
             extra["frozen"] = True
-            from sqlalchemy.orm.attributes import flag_modified
-
-            g.extra_data = extra
-            try:
-                flag_modified(g, "extra_data")
-            except Exception:
-                pass
+            _save_extra(g, extra)
         else:
             extra["ask_frozen"] = True
-            from sqlalchemy.orm.attributes import flag_modified
-
-            g.extra_data = extra
-            try:
-                flag_modified(g, "extra_data")
-            except Exception:
-                pass
+            _save_extra(g, extra)
             day = soonest(g)
             return day.isoformat() if day else extra.get("expires_on")
     days = guess_shelf_days(
@@ -149,6 +246,10 @@ def apply_shelf_life(item, g, *, force: bool = False) -> str | None:
         location=loc,
         frozen=extra.get("frozen"),
     )
+    source = "typical"
+    if not days:
+        days = ai_shelf_days(item, g, household=household)
+        source = "ai" if days else source
     if not days:
         day = soonest(g)
         return day.isoformat() if day else extra.get("expires_on")
@@ -156,13 +257,8 @@ def apply_shelf_life(item, g, *, force: bool = False) -> str | None:
     extra = extra_of(g)
     extra.pop("ask_frozen", None)
     extra["expires_days"] = days
-    from sqlalchemy.orm.attributes import flag_modified
-
-    g.extra_data = extra
-    try:
-        flag_modified(g, "extra_data")
-    except Exception:
-        pass
+    extra["expires_days_source"] = source
+    _save_extra(g, extra)
     return apply_guess(g, guessed, force=force)
 
 

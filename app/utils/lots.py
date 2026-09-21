@@ -216,11 +216,8 @@ def apply_guess(g, day: date, *, force: bool = False) -> str | None:
         return extra.get("expires_on")
     lots = lots_list(g)
     manual = [lot for lot in lots if not lot.get("guessed")]
-    if manual and not force:
-        write_lots(g, manual)
-        return extra_of(g).get("expires_on")
+    leftover = undated_qty(g)
     if force:
-        leftover = undated_qty(g)
         for lot in lots:
             if lot.get("guessed"):
                 leftover += _qty(lot.get("qty"))
@@ -229,7 +226,6 @@ def apply_guess(g, day: date, *, force: bool = False) -> str | None:
             kept.append({"qty": leftover, "expires_on": day.isoformat(), "guessed": True})
         write_lots(g, kept)
         return extra_of(g).get("expires_on")
-    leftover = on_hand(g) - dated_sum(g)
     if leftover > 0:
         lots = lots + [{"qty": leftover, "expires_on": day.isoformat(), "guessed": True}]
         write_lots(g, lots)
@@ -239,7 +235,7 @@ def apply_guess(g, day: date, *, force: bool = False) -> str | None:
         return extra_of(g).get("expires_on")
     q = on_hand(g)
     if q <= 0:
-        q = Decimal("1")
+        return extra.get("expires_on")
     write_lots(g, [{"qty": q, "expires_on": day.isoformat(), "guessed": True}])
     return day.isoformat()
 

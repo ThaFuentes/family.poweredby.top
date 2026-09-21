@@ -229,7 +229,7 @@ def _attach_type_row(item, form):
         g.needs_restock = g.quantity <= g.restock_threshold
         extra = dict(g.extra_data or {}) if isinstance(g.extra_data, dict) else {}
         exp = (form.get("expires_on") or "").strip()
-        from app.utils.lots import apply_partial, apply_single_date, extra_of, has_manual_lot, parse_form_rows
+        from app.utils.lots import apply_partial, apply_single_date, extra_of, parse_form_rows
 
         lot_rows = parse_form_rows(form)
         filled_lots = [
@@ -241,13 +241,11 @@ def _attach_type_row(item, form):
             apply_partial(g, lot_rows)
         elif exp:
             apply_single_date(g, exp)
-        elif not has_manual_lot(g):
-            g.extra_data = extra_of(g) or extra or None
-            from app.utils.shelf_life import apply_shelf_life
-
-            apply_shelf_life(item, g)
         else:
             g.extra_data = extra_of(g) or extra or None
+        from app.utils.shelf_life import apply_shelf_life
+
+        apply_shelf_life(item, g)
         if form.get("product_facts"):
             extra = dict(g.extra_data or {})
             extra["product"] = extra.get("product") or {}

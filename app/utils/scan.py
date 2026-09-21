@@ -487,6 +487,12 @@ def apply_grocery_stock(
         qty = set_quantity(g, amt)
         g.last_restocked_at = datetime.utcnow()
         g.needs_restock = qty <= thresh
+        try:
+            from app.utils.shelf_life import apply_shelf_life
+
+            apply_shelf_life(item, g)
+        except Exception:
+            pass
     elif action == "restock":
         if loc or rooms_map(g):
             bump_room(g, loc or g.default_location or "No room yet", amt)
@@ -500,9 +506,7 @@ def apply_grocery_stock(
         try:
             from app.utils.shelf_life import apply_shelf_life
 
-            extra = g.extra_data if isinstance(g.extra_data, dict) else {}
-            if not extra.get("expires_on") or extra.get("expires_guessed"):
-                apply_shelf_life(item, g, force=bool(extra.get("expires_guessed")))
+            apply_shelf_life(item, g)
         except Exception:
             pass
     else:
