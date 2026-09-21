@@ -1,6 +1,7 @@
 import os
 import sys
 import unittest
+from decimal import Decimal
 from types import SimpleNamespace
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -11,7 +12,18 @@ from app.utils.thumbs import https_url, item_thumb_url
 from app.utils.part_icons import icon_for, part_icon_key
 from app.utils.stay import same_site_path
 from app.utils.barcode_lookup import is_placeholder_name, parse_pack_count, upc_forms, catalog_code
-from app.utils.shelf_life import guess_shelf_days, is_meat
+from app.utils.shelf_life import apply_shelf_life, guess_shelf_days, is_meat
+from app.utils.lots import (
+    align_quantity,
+    apply_partial,
+    apply_single_date,
+    dated_packs,
+    lots_list,
+    sheet_rows,
+    soonest,
+    summary_line,
+    undated_qty,
+)
 from app.utils.vehicle_lookup import diff_vehicle, vehicle_ours, vehicle_theirs, extract_vin, looks_like_vin
 from app.utils.scan import (
     _host_wants_scan,
@@ -98,8 +110,15 @@ class ShelfLifeTests(unittest.TestCase):
     def test_milk(self):
         self.assertEqual(guess_shelf_days(name="Whole milk", kind="drink", location="fridge"), 10)
 
-    def test_not_oil(self):
-        self.assertIsNone(guess_shelf_days(name="5W-30 motor oil", kind="motor_oil"))
+    def test_oil_typical(self):
+        self.assertEqual(guess_shelf_days(name="5W-30 motor oil", kind="motor_oil"), 1825)
+
+    def test_bug_spray(self):
+        self.assertEqual(guess_shelf_days(name="Raid ant and roach", kind="household"), 730)
+        self.assertEqual(guess_shelf_days(name="Off bug spray", kind="household"), 730)
+
+    def test_tp_has_no_typical(self):
+        self.assertIsNone(guess_shelf_days(name="Toilet paper", kind="household"))
 
     def test_meat_fridge_vs_freezer(self):
         self.assertTrue(is_meat(name="Ground beef"))
@@ -109,6 +128,128 @@ class ShelfLifeTests(unittest.TestCase):
     def test_cereal(self):
         self.assertEqual(guess_shelf_days(name="Cheerios cereal", kind="food", location="pantry"), 180)
         self.assertEqual(guess_shelf_days(name="Unknown snack", kind="food", location="pantry"), 90)
+
+    def test_oil_can_still_be_dated_by_hand(self):
+        g = SimpleNamespace(quantity=Decimal("2"), extra_data={"kind": "motor_oil"})
+        apply_partial(
+            g,
+            [
+                {"qty": 1, "expires_on": "2027-01-01"},
+                {"qty": 1, "expires_on": "2027-06-01"},
+            ],
+        )
+        lots = lots_list(g)
+        self.assertEqual(len(lots), 2)
+        self.assertEqual(lots[0]["expires_on"], "2027-01-01")
+        self.assertEqual(lots[1]["expires_on"], "2027-06-01")
+
+
+class LotTests(unittest.TestCase):
+    def _g(self, qty=2, extra=None):
+        return SimpleNamespace(quantity=Decimal(str(qty)), extra_data=extra)
+
+    def test_two_milks_separate_dates(self):
+        g = self._g(2)
+        apply_partial(
+            g,
+            [
+                {"qty": 1, "expires_on": "2026-10-01"},
+                {"qty": 1, "expires_on": "2026-10-15"},
+            ],
+        )
+        self.assertEqual(soonest(g).isoformat(), "2026-10-01")
+        self.assertIn("1 by Oct 1", summary_line(g))
+        self.assertIn("1 by Oct 15", summary_line(g))
+        self.assertEqual(undated_qty(g), Decimal("0"))
+
+    def test_blank_rows_do_not_overwrite(self):
+        g = self._g(2)
+        apply_partial(
+            g,
+            [
+                {"qty": 1, "expires_on": "2026-10-01"},
+                {"qty": 1, "expires_on": ""},
+                {"qty": "", "expires_on": ""},
+            ],
+        )
+        lots = lots_list(g)
+        self.assertEqual(len(lots), 1)
+        self.assertEqual(lots[0]["expires_on"], "2026-10-01")
+        self.assertEqual(undated_qty(g), Decimal("1"))
+        apply_partial(
+            g,
+            [
+                {"qty": 1, "expires_on": ""},
+                {"qty": 1, "expires_on": "2026-10-15"},
+            ],
+        )
+        lots = lots_list(g)
+        self.assertEqual(len(lots), 2)
+        self.assertEqual(lots[0]["expires_on"], "2026-10-01")
+        self.assertEqual(lots[1]["expires_on"], "2026-10-15")
+
+    def test_empty_save_changes_nothing(self):
+        g = self._g(2, extra={"lots": [{"qty": 1, "expires_on": "2026-10-01"}]})
+        apply_partial(g, [{"qty": 1, "expires_on": ""}, {"qty": 1, "expires_on": ""}])
+        lots = lots_list(g)
+        self.assertEqual(len(lots), 1)
+        self.assertEqual(lots[0]["expires_on"], "2026-10-01")
+
+    def test_fifo_uses_soonest_first(self):
+        g = self._g(2)
+        apply_partial(
+            g,
+            [
+                {"qty": 1, "expires_on": "2026-10-01"},
+                {"qty": 1, "expires_on": "2026-10-15"},
+            ],
+        )
+        g.quantity = Decimal("1")
+        align_quantity(g, Decimal("2"), Decimal("1"))
+        lots = lots_list(g)
+        self.assertEqual(len(lots), 1)
+        self.assertEqual(lots[0]["expires_on"], "2026-10-15")
+
+    def test_legacy_single_date(self):
+        g = self._g(2, extra={"expires_on": "2026-11-01"})
+        lots = lots_list(g)
+        self.assertEqual(len(lots), 1)
+        self.assertEqual(lots[0]["qty"], Decimal("2"))
+        self.assertEqual(lots[0]["expires_on"], "2026-11-01")
+
+    def test_sheet_splits_two_undated_units(self):
+        g = self._g(2)
+        rows = sheet_rows(g)
+        dated = [r for r in rows if r["expires_on"]]
+        empty = [r for r in rows if not r["expires_on"] and r["qty"] == 1]
+        self.assertEqual(dated, [])
+        self.assertGreaterEqual(len(empty), 2)
+
+    def test_single_date_covers_leftover_only(self):
+        g = self._g(2)
+        apply_partial(g, [{"qty": 1, "expires_on": "2026-10-01"}])
+        apply_single_date(g, "2026-12-01")
+        lots = lots_list(g)
+        self.assertEqual(lots[0]["expires_on"], "2026-10-01")
+        self.assertEqual(lots[1]["expires_on"], "2026-12-01")
+
+    def test_amount_room_and_date(self):
+        g = self._g(2, extra=None)
+        g.default_location = "Garage"
+        apply_partial(
+            g,
+            [
+                {"qty": 1, "expires_on": "2027-06-01", "place": "Garage"},
+                {"qty": 1, "expires_on": ""},
+            ],
+        )
+        lots = lots_list(g)
+        self.assertEqual(len(lots), 1)
+        self.assertEqual(lots[0]["place"], "Garage")
+        self.assertEqual(lots[0]["qty"], Decimal("1"))
+        packs = dated_packs(g)
+        self.assertEqual(packs[0]["place"], "Garage")
+        self.assertIn("Garage", summary_line(g))
 
 
 class PlaceholderNameTests(unittest.TestCase):

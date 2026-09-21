@@ -53,7 +53,7 @@ _INTRO_HEAD = """
   (function(){
     try {
       if ((location.pathname || "").indexOf("/platform") === 0) return;
-      if (sessionStorage.getItem("family.intro.v3") === "1") return;
+      if (sessionStorage.getItem("family.intro.v4") === "1") return;
       if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
       var stand = window.matchMedia("(display-mode: standalone)").matches
         || window.matchMedia("(display-mode: window-controls-overlay)").matches
@@ -62,13 +62,13 @@ _INTRO_HEAD = """
       if (!stand) return;
       document.documentElement.classList.add("family-intro-on");
       setTimeout(function(){
-        try { sessionStorage.setItem("family.intro.v3", "1"); } catch (e) {}
+        try { sessionStorage.setItem("family.intro.v4", "1"); } catch (e) {}
         document.documentElement.classList.remove("family-intro-on","family-intro-brand","family-intro-out");
-      }, 4200);
+      }, 5800);
     } catch (e) {}
   })();
   </script>
-  <script src="/static/js/intro.js?v=os3" defer></script>
+  <script src="/static/js/intro.js?v=os4" defer></script>
 """
 
 _INTRO_BODY = """
@@ -78,7 +78,6 @@ _INTRO_BODY = """
       <source src="/static/video/intro.webm" type="video/webm">
       <source src="/static/video/intro.mp4" type="video/mp4">
     </video>
-    <div class="family-intro-scan" aria-hidden="true"></div>
     <div class="family-intro-veil" aria-hidden="true"></div>
     <div class="family-intro-mark">
       <img src="/static/images/fav.jpg" alt="">

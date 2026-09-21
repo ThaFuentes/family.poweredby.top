@@ -4,9 +4,9 @@
  * overlay here so browser tabs never fetch the clip.
  */
 (function () {
-  var KEY = "family.intro.v3";
-  var HOLD_MS = 3400;
-  var BRAND_AT = 2100;
+  var KEY = "family.intro.v4";
+  var HOLD_MS = 5200;
+  var BRAND_AT = 3200;
   var FADE_MS = 400;
 
   function markSeen() {
@@ -35,7 +35,6 @@
     root.setAttribute("role", "dialog");
     root.setAttribute("aria-label", "Family OS");
     root.innerHTML =
-      '<div class="family-intro-scan" aria-hidden="true"></div>' +
       '<div class="family-intro-veil" aria-hidden="true"></div>' +
       '<div class="family-intro-mark">' +
         '<img src="/static/images/fav.jpg" alt="">' +

@@ -51,6 +51,12 @@ class ClassifyTests(unittest.TestCase):
     def test_knife_is_tool_not_grocery(self):
         self.assertEqual(classify_text("chef knife"), "tool")
 
+    def test_bug_spray_is_household(self):
+        self.assertEqual(classify_text("Raid ant and roach"), "household")
+        hit = classify_product({"name": "Off Deep Woods bug spray"})
+        self.assertEqual(hit["kind"], "household")
+        self.assertEqual(hit["item_type"], "grocery")
+
 
 class StoreRunTests(unittest.TestCase):
     def test_food_and_tp_and_aa(self):

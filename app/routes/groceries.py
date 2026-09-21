@@ -192,11 +192,31 @@ def index():
     hand_items = ok_items + low_items
     hand_items.sort(key=lambda i: (_place_of(i).lower(), (i.name or "").lower()))
     view = (request.args.get("view") or "hand").strip().lower()
-    if view not in ("hand", "out", "want", "all"):
+    if view not in ("hand", "out", "want", "all", "dates"):
         view = "hand"
     rooms = _rooms(hand_items) if view == "hand" else {}
     all_items = want_items + out_items + low_items + ok_items
     all_items.sort(key=lambda i: ((i.name or "").lower()))
+    from app.utils.lots import dated_packs
+
+    date_rows = []
+    for item in all_hand:
+        g = getattr(item, "grocery", None)
+        if g is None:
+            continue
+        date_rows.extend(dated_packs(g, item))
+    date_rows.sort(
+        key=lambda r: (
+            r.get("expires_on") or "",
+            ((getattr(r.get("item"), "name", None) or "").lower()),
+        )
+    )
+    if place and view == "dates":
+        date_rows = [
+            r
+            for r in date_rows
+            if (r.get("place") or "").strip().lower() == place.lower()
+        ]
     return render_template(
         "groceries.html",
         items=q,
@@ -206,6 +226,7 @@ def index():
         ok_items=ok_items,
         hand_items=hand_items,
         all_items=all_items,
+        date_rows=date_rows,
         rooms=rooms,
         view=view,
         place=place,
@@ -218,6 +239,7 @@ def index():
             "out": len(out_items),
             "want": len(want_items),
             "all": len(q),
+            "dates": len(date_rows),
         },
         ai_ready=_ai_ready(),
         pantry_ai_report=session.pop("pantry_ai_report", None),

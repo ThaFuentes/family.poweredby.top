@@ -229,21 +229,25 @@ def _attach_type_row(item, form):
         g.needs_restock = g.quantity <= g.restock_threshold
         extra = dict(g.extra_data or {}) if isinstance(g.extra_data, dict) else {}
         exp = (form.get("expires_on") or "").strip()
-        if exp:
-            extra["expires_on"] = exp[:10]
-            extra.pop("expires_guessed", None)
-            extra.pop("expires_cleared", None)
-            g.extra_data = extra
-        elif extra.get("expires_on"):
-            extra.pop("expires_on", None)
-            extra["expires_cleared"] = True
-            extra.pop("expires_guessed", None)
-            g.extra_data = extra or None
-        else:
-            g.extra_data = extra or None
+        from app.utils.lots import apply_partial, apply_single_date, extra_of, has_manual_lot, parse_form_rows
+
+        lot_rows = parse_form_rows(form)
+        filled_lots = [
+            row
+            for row in lot_rows
+            if (row.get("expires_on") or "").strip()
+        ]
+        if filled_lots:
+            apply_partial(g, lot_rows)
+        elif exp:
+            apply_single_date(g, exp)
+        elif not has_manual_lot(g):
+            g.extra_data = extra_of(g) or extra or None
             from app.utils.shelf_life import apply_shelf_life
 
             apply_shelf_life(item, g)
+        else:
+            g.extra_data = extra_of(g) or extra or None
         if form.get("product_facts"):
             extra = dict(g.extra_data or {})
             extra["product"] = extra.get("product") or {}
@@ -646,6 +650,15 @@ def detail(item_id):
             stay = ref
     if not stay:
         stay = list_url_for_item(item)
+    lots_info = {}
+    if item.grocery:
+        from app.utils.lots import is_guessed, payload as lots_payload, sheet_rows, soonest, summary_bits
+
+        lots_info = lots_payload(item.grocery)
+        lots_info["bits"] = summary_bits(item.grocery)
+        lots_info["rows"] = sheet_rows(item.grocery)
+        lots_info["soonest"] = soonest(item.grocery)
+        lots_info["guessed"] = is_guessed(item.grocery)
     return render_template(
         "item_detail.html",
         item=item,
@@ -675,8 +688,9 @@ def detail(item_id):
         part_photos=part_photos,
         systems_host=systems_host,
         photo_kinds=PHOTO_KINDS,
-        expires_on=((item.grocery.extra_data or {}).get("expires_on") if item.grocery and isinstance(item.grocery.extra_data, dict) else None),
-        expires_guessed=bool((item.grocery.extra_data or {}).get("expires_guessed")) if item.grocery and isinstance(item.grocery.extra_data, dict) else False,
+        expires_on=lots_info.get("expires_on"),
+        expires_guessed=bool(lots_info.get("guessed")),
+        lots_info=lots_info,
         last_part_source=((item.extra_data or {}).get("last_part_source") if isinstance(item.extra_data, dict) else None),
         calm_systems=_calm_systems_flag(),
         on_it_now=on_it_now,
@@ -777,6 +791,73 @@ def set_rooms(item_id):
     return redirect(url_for("items.detail", item_id=item.id, tab="overview"))
 
 
+@items_bp.route("/<int:item_id>/expires")
+@login_required
+def expires_sheet(item_id):
+    item = _item_or_404(item_id)
+    if item.item_type != "grocery" or not item.grocery:
+        abort(404)
+    from app.utils.lots import is_guessed, sheet_rows, soonest, summary_bits, undated_qty
+    from app.utils.scan import qty_label
+
+    return render_template(
+        "items/expires_sheet.html",
+        item=item,
+        rows=sheet_rows(item.grocery),
+        soonest=soonest(item.grocery),
+        guessed=is_guessed(item.grocery),
+        bits=summary_bits(item.grocery),
+        undated=undated_qty(item.grocery),
+        qty_text=qty_label(item.grocery.quantity),
+        unit=(item.grocery.unit or "").strip(),
+        can_set=can("edit_grocery") or can("scan"),
+        ping_saved=False,
+    )
+
+
+@items_bp.route("/<int:item_id>/expires", methods=["POST"])
+@login_required
+def set_expires(item_id):
+    if not (can("edit_grocery") or can("scan")):
+        abort(403)
+    item = _item_or_404(item_id)
+    if item.item_type != "grocery" or not item.grocery:
+        abort(400)
+    from app.utils.lots import apply_partial, parse_form_rows, summary_line
+    from app.utils.scan import qty_label
+
+    apply_partial(item.grocery, parse_form_rows(request.form))
+    from app.utils.lots import first_place
+
+    if not (item.grocery.default_location or "").strip():
+        here = first_place(item.grocery)
+        if here:
+            item.grocery.default_location = here
+    db.session.commit()
+    line = summary_line(item.grocery)
+    flash(
+        f"{item.name}: {line}." if line else f"{item.name}: kept the dates you left blank.",
+        "success",
+    )
+    if (request.form.get("next") or "").strip() == "sheet" or request.args.get("sheet"):
+        from app.utils.lots import is_guessed, sheet_rows, soonest, summary_bits, undated_qty
+
+        return render_template(
+            "items/expires_sheet.html",
+            item=item,
+            rows=sheet_rows(item.grocery),
+            soonest=soonest(item.grocery),
+            guessed=is_guessed(item.grocery),
+            bits=summary_bits(item.grocery),
+            undated=undated_qty(item.grocery),
+            qty_text=qty_label(item.grocery.quantity),
+            unit=(item.grocery.unit or "").strip(),
+            can_set=True,
+            ping_saved=True,
+        )
+    return redirect(url_for("items.detail", item_id=item.id, tab="overview"))
+
+
 @items_bp.route("/<int:item_id>/count", methods=["POST"])
 @login_required
 @require_perm("override")
@@ -855,6 +936,8 @@ def qty(item_id):
                 "on_list": stock.get("on_list"),
                 "rooms": stock.get("rooms"),
                 "message": stock.get("message"),
+                "expires_on": stock.get("expires_on"),
+                "lots_line": stock.get("lots_line"),
             }
         )
     cat = "success" if stock.get("status") == "ok" else "warning"

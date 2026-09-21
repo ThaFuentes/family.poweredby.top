@@ -38,6 +38,14 @@ def _utcnow():
 
 
 def _expires_on(g: GroceryItem):
+    try:
+        from app.utils.lots import soonest
+
+        day = soonest(g)
+        if day is not None:
+            return day
+    except Exception:
+        pass
     extra = g.extra_data if isinstance(getattr(g, "extra_data", None), dict) else {}
     raw = extra.get("expires_on")
     if not raw:
@@ -89,11 +97,15 @@ def _snapshot_needs(needs: dict) -> dict:
             "item": _snap_item(row.get("item")),
             "expires_on": row.get("expires_on"),
             "gone": row.get("gone"),
+            "qty": row.get("qty"),
+            "place": row.get("place"),
         }
         for row in needs.get("expiring") or []
     ]
     out["out_items"] = [_snap_item(i) for i in needs.get("out_items") or []]
     out["low_items"] = [_snap_item(i) for i in needs.get("low_items") or []]
+    out["dated"] = int(needs.get("dated") or 0)
+    out["expired"] = int(needs.get("expired") or 0)
     return out
 
 
@@ -172,23 +184,57 @@ def household_needs(household_id: int, *, is_child: bool = False) -> dict:
             )
 
     expiring = []
-    horizon = (now + timedelta(days=7)).date()
+    dated_n = 0
+    expired_n = 0
+    horizon = (now + timedelta(days=14)).date()
     pantry_rows = (
         GroceryItem.query.options(joinedload(GroceryItem.item))
         .filter_by(household_id=hid)
         .limit(400)
         .all()
     )
+    today = now.date()
+    from app.utils.lots import dated_packs
+
     for g in pantry_rows:
-        exp = _expires_on(g)
-        if exp is None or exp > horizon:
-            continue
         item = g.item
         if not item or int(getattr(item, "household_id", 0) or 0) != hid:
             continue
         if getattr(item, "removed_at", None):
             continue
-        expiring.append({"item": item, "expires_on": exp, "gone": exp < now.date()})
+        packs = dated_packs(g, item)
+        if not packs:
+            exp = _expires_on(g)
+            if exp is None:
+                continue
+            packs = [
+                {
+                    "item": item,
+                    "expires_on": exp,
+                    "gone": exp < today,
+                    "qty": None,
+                    "place": (getattr(g, "default_location", None) or "").strip() or None,
+                }
+            ]
+        for pack in packs:
+            day = pack.get("expires_on")
+            if day is None:
+                continue
+            dated_n += 1
+            gone = bool(pack.get("gone") or day < today)
+            if gone:
+                expired_n += 1
+            if day > horizon and not gone:
+                continue
+            expiring.append(
+                {
+                    "item": item,
+                    "expires_on": day,
+                    "gone": gone,
+                    "qty": pack.get("qty"),
+                    "place": pack.get("place"),
+                }
+            )
 
     out_items = []
     low_items = []
@@ -227,6 +273,8 @@ def household_needs(household_id: int, *, is_child: bool = False) -> dict:
         "want": want_n,
         "due": due,
         "expiring": expiring[:8],
+        "dated": dated_n,
+        "expired": expired_n,
         "activity": [],
         "out_items": out_items[:8],
         "low_items": low_items[:8],

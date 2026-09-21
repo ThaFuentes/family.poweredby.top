@@ -430,6 +430,13 @@
           '<button type="button" class="btn secondary" data-rescan="freeze">Freezer</button>' +
           "</div>"
         : "") +
+      (data.item_id
+        ? '<p class="btn-row" style="margin:.55rem 0 0"><button type="button" class="btn sm secondary" data-sheet="/items/' +
+          encode(String(data.item_id)) +
+          '/expires" data-sheet-title="Use by">' +
+          (data.lots_line ? "Dates · " + encode(data.lots_line) : "Amount, room, use-by") +
+          "</button></p>"
+        : "") +
       img +
       (meta.length ? '<p class="muted">' + encode(meta.join(" · ")) + "</p>" : "") +
       factsHtml +

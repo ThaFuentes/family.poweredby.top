@@ -91,9 +91,17 @@ def qty_label(val) -> str:
 
 
 def set_quantity(g: GroceryItem, val) -> Decimal:
+    prev = clamp_qty(g.quantity)
     q = clamp_qty(val)
     g.quantity = q
     g.is_in_stock = q > 0
+    if q != prev:
+        try:
+            from app.utils.lots import align_quantity
+
+            align_quantity(g, prev, q)
+        except Exception:
+            pass
     return q
 
 
@@ -382,7 +390,19 @@ def grocery_payload(g: GroceryItem, item: Item, action="check", on_list=False, a
         "qty_choices_out": qty_choices(g, "out"),
         "qty_choices": qty_choices(g, "into" if action in ("into", "restock", "check", "buy") else "out"),
         "rooms": {k: float(v) for k, v in rooms_map(g).items()},
+        **_lots_payload(g, item),
     }
+
+
+def _lots_payload(g: GroceryItem, item: Item | None = None) -> dict:
+    try:
+        from app.utils.lots import payload as lots_payload
+
+        data = lots_payload(g)
+        data["item_id"] = getattr(item, "id", None)
+        return data
+    except Exception:
+        return {}
 
 
 def _usual_key(action: str) -> str:

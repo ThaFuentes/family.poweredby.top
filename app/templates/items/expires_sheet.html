@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>On the shelf · {{ item.name }}</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
+  {% include "partials/theme_head.html" %}
+</head>
+<body class="sheet-body">
+{% if ping_saved %}
+<script>try { window.parent.postMessage({ family: "sheet-saved" }, "*"); } catch (e) {}</script>
+{% endif %}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<p class="muted" style="margin:0 0 .35rem">{{ item.name }}</p>
+<h1 style="margin:0 0 .35rem;font-size:1.25rem">On the shelf</h1>
+<p class="muted">{{ qty_text }} {{ unit }} on hand. Each pack: how many, which room, use-by. Fill only the ones you know — blank rows stay as they are. Bug spray, oil, milk, all the same.</p>
+
+{% if can_set %}
+<form method="post" action="{{ url_for('items.set_expires', item_id=item.id) }}" class="lot-form">
+  <input type="hidden" name="next" value="sheet">
+  <div id="lot-rows">
+    {% for row in rows %}
+    <div class="lot-row">
+      <label>Amount
+        <input name="qty" inputmode="decimal" value="{{ row.qty }}" placeholder="1">
+      </label>
+      <label>Where
+        <select name="place">
+          <option value="">—</option>
+          {% for p in places %}
+          <option value="{{ p }}" {% if row.place==p %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+          {% if row.place and row.place not in places %}
+          <option value="{{ row.place }}" selected>{{ row.place }}</option>
+          {% endif %}
+        </select>
+      </label>
+      <label class="lot-date">Expires
+        <input type="date" name="expires_on" value="{{ row.expires_on }}">
+        {% if row.hint %}<span class="muted lot-hint">Typical {{ row.hint }}</span>{% endif %}
+      </label>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="btn-row" style="margin:.4rem 0 0">
+    <button type="button" class="btn sm secondary" id="add-lot">+ Another pack</button>
+  </p>
+  <div class="btn-row"><button class="btn" type="submit">Save</button></div>
+</form>
+<template id="lot-row-tpl">
+  <div class="lot-row">
+    <label>Amount
+      <input name="qty" inputmode="decimal" value="" placeholder="1">
+    </label>
+    <label>Where
+      <select name="place">
+        <option value="">—</option>
+        {% for p in places %}
+        <option value="{{ p }}">{{ p }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="lot-date">Expires
+      <input type="date" name="expires_on" value="">
+    </label>
+  </div>
+</template>
+<script>
+(function () {
+  var btn = document.getElementById("add-lot");
+  var wrap = document.getElementById("lot-rows");
+  var tpl = document.getElementById("lot-row-tpl");
+  if (!btn || !wrap || !tpl) return;
+  btn.addEventListener("click", function () {
+    wrap.appendChild(tpl.content.cloneNode(true));
+  });
+})();
+</script>
+{% else %}
+<div class="card">
+  {% if bits %}
+    {% for b in bits %}<p>{{ b }}</p>{% endfor %}
+  {% else %}
+    <p class="muted">No packs dated yet.</p>
+  {% endif %}
+</div>
+{% endif %}
+<script src="{{ url_for('static', filename='js/app.js') }}?v=os22"></script>
+</body>
+</html>

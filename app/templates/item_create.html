@@ -36,6 +36,8 @@
     <input name="quantity" value="2">
     <label>Need more when at or below</label>
     <input name="restock_threshold" value="1">
+    <label>Use by (optional — each pack can get its own date after save)</label>
+    <input type="date" name="expires_on">
     <label>Where it lives</label>
     <select name="default_location">
       <option value="">{{ lookup.location_hint or '—' }}</option>

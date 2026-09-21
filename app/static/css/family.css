@@ -309,7 +309,7 @@ h2 { font-size: 1.02rem; margin: 1.15rem 0 .55rem; letter-spacing: -0.02em; }
 .sheet-overlay {
   position: fixed;
   inset: 0;
-  z-index: 80;
+  z-index: 110;
   background: rgba(12, 14, 13, .45);
   display: flex;
   align-items: flex-end;
@@ -1233,6 +1233,44 @@ body.platform { padding-bottom: 1.5rem; }
   gap: .45rem;
 }
 .qty-stepper.detail-qty .qty { margin: 0; }
+.exp-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .15rem;
+  width: 100%;
+  margin: .55rem 0;
+  padding: .75rem .85rem;
+  text-align: left;
+  background: var(--btn-2);
+  border: 1.5px solid var(--btn-edge);
+  border-radius: .9rem;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.exp-card .kicker {
+  font-size: .68rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.exp-card strong { font-size: 1.02rem; }
+.exp-card:hover { background: var(--green-soft); }
+.lot-form .lot-row {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr;
+  gap: .55rem;
+  margin: .85rem 0;
+  align-items: start;
+  padding-bottom: .75rem;
+  border-bottom: 1px solid var(--edge);
+}
+.lot-form .lot-row:last-child { border-bottom: 0; }
+.lot-form .lot-row label { margin: 0; }
+.lot-form .lot-row .lot-date { grid-column: 1 / -1; }
+.lot-form .lot-hint { display: block; margin-top: .2rem; font-size: .78rem; }
 .room-head {
   display: flex;
   justify-content: space-between;

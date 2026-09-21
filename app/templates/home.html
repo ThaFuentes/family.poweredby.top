@@ -12,7 +12,7 @@
 {% set dash_compact = true %}
 {% include "partials/dashboard_edit.html" %}
 
-{% if dash.show_needs and (needs.due or needs.out or needs.low or needs.expiring) %}
+{% if dash.show_needs and (needs.due or needs.out or needs.low or needs.expiring or needs.dated) %}
 <section class="needs-stack" aria-label="Needs you">
   {% for row in needs.due %}
   <a class="need-card {% if row.overdue %}is-out{% endif %}" href="{% if row.item_id %}{{ url_for('items.detail', item_id=row.item_id) }}{% else %}{{ url_for('reminders.index') }}{% endif %}">
@@ -39,9 +39,16 @@
   <a class="need-card {% if row.gone %}is-out{% else %}is-low{% endif %}" href="{{ url_for('items.detail', item_id=row.item.id) }}">
     <span class="kicker">{% if row.gone %}Expired{% else %}Expires{% endif %}</span>
     <strong>{{ row.item.name }}</strong>
-    <span class="muted">{{ row.expires_on }}</span>
+    <span class="muted">{% if row.qty %}{{ row.qty }}{% if row.place %} · {{ row.place }}{% endif %} · {% endif %}{{ row.expires_on }}</span>
   </a>
   {% endfor %}
+  {% if needs.dated %}
+  <a class="need-card" href="{{ url_for('groceries.index', view='dates') }}">
+    <span class="kicker">Dates</span>
+    <strong>{% if needs.expired %}{{ needs.expired }} expired{% if needs.dated %} · {% endif %}{% endif %}{{ needs.dated }} dated</strong>
+    <span class="muted">Milk, bug spray, oil — the shelf check</span>
+  </a>
+  {% endif %}
 </section>
 {% endif %}
 

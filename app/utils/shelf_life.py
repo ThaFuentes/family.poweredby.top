@@ -1,4 +1,4 @@
-"""Typical use-by when nobody typed a date. Food only."""
+"""Typical use-by when nobody typed a date. Food, plus chemicals that actually expire."""
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -47,11 +47,34 @@ def is_meat(name="", category="", kind="") -> bool:
 
 def guess_shelf_days(name="", category="", kind="", location="", frozen=None) -> int | None:
     kind = (kind or "").strip().lower()
-    if kind in _NOT_FOOD:
-        return None
     loc = (location or "").lower()
     hay = f"{name} {category} {kind} {location}".lower()
-    if any(w in hay for w in ("motor oil", "coolant", "air filter", "cabin filter", "car battery", "wiper")):
+    if any(
+        w in hay
+        for w in (
+            "bug spray",
+            "insecticide",
+            "pesticide",
+            "ant killer",
+            "wasp",
+            "roach",
+            "mosquito",
+            "repellent",
+            "raid",
+            "fly spray",
+            "weed killer",
+        )
+    ):
+        return 730
+    if any(w in hay for w in ("bleach", "disinfectant", "lysol", "clorox", "hydrogen peroxide")):
+        return 365
+    if "sunscreen" in hay or "spf" in hay:
+        return 365
+    if kind == "motor_oil" or any(w in hay for w in ("motor oil", "engine oil")):
+        return 1825
+    if any(w in hay for w in ("coolant", "air filter", "cabin filter", "car battery", "wiper")):
+        return None
+    if kind in _NOT_FOOD:
         return None
     if any(w in hay for w in ("milk", "half and half", "creamer", "yogurt", "cottage cheese", "sour cream")):
         return 10
@@ -85,11 +108,15 @@ def guess_shelf_days(name="", category="", kind="", location="", frozen=None) ->
 
 
 def apply_shelf_life(item, g, *, force: bool = False) -> str | None:
-    extra = dict(g.extra_data or {}) if isinstance(getattr(g, "extra_data", None), dict) else {}
+    from app.utils.lots import apply_guess, extra_of, has_manual_lot, soonest
+
+    extra = extra_of(g)
     if extra.get("expires_cleared") and not force:
-        return extra.get("expires_on")
-    if extra.get("expires_on") and not extra.get("expires_guessed") and not force:
-        return extra.get("expires_on")
+        day = soonest(g)
+        return day.isoformat() if day else extra.get("expires_on")
+    if has_manual_lot(g) and not force:
+        day = soonest(g)
+        return day.isoformat() if day else extra.get("expires_on")
     kind = extra.get("kind") if isinstance(extra.get("kind"), str) else ""
     name = getattr(item, "name", "") or ""
     category = getattr(item, "category", "") or ""
@@ -97,10 +124,24 @@ def apply_shelf_life(item, g, *, force: bool = False) -> str | None:
     if is_meat(name, category, kind) and extra.get("frozen") is None:
         if loc.lower() == "freezer":
             extra["frozen"] = True
+            from sqlalchemy.orm.attributes import flag_modified
+
+            g.extra_data = extra
+            try:
+                flag_modified(g, "extra_data")
+            except Exception:
+                pass
         else:
             extra["ask_frozen"] = True
+            from sqlalchemy.orm.attributes import flag_modified
+
             g.extra_data = extra
-            return extra.get("expires_on")
+            try:
+                flag_modified(g, "extra_data")
+            except Exception:
+                pass
+            day = soonest(g)
+            return day.isoformat() if day else extra.get("expires_on")
     days = guess_shelf_days(
         name=name,
         category=category,
@@ -109,13 +150,20 @@ def apply_shelf_life(item, g, *, force: bool = False) -> str | None:
         frozen=extra.get("frozen"),
     )
     if not days:
-        return extra.get("expires_on")
-    extra["expires_on"] = (date.today() + timedelta(days=days)).isoformat()
-    extra["expires_guessed"] = True
-    extra["expires_days"] = days
+        day = soonest(g)
+        return day.isoformat() if day else extra.get("expires_on")
+    guessed = date.today() + timedelta(days=days)
+    extra = extra_of(g)
     extra.pop("ask_frozen", None)
+    extra["expires_days"] = days
+    from sqlalchemy.orm.attributes import flag_modified
+
     g.extra_data = extra
-    return extra["expires_on"]
+    try:
+        flag_modified(g, "extra_data")
+    except Exception:
+        pass
+    return apply_guess(g, guessed, force=force)
 
 
 def set_meat_storage(item, g, *, frozen: bool) -> str | None:

@@ -72,7 +72,14 @@
       frame.hidden = true;
     }
     document.body.classList.remove("sheet-open");
-    if (reload && (location.pathname.indexOf("/items/") === 0 || location.pathname.indexOf("/vault") === 0)) {
+    if (
+      reload &&
+      (location.pathname.indexOf("/items/") === 0 ||
+        location.pathname.indexOf("/vault") === 0 ||
+        location.pathname.indexOf("/groceries") === 0 ||
+        location.pathname === "/" ||
+        location.pathname.indexOf("/home") === 0)
+    ) {
       location.reload();
     }
   }

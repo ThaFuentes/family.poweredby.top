@@ -20,6 +20,8 @@
             {% if g.unit %}{{ g.unit }}{% endif %}
             {% if g.brand %} · {{ g.brand }}{% endif %}
             {% if room_name %} · {{ room_name }}{% elif g.default_location and not place %} · {{ g.default_location }}{% endif %}
+            {% set exp_line = g|lots_line %}
+            {% if exp_line %} · {{ exp_line }}{% endif %}
           {% else %}
             {{ item.category or '' }}
           {% endif %}
@@ -28,6 +30,7 @@
       </div>
     </a>
     {% if g and (can('scan') or can('edit_grocery')) %}
+    <button type="button" class="btn sm secondary" data-sheet="{{ url_for('items.expires_sheet', item_id=item.id) }}" data-sheet-title="On the shelf">Dates</button>
     <button type="button" class="btn sm secondary" data-list-item="{{ item.id }}">List</button>
     <div class="qty-stepper" data-qty-item="{{ item.id }}" {% if room_name %}data-qty-place="{{ room_name }}"{% endif %}>
       <button type="button" class="qty-btn" data-qty-delta="-1" aria-label="One less">−</button>
@@ -104,6 +107,7 @@
   <a class="{% if view=='out' %}on{% endif %}" href="{{ url_for('groceries.index', view='out', place=place or none, q=q or none, kind=kind_filter or none) }}">Out {{ counts.out }}</a>
   <a class="{% if view=='want' %}on{% endif %}" href="{{ url_for('groceries.index', view='want', place=place or none, q=q or none, kind=kind_filter or none) }}">Want {{ counts.want }}</a>
   <a class="{% if view=='all' %}on{% endif %}" href="{{ url_for('groceries.index', view='all', place=place or none, q=q or none, kind=kind_filter or none) }}">All {{ counts.all }}</a>
+  <a class="{% if view=='dates' %}on{% endif %}" href="{{ url_for('groceries.index', view='dates', place=place or none, q=q or none, kind=kind_filter or none) }}">Dates {{ counts.dates }}</a>
 </div>
 <div class="place-chips no-print">
   <a class="{% if kind_filter=='store' %}on{% endif %}" href="{{ url_for('groceries.index', view=view, place=place or none, q=q or none, kind='store') }}">Groceries</a>
@@ -173,6 +177,36 @@
   {% else %}
   <div class="card"><div class="empty"><strong>Nothing here</strong>Scan a box, or Add by name.</div></div>
   {% endif %}
+{% elif view == 'dates' %}
+  {% if date_rows %}
+  <div class="card list">
+    <h2>Use-by{% if place %} · {{ place }}{% endif %}</h2>
+    <p class="muted" style="margin:0 0 .55rem">Store-style date check. Expired first, then what’s next — milk, bug spray, oil, all of it.</p>
+    {% for row in date_rows %}
+      {% set item = row.item %}
+      {% set g = item.grocery %}
+      <div class="row {% if row.gone %}onhand-row{% endif %}" data-item-id="{{ item.id }}">
+        <a class="row-main" href="{{ url_for('items.detail', item_id=item.id, next=request.full_path) }}">
+          {{ row_pic(item) }}
+          <div>
+            <strong>{{ item.name }}</strong>
+            <div class="muted">
+              {{ row.qty|qty_label }}{% if g and g.unit %} {{ g.unit }}{% endif %}
+              {% if row.place %} · {{ row.place }}{% endif %}
+              · {{ row.expires_on }}
+            </div>
+          </div>
+        </a>
+        {% if can('scan') or can('edit_grocery') %}
+        <button type="button" class="btn sm secondary" data-sheet="{{ url_for('items.expires_sheet', item_id=item.id) }}" data-sheet-title="On the shelf">Edit</button>
+        {% endif %}
+        <span class="badge {% if row.gone %}out{% elif row.soon %}low{% endif %}">{% if row.gone %}Expired{% elif row.soon %}Soon{% else %}Dated{% endif %}</span>
+      </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card"><div class="empty"><strong>No dates yet</strong>Tap Dates on an item. Amount, room, use-by — same as a grocery shelf.</div></div>
+  {% endif %}
 {% endif %}
 
 <details class="card add-fold" id="add-grocery" style="margin-top:1rem">
@@ -192,6 +226,8 @@
         <option value="{{ p }}">{{ p }}</option>
       {% endfor %}
     </select>
+    <label>Use by (optional)</label>
+    <input type="date" name="expires_on">
     <div class="btn-row"><button class="btn" type="submit">Save grocery</button></div>
   </form>
   {% endif %}

@@ -201,10 +201,12 @@ def create_app():
     from app.utils.scan import qty_label as _qty_label_filter
 
     from app.utils.part_icons import icon_for as _part_icon_filter
+    from app.utils.lots import summary_line as _lots_line_filter
 
     app.jinja_env.filters["item_thumb"] = _item_thumb_filter
     app.jinja_env.filters["qty_label"] = _qty_label_filter
     app.jinja_env.filters["part_icon"] = _part_icon_filter
+    app.jinja_env.filters["lots_line"] = _lots_line_filter
 
     from app.routes.auth import auth_bp
     from app.routes.home import home_bp

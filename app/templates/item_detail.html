@@ -44,6 +44,7 @@
 {% elif tab == 'overview' %}
   <div class="card">
     {% if item.grocery %}
+      {% set lots_info = lots_info or {} %}
       {% if item.grocery.quantity and item.grocery.quantity > 0 and item.grocery.needs_restock %}
         <span class="badge low">Need more</span>
       {% elif item.grocery.quantity and item.grocery.quantity > 0 %}
@@ -103,8 +104,20 @@
         <button class="btn" name="action" value="fridge" type="submit">Fridge — use soon</button>
         <button class="btn secondary" name="action" value="freeze" type="submit">Freezer</button>
       </form>
-      {% elif expires_on %}
-      <p>{% if expires_guessed %}Typical use-by <strong>{{ expires_on }}</strong> — change it under Edit.{% else %}Use by <strong>{{ expires_on }}</strong>{% endif %}</p>
+      {% endif %}
+      {% if can_grocery or can_scan %}
+      <button type="button" class="exp-card" data-sheet="{{ url_for('items.expires_sheet', item_id=item.id) }}" data-sheet-title="On the shelf">
+        <span class="kicker">On the shelf</span>
+        {% if lots_info.bits %}
+        <strong>{% for b in lots_info.bits %}{{ b }}{% if not loop.last %} · {% endif %}{% endfor %}</strong>
+        <span class="muted">{% if expires_guessed %}Typical — tap to set each pack.{% else %}Amount, room, date. Leave a row blank to keep it.{% endif %}</span>
+        {% else %}
+        <strong>Amount, room, use-by</strong>
+        <span class="muted">Like a grocery shelf. Milk, bug spray, oil — each pack gets its own date.</span>
+        {% endif %}
+      </button>
+      {% elif lots_info.bits %}
+      <p>{% if expires_guessed %}Typical use-by{% else %}Use by{% endif %} <strong>{% for b in lots_info.bits %}{{ b }}{% if not loop.last %} · {% endif %}{% endfor %}</strong></p>
       {% endif %}
       {% if item.grocery.image_url %}
         <img class="detail-photo" src="{{ item.grocery.image_url }}" alt="{{ item.name }}">
@@ -296,7 +309,8 @@
           <option value="{{ item.grocery.default_location }}" selected>{{ item.grocery.default_location }}</option>
         {% endif %}
       </select>
-      <label>Expires{% if expires_guessed %} <span class="muted">(typical — change it)</span>{% endif %}</label><input type="date" name="expires_on" value="{{ expires_on or '' }}">
+      <p class="muted">Use-by dates live on each pack — tap Use by above. Filling a date here only dates leftover packs that don’t have one yet.</p>
+      <label>Date leftover packs{% if expires_guessed %} <span class="muted">(typical)</span>{% endif %}</label><input type="date" name="expires_on" value="">
       <label>Ingredients</label><textarea name="ingredients">{{ item.grocery.ingredients or '' }}</textarea>
       <label>Allergens</label><input name="allergens" value="{{ item.grocery.allergens or '' }}">
       <label>Serving size</label><input name="serving_size" value="{{ item.grocery.serving_size or '' }}">
