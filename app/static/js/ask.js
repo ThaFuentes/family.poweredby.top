@@ -54,6 +54,7 @@
   function setOpen(on) {
     if (!panel || !openBtn) return;
     panel.hidden = !on;
+    panel.classList.toggle("is-open", !!on);
     openBtn.hidden = on;
     openBtn.setAttribute("aria-expanded", on ? "true" : "false");
     root.classList.toggle("ask-on", on);
@@ -61,6 +62,7 @@
       try { input.focus(); } catch (e) {}
     }
   }
+  setOpen(false);
 
   if (openBtn) openBtn.addEventListener("click", function () { setOpen(true); });
   if (closeBtn) closeBtn.addEventListener("click", function () { setOpen(false); });
