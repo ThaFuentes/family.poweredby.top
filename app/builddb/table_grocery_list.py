@@ -13,6 +13,7 @@ class GroceryListEntry(db.Model):
     quantity_needed = db.Column(db.Numeric(12, 3), nullable=True)
     status = db.Column(db.String(20), nullable=False, default="open")
     added_reason = db.Column(db.String(80), nullable=True)
+    note = db.Column(db.String(120), nullable=True)
     created_by = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.current_timestamp())
     completed_at = db.Column(db.DateTime, nullable=True)
@@ -28,6 +29,7 @@ def create_table():
             ("quantity_needed", "DECIMAL(12,3) NULL"),
             ("status", "VARCHAR(20) NOT NULL DEFAULT 'open'"),
             ("added_reason", "VARCHAR(80) NULL"),
+            ("note", "VARCHAR(120) NULL"),
             ("created_by", "INT NULL"),
             ("completed_at", "TIMESTAMP NULL"),
         ],

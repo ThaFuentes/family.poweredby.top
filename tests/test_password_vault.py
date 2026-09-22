@@ -134,6 +134,18 @@ class AccessTests(unittest.TestCase):
         self.assertEqual(grant_status(dead), "ended")
         self.assertIn("ended", remaining_text(dead))
 
+    def test_forever_stays_after_they_open_it(self):
+        g = SimpleNamespace(
+            user_id=2,
+            duration_key="forever",
+            expires_at=datetime.utcnow() - timedelta(minutes=1),
+            revoked_at=None,
+        )
+        row = _entry(created_by=1, share_mode="selected", grants=[g])
+        member = _user(id=2)
+        self.assertTrue(grant_is_live(g))
+        self.assertTrue(can_view_entry(row, member))
+
     def test_revoked_is_dead_even_with_time_left(self):
         g = SimpleNamespace(
             user_id=2,

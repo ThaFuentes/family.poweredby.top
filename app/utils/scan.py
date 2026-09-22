@@ -307,6 +307,54 @@ def apply_place(g: GroceryItem, item: Item, *, location=None, skip_place=False) 
     }
 
 
+def _with_basket_match(payload: dict, household_id: int, item) -> dict:
+    if not payload or item is None or getattr(item, "item_type", None) != "grocery":
+        return payload
+    if payload.get("on_list"):
+        return payload
+    try:
+        from flask_login import current_user
+
+        from app.builddb.table_grocery_list import GroceryListEntry
+        from app.utils.basket_match import apply_match, suggest_for_item
+
+        if int(getattr(item, "household_id", 0) or 0) != int(household_id):
+            return payload
+        hit = suggest_for_item(household_id, item)
+        if not hit:
+            return payload
+        store = hit.get("store") or ""
+        who = "Ask thinks this is" if hit.get("used_ai") else "Looks like"
+        hit["message"] = (
+            f"{who} {hit['name']}"
+            + (f" from {store}" if store else "")
+            + " on the basket. Match and take it off?"
+        )
+        payload["basket_match"] = hit
+        action = (payload.get("action") or "").strip().lower()
+        if action in ("restock", "into", "got_more", "set"):
+            row = GroceryListEntry.query.filter_by(
+                id=int(hit["id"]), household_id=household_id, status="open"
+            ).first()
+            if row is None:
+                return payload
+            uid = int(getattr(current_user, "id", 0) or 0)
+            result = apply_match(row, item, uid, restock=False)
+            if result.get("ok"):
+                db.session.commit()
+                payload["basket_cleared"] = result
+                payload["on_list"] = False
+                extra = result.get("message") or "Took that off the basket."
+                payload["message"] = ((payload.get("message") or "").rstrip(".") + ". " + extra).strip()
+                payload.pop("basket_match", None)
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+    return payload
+
+
 def grocery_payload(g: GroceryItem, item: Item, action="check", on_list=False, amount=1, prev_qty=None):
     status = stock_status(g)
     qty = qty_label(g.quantity)
@@ -1148,7 +1196,7 @@ def process_scan(
         }
         db.session.commit()
         payload["action"] = event.action
-        return payload
+        return _with_basket_match(payload, household_id, item)
 
     payload = {
         "found": True,
@@ -1292,4 +1340,4 @@ def process_scan(
     }
     db.session.commit()
     payload["action"] = action
-    return payload
+    return _with_basket_match(payload, household_id, item)

@@ -321,6 +321,7 @@ def _basket_payload(rows):
                 "id": r.id,
                 "name": r.name,
                 "reason": r.added_reason or "",
+                "note": (r.note or "").strip(),
                 "quantity_needed": qty_label(r.quantity_needed) if r.quantity_needed else "",
                 "item_id": r.item_id,
                 "place": place,
@@ -373,19 +374,27 @@ def list_add():
     if not (can("scan") or can("edit_grocery")):
         flash("You cannot add to the basket.", "warning")
         return redirect(url_for("groceries.grocery_list"))
-    name = (request.form.get("name") or "").strip()
-    if not name:
+    raw = (request.form.get("name") or "").strip()
+    if not raw:
         flash("Name required.", "danger")
         return redirect(url_for("groceries.grocery_list"))
-    db.session.add(
-        GroceryListEntry(
-            household_id=household_id(),
-            name=name,
-            status="open",
-            added_reason="want",
-            created_by=current_user.id,
+    note = (request.form.get("note") or request.form.get("store") or "").strip()[:120] or None
+    names = [p.strip()[:200] for p in raw.replace("\n", ",").split(",") if p.strip()]
+    if not names:
+        flash("Name required.", "danger")
+        return redirect(url_for("groceries.grocery_list"))
+    hid = household_id()
+    for name in names[:40]:
+        db.session.add(
+            GroceryListEntry(
+                household_id=hid,
+                name=name,
+                status="open",
+                added_reason="want",
+                note=note,
+                created_by=current_user.id,
+            )
         )
-    )
     db.session.commit()
     return redirect(url_for("groceries.grocery_list"))
 
@@ -484,6 +493,30 @@ def list_bulk():
     else:
         flash(f"Got {n}. Stock updated.", "success")
     return redirect(url_for("groceries.grocery_list"))
+
+
+@groceries_bp.route("/list/<int:entry_id>/match", methods=["POST"])
+@login_required
+def list_match(entry_id):
+    if not (can("scan") or can("edit_grocery")):
+        return jsonify({"error": "not allowed"}), 403
+    row = scoped(GroceryListEntry).filter_by(id=entry_id).first_or_404()
+    if row.status != "open":
+        return jsonify({"ok": False, "error": "That row is already off the basket."}), 400
+    payload = request.get_json(silent=True) or {}
+    raw = payload.get("item_id") or request.form.get("item_id")
+    try:
+        iid = int(raw)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Need the scanned item."}), 400
+    item = Item.query.filter_by(id=iid, household_id=row.household_id).first()
+    if item is None:
+        return jsonify({"ok": False, "error": "That item is not in this house."}), 404
+    from app.utils.basket_match import apply_match
+
+    result = apply_match(row, item, current_user.id, restock=True)
+    db.session.commit()
+    return jsonify(result)
 
 
 @groceries_bp.route("/list/<int:entry_id>/remove", methods=["POST"])

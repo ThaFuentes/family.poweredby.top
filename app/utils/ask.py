@@ -35,6 +35,7 @@ TOOLS = (
     "vault_save",
     "note_save",
     "basket_add",
+    "basket_match",
     "reminder_save",
     "inventory",
     "tool_save",
@@ -45,6 +46,7 @@ WRITE_TOOLS = (
     "vault_save",
     "note_save",
     "basket_add",
+    "basket_match",
     "reminder_save",
     "inventory",
     "tool_save",
@@ -66,7 +68,9 @@ Reply with ONLY JSON. To act:
 {"tool":"vault_save","args":{"kind":"password","title":"Netflix","login":"a","secret":"x","url":"https://netflix.com","phone":"","account_no":"","two_factor":"app","call_info":"","details":"","share":"personal"}}
 {"tool":"vault_save","args":{"kind":"billing","title":"City water","account_no":"W-1","phone":"555","url":"","login":"","secret":"","share":"personal"}}
 {"tool":"note_save","args":{"title":"Grill cover","body":"…","share":"household","id":null}}
-{"tool":"basket_add","args":{"name":"paper towels"}}
+{"tool":"basket_add","args":{"names":["coffee creamer","paper towels"],"store":"Sam's"}}
+{"tool":"basket_match","args":{"item_id":55,"entry_id":12}}
+{"tool":"basket_match","args":{"q":"french vanilla creamer"}}
 {"tool":"reminder_save","args":{"title":"City water","type":"bill","due":"2026-10-01","every":"30d"}}
 {"tool":"inventory","args":{"q":"milk","action":"restock","amount":1,"place":"fridge"}}
 {"tool":"inventory","args":{"q":"Frosted Flakes","action":"create","upc":"016000275273","amount":1,"place":"pantry"}}
@@ -79,6 +83,7 @@ two_factor: none, sms, app, email, hardware, other.
 reminder type: bill, oil_change, filter, custom. every: 30d, 90d, 180d, 365d, 3000mi, 5000mi, 50h, or monthly/yearly.
 To talk: {"say":"short answer with /vault/12 /items/4 /find/?q=oil or https links."}
 
+If they name a store run (Sam's, Costco) put those names on the basket with store set — no barcode yet. When they later scan a product that fits (french vanilla creamer vs coffee creamer), call basket_match so it links and comes off the list.
 If vault is locked, call vault_unlock when they gave the password, else tell them to open /vault/ or paste the password.
 Look up a UPC/VIN before creating a tool, vehicle, or grocery when they gave a code.
 Do not invent counts, passwords, VINs, or bills. Keep answers short.
@@ -555,26 +560,98 @@ def tool_note_save(args: dict) -> dict:
     }
 
 
+def _basket_names(args: dict) -> list[str]:
+    names = []
+    raw = args.get("names") or args.get("items") or []
+    if isinstance(raw, str):
+        raw = [p.strip() for p in raw.replace("\n", ",").split(",")]
+    if isinstance(raw, list):
+        names.extend(_trim(n, 200) for n in raw)
+    one = _trim(args.get("name") or args.get("title"), 200)
+    if one:
+        if "," in one and not names:
+            names.extend(_trim(p, 200) for p in one.split(","))
+        else:
+            names.insert(0, one)
+    out = []
+    for n in names:
+        if n and n not in out:
+            out.append(n)
+    return out[:40]
+
+
 def tool_basket_add(args: dict) -> dict:
     if not (can("scan") or can("edit_grocery")):
         return {"ok": False, "error": "You cannot add to the basket."}
     from app.builddb.table_grocery_list import GroceryListEntry
     from app.utils.household import household_id
 
-    name = _trim(args.get("name") or args.get("title"), 200)
-    if not name:
+    names = _basket_names(args)
+    if not names:
         return {"ok": False, "error": "Need a name to put on the basket."}
-    db.session.add(
-        GroceryListEntry(
-            household_id=household_id(),
-            name=name,
-            status="open",
-            added_reason="want",
-            created_by=current_user.id,
+    store = _trim(args.get("store") or args.get("from") or args.get("note"), 120) or None
+    hid = household_id()
+    added = []
+    for name in names:
+        db.session.add(
+            GroceryListEntry(
+                household_id=hid,
+                name=name,
+                status="open",
+                added_reason="want",
+                note=store,
+                created_by=current_user.id,
+            )
         )
-    )
+        added.append(name)
     db.session.commit()
-    return {"ok": True, "name": name, "href": "/groceries/list"}
+    return {
+        "ok": True,
+        "names": added,
+        "store": store or "",
+        "href": "/groceries/list",
+        "did": f"added {len(added)}",
+    }
+
+
+def tool_basket_match(args: dict) -> dict:
+    if not (can("scan") or can("edit_grocery")):
+        return {"ok": False, "error": "You cannot change the basket."}
+    from app.builddb.table_grocery_list import GroceryListEntry
+    from app.builddb.table_items import Item
+    from app.utils.basket_match import apply_match, suggest_for_item, suggest_for_text
+    from app.utils.household import household_id, scoped
+
+    hid = household_id()
+    entry_id = args.get("entry_id") or args.get("id")
+    item_id = args.get("item_id")
+    if entry_id and str(entry_id).isdigit() and item_id and str(item_id).isdigit():
+        row = scoped(GroceryListEntry).filter_by(id=int(entry_id)).first()
+        item = Item.query.filter_by(id=int(item_id), household_id=hid).first()
+        if row is None or item is None:
+            return {"ok": False, "error": "Need a basket row and an item in this house."}
+        result = apply_match(row, item, current_user.id, restock=True)
+        db.session.commit()
+        return result
+    q = _trim(args.get("q") or args.get("name") or args.get("item"), 200)
+    item = None
+    if item_id and str(item_id).isdigit():
+        item = Item.query.filter_by(id=int(item_id), household_id=hid).first()
+    elif q:
+        found = _find_items(q, "grocery", limit=3)
+        item = found[0] if found else None
+    if item is not None:
+        hit = suggest_for_item(hid, item, min_score=0.5)
+        if hit and args.get("apply"):
+            row = scoped(GroceryListEntry).filter_by(id=hit["id"]).first()
+            if row:
+                result = apply_match(row, item, current_user.id, restock=True)
+                db.session.commit()
+                return result
+        return {"ok": True, "item_id": item.id, "name": item.name, "match": hit, "href": "/groceries/list"}
+    if q:
+        return {"ok": True, "suggestions": suggest_for_text(hid, q), "href": "/groceries/list"}
+    return {"ok": False, "error": "Say which basket row and which scanned item."}
 
 
 def _parse_due(raw: str):
@@ -908,6 +985,8 @@ def run_tool(name: str, args: dict | None) -> dict:
             return tool_note_save(args)
         if key == "basket_add":
             return tool_basket_add(args)
+        if key == "basket_match":
+            return tool_basket_match(args)
         if key == "reminder_save":
             return tool_reminder_save(args)
         if key == "inventory":
@@ -952,6 +1031,8 @@ def run_ask(message: str, *, household) -> dict:
     text = _trim(message, MSG_CAP)
     if not text:
         return {"ok": False, "error": "Say something first."}
+    if household is None or int(getattr(household, "id", 0) or 0) != int(getattr(current_user, "household_id", 0) or 0):
+        return {"ok": False, "error": "AI stays in this household."}
     if not ask_ready(household, current_user):
         return {"ok": False, "error": "Ask is off. Add an AI key in Household, or turn Ask back on."}
     if not _rate_ok():

@@ -297,8 +297,44 @@ def platform_config() -> dict:
     )
 
 
+def _family_request_house_id() -> int:
+    try:
+        from flask import has_request_context
+        from flask_login import current_user
+
+        if not has_request_context():
+            return 0
+        if not getattr(current_user, "is_authenticated", False):
+            return 0
+        return int(getattr(current_user, "household_id", 0) or 0)
+    except Exception:
+        return 0
+
+
+def _household_in_scope(household) -> bool:
+    if household is None:
+        return True
+    hid = _family_request_house_id()
+    oid = int(getattr(household, "id", 0) or 0)
+    if hid and oid and hid != oid:
+        return False
+    return True
+
+
 def get_ai_config(household=None, *, household_only: bool = False) -> dict:
     """Household work is BYOK only. Platform key is never used by a family."""
+    family_hid = _family_request_house_id()
+    if family_hid:
+        household_only = True
+        if household is None:
+            try:
+                from flask_login import current_user
+
+                household = getattr(current_user, "household", None)
+            except Exception:
+                household = None
+        if household is not None and not _household_in_scope(household):
+            return _pack(DEFAULT_PROVIDER, "", DEFAULT_MODEL, "", source="household", from_env=False)
     if household is not None:
         from app.utils.household_ai import household_config
 
@@ -337,6 +373,8 @@ def complete(
     image_bytes: bytes | None = None,
     image_mime: str | None = None,
 ) -> tuple[bool, str]:
+    if household is not None and not _household_in_scope(household):
+        return False, "AI stays in this household."
     cfg = get_ai_config(household, household_only=household_only)
     key = (cfg.get("api_key") or "").strip()
     if not key:

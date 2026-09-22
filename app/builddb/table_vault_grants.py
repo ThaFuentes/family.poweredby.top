@@ -38,10 +38,10 @@ def create_table():
             ("user_id", "INT NOT NULL"),
             ("granted_by", "INT NULL"),
             ("duration_key", "VARCHAR(20) NOT NULL DEFAULT 'forever'"),
-            ("expires_at", "TIMESTAMP NULL DEFAULT NULL"),
-            ("last_seen_at", "TIMESTAMP NULL DEFAULT NULL"),
+            ("expires_at", "DATETIME NULL DEFAULT NULL"),
+            ("last_seen_at", "DATETIME NULL DEFAULT NULL"),
             ("seen_count", "INT NOT NULL DEFAULT 0"),
-            ("revoked_at", "TIMESTAMP NULL DEFAULT NULL"),
+            ("revoked_at", "DATETIME NULL DEFAULT NULL"),
             ("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
         ],
         indexes=[
@@ -51,3 +51,21 @@ def create_table():
             ("idx_vault_grants_entry_user", "entry_id, user_id"),
         ],
     )
+    _drop_timestamp_touch("vault_grants", ("expires_at", "last_seen_at", "revoked_at"))
+
+
+def _drop_timestamp_touch(table: str, cols: tuple[str, ...]) -> None:
+    """MariaDB first TIMESTAMP can ON UPDATE CURRENT_TIMESTAMP and kill forever grants."""
+    from sqlalchemy import text
+
+    for col in cols:
+        try:
+            db.session.execute(
+                text(f"ALTER TABLE `{table}` MODIFY `{col}` DATETIME NULL DEFAULT NULL")
+            )
+            db.session.commit()
+        except Exception:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass

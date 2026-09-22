@@ -77,6 +77,7 @@
           encode(r.name || "") +
           '</strong><span class="muted">' +
           reasonText(r.reason) +
+          (r.note ? " · " + encode(r.note) : "") +
           (r.quantity_needed ? " · get " + r.quantity_needed : "") +
           (r.place ? " · " + r.place : "") +
           '</span></span><button type="button" class="btn sm secondary basket-drop" data-drop="' +

@@ -373,6 +373,19 @@
     const listLine = data.on_list
       ? '<p class="muted">On the basket.</p>'
       : "";
+    const match = data.basket_match;
+    const matchLine =
+      match && match.id
+        ? '<div class="scan-kid-actions" style="margin:.55rem 0 0"><p><strong>' +
+          encode(match.message || "Looks like something on the basket.") +
+          "</strong></p>" +
+          '<button type="button" class="btn" data-basket-match="' +
+          encode(String(match.id)) +
+          '" data-item-id="' +
+          encode(String(data.item_id || "")) +
+          '">That\'s it — take off the list</button>' +
+          '<button type="button" class="btn secondary" data-skip-basket-match>Not that</button></div>'
+        : "";
     const buttons =
       '<button type="button" class="btn" data-rescan="set">That\'s how many we have</button>' +
       '<button type="button" class="btn" data-rescan="into">Add that many more</button>' +
@@ -455,6 +468,7 @@
         return html;
       })() +
       listLine +
+      matchLine +
       '<p class="kicker" style="margin:.85rem 0 .35rem">How many?</p>' +
       '<div class="scan-qty" role="group" aria-label="How many">' +
       qtyChoiceList(data)
@@ -1019,6 +1033,46 @@
           linked: quick.getAttribute("data-linked") || "",
           action: quick.getAttribute("data-action") || "check",
         });
+        return;
+      }
+      const matchBtn = e.target.closest("[data-basket-match]");
+      if (matchBtn) {
+        e.preventDefault();
+        const eid = matchBtn.getAttribute("data-basket-match");
+        const iid = matchBtn.getAttribute("data-item-id");
+        if (!eid || !iid) return;
+        fetch("/groceries/list/" + eid + "/match", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrfToken(),
+            "X-Requested-With": "fetch",
+          },
+          body: JSON.stringify({ item_id: iid }),
+        })
+          .then(function (res) {
+            return res.json().then(function (data) {
+              return { ok: res.ok, data: data };
+            });
+          })
+          .then(function (out) {
+            const data = out.data || {};
+            statusEl.textContent = data.message || (out.ok ? "Off the basket." : "Could not match that.");
+            if (out.ok && resultEl) {
+              const wrap = matchBtn.closest(".scan-kid-actions");
+              if (wrap) wrap.remove();
+            }
+            window.dispatchEvent(new Event("family-basket-refresh"));
+          })
+          .catch(function () {
+            statusEl.textContent = "Could not match that.";
+          });
+        return;
+      }
+      if (e.target.closest("[data-skip-basket-match]")) {
+        e.preventDefault();
+        const wrap = e.target.closest(".scan-kid-actions");
+        if (wrap) wrap.remove();
         return;
       }
       const btn = e.target.closest("[data-rescan]");

@@ -249,6 +249,9 @@ def grant_is_live(grant, now: datetime | None = None) -> bool:
         return False
     if getattr(grant, "revoked_at", None):
         return False
+    key = (getattr(grant, "duration_key", None) or "").strip().lower()
+    if key in ("forever", "always", "none"):
+        return True
     when = now or _utcnow()
     exp = _naive(getattr(grant, "expires_at", None))
     if exp is None:
@@ -478,6 +481,9 @@ def log_vault_access(entry, user, action: str = "view", *, grant=None) -> None:
         if act == "view":
             target.seen_count = int(getattr(target, "seen_count", 0) or 0) + 1
         target.last_seen_at = now
+        key = (getattr(target, "duration_key", None) or "").strip().lower()
+        if key in ("forever", "always", "none"):
+            target.expires_at = None
 
 
 def recent_access(entry, people: dict | None = None, limit: int = 12) -> list[dict]:

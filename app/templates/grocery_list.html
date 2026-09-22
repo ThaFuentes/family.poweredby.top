@@ -18,6 +18,7 @@
         {% elif row.added_reason in ('need_more', 'low', 'auto_threshold') %}Need more
         {% elif row.added_reason == 'manual' %}Want
         {% else %}{{ row.added_reason or 'Added' }}{% endif %}
+        {% if row.note %} · {{ row.note }}{% endif %}
         {% if row.quantity_needed %} · get {{ row.quantity_needed|qty_label }}{% endif %}
       </span>
     </span>
@@ -79,7 +80,9 @@
 <summary>Want something — no barcode</summary>
 <form method="post" action="{{ url_for('groceries.list_add') }}">
   <label>Name</label>
-  <input name="name" placeholder="Lucky Charms" required>
+  <input name="name" placeholder="coffee creamer, paper towels" required>
+  <label>Store (optional)</label>
+  <input name="store" placeholder="Sam's" maxlength="120">
   <div class="btn-row"><button class="btn" type="submit">Add to want list</button></div>
 </form>
 </details>
