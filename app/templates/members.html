@@ -52,7 +52,7 @@
   <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='ai') }}" data-sheet-title="AI key">
     <span class="kicker">{% if ai.has_key %}On{% else %}None{% endif %}</span>
     <span class="label">AI key</span>
-    <span class="count">Scan names. Yours, not ads.</span>
+    <span class="count">{% if ai.chat != False %}Ask + scan names{% else %}Scan names{% endif %}. Yours, not ads.</span>
   </button>
   <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='trusted') }}" data-sheet-title="Trusted emails">
     <span class="kicker">{{ trusted|length }}</span>

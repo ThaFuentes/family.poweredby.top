@@ -126,8 +126,14 @@ def _form_fields():
 
 
 def _kind_from_request(default: str = "password") -> str:
-    raw = (request.form.get("kind") or request.args.get("kind") or default or "password").strip().lower()
-    return raw if raw in KINDS else "password"
+    raw = (
+        request.form.get("kind")
+        or (request.view_args or {}).get("kind")
+        or request.args.get("kind")
+        or default
+        or "password"
+    )
+    return str(raw).strip().lower() if str(raw).strip().lower() in KINDS else "password"
 
 
 def _share_from_form() -> str:
@@ -410,8 +416,9 @@ def lock():
 
 
 @vault_bp.route("/add", methods=["POST"])
+@vault_bp.route("/add/<kind>", methods=["POST"])
 @login_required
-def add():
+def add(kind=None):
     _guard()
     fields = _form_fields()
     if not fields["title"]:
@@ -432,11 +439,12 @@ def add():
         )
         db.session.add(row)
         db.session.commit()
-    except Exception:
+    except Exception as exc:
         try:
             db.session.rollback()
         except Exception:
             pass
+        print(f"[vault] save failed: {exc}", flush=True)
         flash("Could not save that. Try Save again.", "danger")
         if _wants_sheet() and reauth_ok():
             return _render_new(draft=fields, kind=kind)
@@ -503,13 +511,14 @@ def share(entry_id):
 
 
 @vault_bp.route("/new")
+@vault_bp.route("/new/<kind>")
 @login_required
-def new():
+def new(kind=None):
     _guard()
     if not reauth_ok():
         flash("Sign in again to add a login.", "warning")
         return redirect(url_for("vault.index"))
-    return _render_new(kind=_kind_from_request())
+    return _render_new(kind=_kind_from_request(kind or "password"))
 
 
 @vault_bp.route("/<int:entry_id>")

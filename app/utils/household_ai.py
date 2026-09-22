@@ -37,6 +37,7 @@ def household_config(household) -> dict:
     model = (blob.get("model") or "").strip()
     base = (blob.get("base_url") or "").strip()
     enabled = blob.get("enabled")
+    chat = blob.get("chat")
     cfg = _pack(
         provider,
         key,
@@ -50,6 +51,7 @@ def household_config(household) -> dict:
         cfg["enabled"] = False
     else:
         cfg["enabled"] = True
+    cfg["chat"] = False if chat is False else True
     cfg["key_hint"] = mask_secret(key)
     return cfg
 
@@ -62,6 +64,7 @@ def save_household_ai(
     api_key: str = "",
     base_url: str = "",
     enabled: bool = True,
+    chat=None,
     clear_key: bool = False,
 ) -> dict:
     settings = dict(household.settings_json or {})
@@ -75,14 +78,38 @@ def save_household_ai(
         stored_key = ""
     elif (api_key or "").strip():
         stored_key = encrypt_text((api_key or "").strip()) or ""
+    if chat is None:
+        chat_on = False if prev.get("chat") is False else True
+    else:
+        chat_on = bool(chat)
     settings["ai"] = {
         "provider": provider,
         "model": model[:120],
         "api_key": stored_key,
         "base_url": base_url[:300],
         "enabled": bool(enabled),
+        "chat": chat_on,
     }
     household.settings_json = settings
     flag_modified(household, "settings_json")
     db.session.commit()
     return household_config(household)
+
+
+def chat_on(household) -> bool:
+    """Ask window defaults on. Only off if they turned it off."""
+    blob = _ai_blob(household)
+    return False if blob.get("chat") is False else True
+
+
+def ask_available(household, user=None) -> bool:
+    from app.utils.permissions import role_of
+
+    if household is None:
+        return False
+    if user is not None and role_of(user) == "child":
+        return False
+    cfg = household_config(household)
+    if not cfg.get("has_key") or not cfg.get("enabled"):
+        return False
+    return chat_on(household)

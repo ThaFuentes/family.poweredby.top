@@ -531,6 +531,22 @@ class VaultHttpTests(unittest.TestCase):
         sneak = self.client.get(f"/vault/{netflix_id}")
         self.assertEqual(sneak.status_code, 403)
 
+    def test_add_bill_form_has_fields(self):
+        admin = f"vault_bf_{self.suffix}"
+        self._register(admin, household=f"BillForm {self.suffix}", name="Pat")
+        self._unlock(admin)
+        page = self.client.get("/vault/new/billing")
+        self.assertEqual(page.status_code, 200, page.data[-400:])
+        body = page.data
+        self.assertIn(b'name="title"', body)
+        self.assertIn(b'name="account_no"', body)
+        self.assertIn(b'name="phone"', body)
+        self.assertIn(b'name="secret"', body)
+        self.assertIn(b"Account / member number", body)
+        self.assertIn(b'value="billing"', body)
+        self.assertIn(b"Save in vault", body)
+        self.assertIn(b"/vault/add/billing", body)
+
     def test_kinds_and_access_clock(self):
         admin = f"vault_b_{self.suffix}"
         member = f"vault_s_{self.suffix}"

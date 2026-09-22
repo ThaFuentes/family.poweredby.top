@@ -647,6 +647,7 @@ def save_ai():
         api_key=(request.form.get("ai_api_key") or "").strip(),
         base_url=(request.form.get("ai_base_url") or "").strip(),
         enabled=(request.form.get("ai_enabled") or "1") != "0",
+        chat=("1" in request.form.getlist("ai_chat")),
         clear_key=(request.form.get("ai_clear_key") or "") == "1",
     )
     flash("Household AI key saved. Yours only — Family OS never uses the owner's key.", "success")

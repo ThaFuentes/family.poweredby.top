@@ -294,6 +294,11 @@
   <datalist id="ai-models">{% for m in ai.models %}<option value="{{ m }}">{% endfor %}</datalist>
   <label>API key</label>
   <input type="password" name="ai_api_key" autocomplete="off" placeholder="{% if ai.has_key %}unchanged · {{ ai.key_hint }}{% else %}paste a key{% endif %}">
+  <input type="hidden" name="ai_chat" value="0">
+  <label class="cal-check">
+    <input type="checkbox" name="ai_chat" value="1" {% if ai.chat != False %}checked{% endif %}>
+    Ask window — on whenever a key is saved. Uncheck to hide it.
+  </label>
   <div class="btn-row">
     <button class="btn" type="submit">Save key</button>
     {% if ai.has_key %}

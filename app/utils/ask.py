@@ -1,0 +1,997 @@
+"""Household Ask: talk to the household AI and let it look up or do work.
+
+Uses the household BYOK key only. Kids never see it. Vault reads and writes
+need the vault unlocked for this login.
+"""
+from __future__ import annotations
+
+import json
+import time
+from datetime import datetime
+
+from flask import has_request_context, session, url_for
+from flask_login import current_user
+
+from app.builddb.builddb import db
+from app.utils.ai import complete, parse_json_object
+from app.utils.household_ai import ask_available
+from app.utils.permissions import can, role_of
+
+SESSION_HISTORY = "family_ask_history"
+SESSION_HITS = "family_ask_hits"
+MAX_HISTORY = 12
+MAX_TOOL_ROUNDS = 5
+MAX_HITS = 24
+HIT_WINDOW = 600
+MSG_CAP = 2000
+
+TOOLS = (
+    "find",
+    "due",
+    "lookup",
+    "vault_unlock",
+    "vault_list",
+    "vault_open",
+    "vault_save",
+    "note_save",
+    "basket_add",
+    "reminder_save",
+    "inventory",
+    "tool_save",
+    "vehicle_save",
+)
+
+WRITE_TOOLS = (
+    "vault_save",
+    "note_save",
+    "basket_add",
+    "reminder_save",
+    "inventory",
+    "tool_save",
+    "vehicle_save",
+    "vault_unlock",
+)
+
+SYSTEM = """You are Ask in Family OS. Do house work for the signed-in adult: vault, bills, tools, vehicles, notes, inventory, basket, scan lookups.
+
+Reply with ONLY JSON. To act:
+{"tool":"find","args":{"q":"batteries"}}
+{"tool":"due","args":{}}
+{"tool":"lookup","args":{"upc":"012345678905"}}
+{"tool":"lookup","args":{"vin":"1HGCM82633A004352"}}
+{"tool":"lookup","args":{"plate":"ABC1234"}}
+{"tool":"vault_unlock","args":{"password":"their Family OS password","username":""}}
+{"tool":"vault_list","args":{"q":"netflix"}}
+{"tool":"vault_open","args":{"id":12}}
+{"tool":"vault_save","args":{"kind":"password","title":"Netflix","login":"a","secret":"x","url":"https://netflix.com","phone":"","account_no":"","two_factor":"app","call_info":"","details":"","share":"personal"}}
+{"tool":"vault_save","args":{"kind":"billing","title":"City water","account_no":"W-1","phone":"555","url":"","login":"","secret":"","share":"personal"}}
+{"tool":"note_save","args":{"title":"Grill cover","body":"…","share":"household","id":null}}
+{"tool":"basket_add","args":{"name":"paper towels"}}
+{"tool":"reminder_save","args":{"title":"City water","type":"bill","due":"2026-10-01","every":"30d"}}
+{"tool":"inventory","args":{"q":"milk","action":"restock","amount":1,"place":"fridge"}}
+{"tool":"inventory","args":{"q":"Frosted Flakes","action":"create","upc":"016000275273","amount":1,"place":"pantry"}}
+{"tool":"tool_save","args":{"name":"DeWalt drill","type":"drill","model":"DCD771","serial":"","barcode":"","notes":""}}
+{"tool":"vehicle_save","args":{"vin":"","plate":"","name":"","make":"","model":"","year":""}}
+
+inventory action: restock, used, set, need, create.
+vault kind: password, billing, info. share: personal or household.
+two_factor: none, sms, app, email, hardware, other.
+reminder type: bill, oil_change, filter, custom. every: 30d, 90d, 180d, 365d, 3000mi, 5000mi, 50h, or monthly/yearly.
+To talk: {"say":"short answer with /vault/12 /items/4 /find/?q=oil or https links."}
+
+If vault is locked, call vault_unlock when they gave the password, else tell them to open /vault/ or paste the password.
+Look up a UPC/VIN before creating a tool, vehicle, or grocery when they gave a code.
+Do not invent counts, passwords, VINs, or bills. Keep answers short.
+"""
+
+
+def _utcnow():
+    return datetime.utcnow()
+
+
+def ask_ready(household=None, user=None) -> bool:
+    u = user if user is not None else current_user
+    h = household
+    if h is None:
+        h = getattr(u, "household", None)
+    if not getattr(u, "is_authenticated", False):
+        return False
+    if role_of(u) == "child":
+        return False
+    return ask_available(h, u)
+
+
+def _trim(value, cap: int) -> str:
+    return ("" if value is None else str(value)).strip()[:cap]
+
+
+def _history() -> list:
+    if not has_request_context():
+        return []
+    rows = session.get(SESSION_HISTORY) or []
+    if not isinstance(rows, list):
+        return []
+    return rows[-MAX_HISTORY:]
+
+
+def _save_history(rows: list) -> None:
+    if not has_request_context():
+        return
+    session[SESSION_HISTORY] = rows[-MAX_HISTORY:]
+
+
+def clear_history() -> None:
+    if has_request_context():
+        session.pop(SESSION_HISTORY, None)
+
+
+def _rate_ok() -> bool:
+    if not has_request_context():
+        return True
+    now = int(time.time())
+    hits = [int(t) for t in (session.get(SESSION_HITS) or []) if isinstance(t, (int, float, str))]
+    hits = [t for t in hits if now - int(t) < HIT_WINDOW]
+    if len(hits) >= MAX_HITS:
+        session[SESSION_HITS] = hits
+        return False
+    hits.append(now)
+    session[SESSION_HITS] = hits
+    return True
+
+
+def _path(endpoint, **kwargs) -> str:
+    try:
+        return url_for(endpoint, **kwargs)
+    except Exception:
+        return ""
+
+
+def _find_items(q: str, item_type: str | None = None, limit: int = 8):
+    from app.builddb.table_items import Item
+    from app.utils.household import household_id
+
+    needle = _trim(q, 80)
+    qry = Item.query.filter_by(household_id=household_id()).filter(Item.removed_at.is_(None))
+    if item_type:
+        qry = qry.filter_by(item_type=item_type)
+    if needle.isdigit():
+        row = qry.filter_by(id=int(needle)).first()
+        return [row] if row else []
+    if len(needle) >= 2:
+        like = f"%{needle}%"
+        qry = qry.filter(Item.name.ilike(like))
+    elif needle:
+        return []
+    return qry.order_by(Item.name.asc()).limit(limit).all()
+
+
+def _item_line(item) -> str:
+    from app.utils.scan import qty_label
+
+    name = getattr(item, "name", None) or "item"
+    kind = getattr(item, "item_type", None) or ""
+    loc = ""
+    qty = ""
+    g = getattr(item, "grocery", None)
+    if g is not None:
+        loc = getattr(g, "default_location", None) or ""
+        try:
+            qty = qty_label(getattr(g, "quantity", None))
+        except Exception:
+            qty = ""
+    href = _path("items.detail", item_id=item.id)
+    bits = [name]
+    if kind:
+        bits.append(kind)
+    if loc:
+        bits.append(loc)
+    if qty:
+        bits.append(str(qty))
+    if href:
+        bits.append(href)
+    return " · ".join(str(b) for b in bits if b)
+
+
+def tool_find(q: str) -> dict:
+    from app.utils.household import household_id
+    from app.utils.search import search_household
+
+    needle = _trim(q, 80)
+    if len(needle) < 2:
+        return {"ok": False, "error": "Need a search of at least two letters."}
+    hid = household_id()
+    hits = search_household(hid, needle, user_id=current_user.id, limit=12)
+    items = [_item_line(i) for i in (hits.get("item_rows") or [])[:10]]
+    parts = []
+    where = hits.get("part_where") or {}
+    for p in (hits.get("part_rows") or [])[:8]:
+        host = (where.get(p.id) or "").strip()
+        href = _path("items.detail", item_id=p.vehicle_item_id)
+        parts.append(" · ".join(b for b in (p.name, host, href) if b))
+    notes = []
+    for n in (hits.get("note_rows") or [])[:6]:
+        href = _path("notes.index")
+        notes.append(f"{n.title or 'Note'} · {href}")
+    legal = []
+    for r in (hits.get("legal_rows") or [])[:5]:
+        href = _path("legal.detail", record_id=r.id) if hasattr(r, "id") else _path("legal.index")
+        legal.append(f"{r.title or r.kind or 'Record'} · {href}")
+    if not (items or parts or notes or legal):
+        return {
+            "ok": True,
+            "q": needle,
+            "found": [],
+            "hint": f"Nothing stored matches that. Try /find/?q={needle}",
+        }
+    return {
+        "ok": True,
+        "q": needle,
+        "items": items,
+        "parts": parts,
+        "notes": notes,
+        "records": legal,
+        "find": f"/find/?q={needle}",
+    }
+
+
+def tool_due() -> dict:
+    from app.utils.household import household_id, scoped
+    from app.builddb.table_reminders import Reminder
+
+    rows = (
+        scoped(Reminder)
+        .filter_by(status="open")
+        .order_by(Reminder.due_at.asc(), Reminder.id.desc())
+        .limit(12)
+        .all()
+    )
+    out = []
+    for r in rows:
+        due = r.due_at.strftime("%Y-%m-%d") if r.due_at else "no date"
+        out.append(f"{r.title} · {due} · {_path('reminders.index')}")
+    return {"ok": True, "open": out, "href": "/reminders/"}
+
+
+def _vault_guard() -> dict | None:
+    from app.utils.password_vault import can_use_vault, is_child, reauth_ok
+
+    if is_child() or not can_use_vault():
+        return {"ok": False, "error": "Kids cannot use the vault."}
+    if not reauth_ok():
+        return {
+            "ok": False,
+            "need": "vault_unlock",
+            "error": "Vault is locked. Open /vault/ with this login first, then ask again.",
+        }
+    return None
+
+
+def tool_lookup(args: dict) -> dict:
+    upc = _trim(args.get("upc") or args.get("barcode") or args.get("code") or args.get("sn"), 48)
+    vin = _trim(args.get("vin"), 32).upper()
+    plate = _trim(args.get("plate"), 20).upper()
+    if vin or plate:
+        from app.utils.vehicle_lookup import lookup_vehicle
+
+        decoded = lookup_vehicle(plate=plate, vin=vin)
+        facts = decoded.get("facts") or {}
+        return {
+            "ok": bool(decoded.get("ok")),
+            "kind": "vehicle",
+            "vin": decoded.get("vin") or vin,
+            "plate": decoded.get("plate") or plate,
+            "name": decoded.get("name") or " ".join(
+                str(facts.get(k) or "") for k in ("year", "make", "model", "trim") if facts.get(k)
+            ).strip(),
+            "facts": facts,
+            "need_vin": bool(decoded.get("need_vin")),
+            "error": decoded.get("error") or decoded.get("message") or "",
+        }
+    if len(upc) < 8:
+        return {"ok": False, "error": "Need a UPC/barcode (8+ digits) or a VIN/plate."}
+    from app.utils.barcode_lookup import lookup_product
+
+    hit = lookup_product(upc)
+    return {
+        "ok": bool(hit.get("ok")),
+        "kind": hit.get("kind") or "unknown",
+        "kind_label": hit.get("kind_label") or "",
+        "suggested_type": hit.get("suggested_type") or "grocery",
+        "name": hit.get("name") or "",
+        "brand": hit.get("brand") or "",
+        "size": hit.get("size") or hit.get("quantity") or "",
+        "barcode": hit.get("barcode") or upc,
+        "image_url": hit.get("image_url") or "",
+        "location_hint": hit.get("location_hint") or "",
+        "error": "" if hit.get("ok") else "No catalog hit for that code.",
+    }
+
+
+def tool_vault_unlock(args: dict) -> dict:
+    from app.utils.password_vault import can_use_vault, confirm_app_login, is_child, mark_reauth, reauth_ok
+
+    if is_child() or not can_use_vault():
+        return {"ok": False, "error": "Kids cannot use the vault."}
+    if reauth_ok():
+        return {"ok": True, "already": True, "message": "Vault is already open."}
+    password = args.get("password") or args.get("secret") or ""
+    username = _trim(args.get("username") or getattr(current_user, "username", ""), 80)
+    if not confirm_app_login(current_user, username=username, password=str(password)):
+        return {
+            "ok": False,
+            "need": "vault_unlock",
+            "error": "That is not this login. Use your Family OS username and password.",
+        }
+    mark_reauth()
+    return {"ok": True, "message": "Vault is open for this session."}
+
+
+def tool_vault_list(q: str = "") -> dict:
+    blocked = _vault_guard()
+    if blocked:
+        return blocked
+    from sqlalchemy.orm import selectinload
+    from app.builddb.table_vault_entries import VaultEntry
+    from app.utils.household import scoped
+    from app.utils.password_vault import can_view_entry, kind_label, open_fields, share_label
+
+    needle = _trim(q, 80).lower()
+    rows = (
+        scoped(VaultEntry)
+        .options(selectinload(VaultEntry.grants))
+        .order_by(VaultEntry.updated_at.desc())
+        .limit(80)
+        .all()
+    )
+    out = []
+    for row in rows:
+        if not can_view_entry(row, current_user):
+            continue
+        fields = open_fields(row)
+        title = fields.get("title") or "Untitled"
+        blob = " ".join(
+            [
+                title,
+                fields.get("url") or "",
+                fields.get("purpose") or "",
+                fields.get("login") or "",
+                kind_label(row),
+            ]
+        ).lower()
+        if needle and needle not in blob:
+            continue
+        out.append(
+            {
+                "id": row.id,
+                "title": title,
+                "kind": kind_label(row),
+                "share": share_label(row.share_mode),
+                "site": (fields.get("url") or "")[:120],
+                "href": _path("vault.detail", entry_id=row.id) or f"/vault/{row.id}",
+            }
+        )
+        if len(out) >= 12:
+            break
+    return {"ok": True, "entries": out, "vault": "/vault/"}
+
+
+def tool_vault_open(entry_id) -> dict:
+    blocked = _vault_guard()
+    if blocked:
+        return blocked
+    from sqlalchemy.orm import selectinload
+    from app.builddb.table_vault_entries import VaultEntry
+    from app.utils.household import scoped
+    from app.utils.password_vault import (
+        can_view_entry,
+        kind_label,
+        open_fields,
+        share_label,
+        two_factor_label,
+    )
+
+    if not str(entry_id or "").isdigit():
+        return {"ok": False, "error": "Need a vault id from vault_list."}
+    row = (
+        scoped(VaultEntry)
+        .options(selectinload(VaultEntry.grants))
+        .filter_by(id=int(entry_id))
+        .first()
+    )
+    if row is None or not can_view_entry(row, current_user):
+        return {"ok": False, "error": "That vault card is not visible to you."}
+    f = open_fields(row)
+    return {
+        "ok": True,
+        "id": row.id,
+        "kind": kind_label(row),
+        "share": share_label(row.share_mode),
+        "title": f.get("title") or "",
+        "url": f.get("url") or "",
+        "phone": f.get("phone") or "",
+        "account_no": f.get("account_no") or "",
+        "login": f.get("login") or "",
+        "secret": f.get("secret") or "",
+        "two_factor": two_factor_label(f.get("two_factor") or "") or (f.get("two_factor") or ""),
+        "two_factor_detail": f.get("two_factor_detail") or "",
+        "call_info": f.get("call_info") or "",
+        "purpose": f.get("purpose") or "",
+        "details": f.get("details") or "",
+        "href": _path("vault.detail", entry_id=row.id) or f"/vault/{row.id}",
+    }
+
+
+def tool_vault_save(args: dict) -> dict:
+    blocked = _vault_guard()
+    if blocked:
+        return blocked
+    from app.builddb.table_vault_entries import VaultEntry
+    from app.utils.household import household_id
+    from app.utils.password_vault import SHARE_MODES, kind_of, seal_fields
+
+    title = _trim(args.get("title"), 200)
+    if not title:
+        return {"ok": False, "error": "Need a title for the vault card."}
+    kind = kind_of(args.get("kind") or "password")
+    share = _trim(args.get("share") or "personal", 20).lower()
+    if share not in SHARE_MODES or share == "selected":
+        share = "personal"
+    fields = {
+        "title": title,
+        "login": _trim(args.get("login"), 300),
+        "secret": _trim(args.get("secret") or args.get("password"), 500),
+        "url": _trim(args.get("url") or args.get("site"), 500),
+        "purpose": _trim(args.get("purpose"), 500),
+        "details": _trim(args.get("details"), 4000),
+        "phone": _trim(args.get("phone"), 80),
+        "phone_alt": _trim(args.get("phone_alt"), 80),
+        "account_no": _trim(args.get("account_no") or args.get("account"), 200),
+        "two_factor": _trim(args.get("two_factor"), 20),
+        "two_factor_detail": _trim(args.get("two_factor_detail"), 1000),
+        "call_info": _trim(args.get("call_info") or args.get("codes"), 4000),
+    }
+    hid = household_id()
+    sealed = seal_fields(fields, hid)
+    entry_id = args.get("id")
+    row = None
+    if entry_id and str(entry_id).isdigit():
+        from sqlalchemy.orm import selectinload
+        from app.utils.household import scoped
+        from app.utils.password_vault import can_manage_entry
+
+        row = (
+            scoped(VaultEntry)
+            .options(selectinload(VaultEntry.grants))
+            .filter_by(id=int(entry_id))
+            .first()
+        )
+        if row is None or not can_manage_entry(row, current_user):
+            return {"ok": False, "error": "You cannot change that vault card."}
+        for key, val in sealed.items():
+            setattr(row, key, val)
+        row.kind = kind
+        row.share_mode = share
+        row.updated_at = _utcnow()
+    else:
+        row = VaultEntry(
+            household_id=hid,
+            created_by=current_user.id,
+            kind=kind,
+            share_mode=share,
+            **sealed,
+        )
+        db.session.add(row)
+    db.session.commit()
+    href = _path("vault.detail", entry_id=row.id) or f"/vault/{row.id}"
+    return {
+        "ok": True,
+        "id": row.id,
+        "title": title,
+        "kind": kind,
+        "share": share,
+        "href": href,
+        "did": "updated" if entry_id else "saved",
+    }
+
+
+def tool_note_save(args: dict) -> dict:
+    from sqlalchemy import or_
+    from app.builddb.table_notes import VISIBILITY, Note
+    from app.utils.household import household_id, scoped
+
+    hid = household_id()
+    vis = _trim(args.get("share") or args.get("visibility") or "", 20).lower()
+    if vis == "house":
+        vis = "household"
+    body = _trim(args.get("body") or args.get("text"), 8000)
+    title = _trim(args.get("title"), 500)
+    note = None
+    raw_id = args.get("id")
+    if raw_id and str(raw_id).isdigit():
+        note = scoped(Note).filter_by(id=int(raw_id)).first()
+        if note is None:
+            return {"ok": False, "error": "No note with that id."}
+        if note.user_id != current_user.id and not getattr(current_user, "is_admin", False):
+            return {"ok": False, "error": "You cannot change that note."}
+    elif title:
+        note = (
+            scoped(Note)
+            .filter(or_(Note.visibility == "household", Note.user_id == current_user.id))
+            .filter(Note.title == title)
+            .order_by(Note.id.desc())
+            .first()
+        )
+        if note is not None and note.user_id != current_user.id and not getattr(current_user, "is_admin", False):
+            note = None
+    if note is None:
+        if not title:
+            return {"ok": False, "error": "Need a note title."}
+        if vis not in VISIBILITY:
+            vis = "personal"
+        note = Note(
+            household_id=hid,
+            user_id=current_user.id,
+            visibility=vis,
+            title=title,
+            body=body or None,
+        )
+        db.session.add(note)
+        db.session.commit()
+        return {"ok": True, "id": note.id, "title": title, "share": vis, "href": "/notes/", "did": "saved"}
+    if title:
+        note.title = title
+    if body:
+        note.body = ((note.body or "") + "\n" + body).strip() if args.get("append") else body
+    if vis in VISIBILITY:
+        note.visibility = vis
+    db.session.commit()
+    return {
+        "ok": True,
+        "id": note.id,
+        "title": note.title,
+        "share": note.visibility,
+        "href": "/notes/",
+        "did": "updated",
+    }
+
+
+def tool_basket_add(args: dict) -> dict:
+    if not (can("scan") or can("edit_grocery")):
+        return {"ok": False, "error": "You cannot add to the basket."}
+    from app.builddb.table_grocery_list import GroceryListEntry
+    from app.utils.household import household_id
+
+    name = _trim(args.get("name") or args.get("title"), 200)
+    if not name:
+        return {"ok": False, "error": "Need a name to put on the basket."}
+    db.session.add(
+        GroceryListEntry(
+            household_id=household_id(),
+            name=name,
+            status="open",
+            added_reason="want",
+            created_by=current_user.id,
+        )
+    )
+    db.session.commit()
+    return {"ok": True, "name": name, "href": "/groceries/list"}
+
+
+def _parse_due(raw: str):
+    text = _trim(raw, 32)
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(text[:16], fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _every_key(raw: str) -> str | None:
+    from app.utils.reminders_copy import parse_recurrence
+
+    key = _trim(raw, 40).lower().replace(" ", "")
+    aliases = {
+        "monthly": "30d",
+        "month": "30d",
+        "everymonth": "30d",
+        "yearly": "365d",
+        "year": "365d",
+        "annual": "365d",
+        "quarterly": "90d",
+        "every3months": "90d",
+        "every6months": "180d",
+    }
+    key = aliases.get(key, key)
+    return parse_recurrence(key)
+
+
+def tool_reminder_save(args: dict) -> dict:
+    if not can("maintain"):
+        return {"ok": False, "error": "You cannot add a reminder."}
+    from app.builddb.table_reminders import Reminder
+    from app.utils.household import household_id
+    from app.utils.notify import announce_reminder
+    from app.utils.reminders_copy import REMINDER_TYPES
+
+    title = _trim(args.get("title"), 200)
+    if not title:
+        return {"ok": False, "error": "Need a reminder title."}
+    rtype = _trim(args.get("type") or args.get("kind") or "custom", 40).lower()
+    if rtype in ("billing", "bill", "utility"):
+        rtype = "bill"
+    allowed = {k for k, _lab in REMINDER_TYPES}
+    if rtype not in allowed:
+        rtype = "custom"
+    due_at = _parse_due(args.get("due") or args.get("due_at") or "")
+    rec = _every_key(args.get("every") or args.get("recurrence") or "")
+    notes = _trim(args.get("notes") or args.get("account") or args.get("account_no"), 500)
+    row = Reminder(
+        household_id=household_id(),
+        title=title,
+        type=rtype,
+        due_at=due_at,
+        recurrence=rec,
+        notes=notes or None,
+        status="open",
+        created_by=current_user.id,
+    )
+    db.session.add(row)
+    db.session.flush()
+    try:
+        announce_reminder(row)
+    except Exception:
+        pass
+    db.session.commit()
+    return {
+        "ok": True,
+        "id": row.id,
+        "title": title,
+        "type": rtype,
+        "due": due_at.strftime("%Y-%m-%d") if due_at else None,
+        "every": rec or "once",
+        "href": "/reminders/",
+    }
+
+
+def tool_inventory(args: dict) -> dict:
+    from app.routes.items import can_create_type, quick_create_item
+    from app.utils.household import household_id
+    from app.utils.scan import apply_grocery_stock, flag_need_more, qty_label
+
+    action = _trim(args.get("action") or "restock", 20).lower()
+    if action in ("add", "new", "buy"):
+        action = "create"
+    if action in ("out", "consume", "use"):
+        action = "used"
+    if action in ("need_more", "low"):
+        action = "need"
+    q = _trim(args.get("q") or args.get("name") or args.get("id"), 200)
+    upc = _trim(args.get("upc") or args.get("barcode"), 48)
+    amount = args.get("amount") or args.get("qty") or 1
+    place = _trim(args.get("place") or args.get("location"), 80)
+    hid = household_id()
+    if action == "create":
+        if not can_create_type("grocery"):
+            return {"ok": False, "error": "You cannot add inventory."}
+        name = q or "Item"
+        item, status = quick_create_item(
+            hid=hid,
+            user_id=current_user.id,
+            name=name,
+            item_type="grocery",
+            barcode=upc or None,
+            location=place or None,
+            quantity=amount,
+            action="restock",
+        )
+        if item is None:
+            return {"ok": False, "error": status or "Could not add that."}
+        if status == "exists":
+            g = item.grocery
+            if g is not None:
+                apply_grocery_stock(g, item, "restock", amount, current_user.id, place=place or None)
+                db.session.commit()
+            return {
+                "ok": True,
+                "id": item.id,
+                "name": item.name,
+                "did": "already had it · restocked",
+                "href": _path("items.detail", item_id=item.id),
+            }
+        return {
+            "ok": True,
+            "id": item.id,
+            "name": item.name,
+            "did": "saved",
+            "href": _path("items.detail", item_id=item.id),
+        }
+    rows = _find_items(q, "grocery")
+    if not rows:
+        return {"ok": False, "error": f"Nothing in inventory matches {q or 'that'}. Use action create to add it."}
+    item = rows[0]
+    g = item.grocery
+    if g is None:
+        return {"ok": False, "error": f"{item.name} is not an inventory row."}
+    if action == "need":
+        flag_need_more(g, item, current_user.id)
+        db.session.commit()
+        return {
+            "ok": True,
+            "id": item.id,
+            "name": item.name,
+            "did": "need more · on the basket",
+            "href": _path("items.detail", item_id=item.id),
+        }
+    stock_action = "set" if action == "set" else ("restock" if action == "restock" else "consume")
+    apply_grocery_stock(g, item, stock_action, amount, current_user.id, place=place or None)
+    db.session.commit()
+    return {
+        "ok": True,
+        "id": item.id,
+        "name": item.name,
+        "qty": qty_label(g.quantity),
+        "did": action,
+        "href": _path("items.detail", item_id=item.id),
+    }
+
+
+def tool_tool_save(args: dict) -> dict:
+    from app.routes.items import can_create_type, quick_create_item
+    from app.builddb.table_tools import Tool
+    from app.utils.household import household_id
+    from app.utils.qr_labels import item_payload
+
+    if not can_create_type("tool"):
+        return {"ok": False, "error": "You cannot add tools."}
+    name = _trim(args.get("name"), 200)
+    barcode = _trim(args.get("barcode") or args.get("upc"), 48)
+    model = _trim(args.get("model"), 120)
+    serial = _trim(args.get("serial") or args.get("serial_number") or args.get("sn"), 120)
+    tool_type = _trim(args.get("type") or args.get("kind"), 80)
+    notes = _trim(args.get("notes"), 2000)
+    if barcode and not name:
+        from app.utils.barcode_lookup import lookup_product
+
+        hit = lookup_product(barcode)
+        name = _trim(hit.get("name") or hit.get("brand"), 200)
+    if not name:
+        return {"ok": False, "error": "Need a tool name, or a UPC to look up."}
+    hid = household_id()
+    existing = _find_items(name, "tool", limit=1)
+    if existing and not args.get("force"):
+        item = existing[0]
+        t = item.tool
+        if t is None:
+            t = Tool(item_id=item.id, household_id=hid)
+            db.session.add(t)
+        if tool_type:
+            t.type = tool_type
+        if model:
+            t.model = model
+        if serial:
+            t.serial_number = serial
+        if notes:
+            t.usage_notes = notes
+        if barcode:
+            item.barcode = barcode
+        db.session.commit()
+        return {
+            "ok": True,
+            "id": item.id,
+            "name": item.name,
+            "did": "updated",
+            "href": _path("items.detail", item_id=item.id),
+        }
+    item, status = quick_create_item(
+        hid=hid,
+        user_id=current_user.id,
+        name=name,
+        item_type="tool",
+        barcode=barcode or None,
+        kind=tool_type or None,
+        kind_label=tool_type or None,
+    )
+    if item is None:
+        return {"ok": False, "error": status or "Could not save the tool."}
+    t = item.tool
+    if t is None:
+        t = Tool(item_id=item.id, household_id=hid, type=tool_type or None)
+        db.session.add(t)
+    t.type = tool_type or t.type
+    t.model = model or t.model
+    t.serial_number = serial or t.serial_number
+    t.usage_notes = notes or t.usage_notes
+    if not item.barcode:
+        item.barcode = item_payload(hid, item.id)
+    db.session.commit()
+    return {
+        "ok": True,
+        "id": item.id,
+        "name": item.name,
+        "did": "saved" if status == "ok" else status,
+        "href": _path("items.detail", item_id=item.id),
+    }
+
+
+def tool_vehicle_save(args: dict) -> dict:
+    from app.routes.items import can_create_type
+    from app.builddb.table_items import Item
+    from app.builddb.table_vehicles import Vehicle
+    from app.utils.household import household_id
+    from app.utils.qr_labels import item_payload
+    from app.utils.vehicle_lookup import apply_vehicle_lookup, lookup_vehicle
+
+    if not can_create_type("vehicle"):
+        return {"ok": False, "error": "You cannot add vehicles."}
+    plate = _trim(args.get("plate"), 20).upper()
+    vin = _trim(args.get("vin"), 32).upper()
+    typed_name = _trim(args.get("name"), 200)
+    make = _trim(args.get("make"), 80)
+    model = _trim(args.get("model"), 80)
+    year = _trim(args.get("year"), 8)
+    if not (plate or vin or typed_name or make or model):
+        return {"ok": False, "error": "Need a VIN, plate, or name."}
+    hid = household_id()
+    if vin:
+        clash = Vehicle.query.filter_by(household_id=hid).filter(Vehicle.vin == vin).first()
+        if clash:
+            return {
+                "ok": True,
+                "id": clash.item_id,
+                "did": "already had that VIN",
+                "href": _path("items.detail", item_id=clash.item_id),
+            }
+    decoded = lookup_vehicle(plate=plate, vin=vin) if (plate or vin) else {"ok": True, "facts": {}, "recalls": []}
+    facts = decoded.get("facts") or {}
+    name = (
+        typed_name
+        or decoded.get("name")
+        or " ".join(x for x in (year or facts.get("year"), make or facts.get("make"), model or facts.get("model")) if x)
+        or (f"Plate {plate}" if plate else None)
+        or (f"VIN {vin[:8]}" if vin else "Vehicle")
+    )
+    item = Item(
+        household_id=hid,
+        name=str(name)[:200],
+        item_type="vehicle",
+        created_by=current_user.id,
+    )
+    db.session.add(item)
+    db.session.flush()
+    item.barcode = item_payload(hid, item.id)
+    v = Vehicle(item_id=item.id, household_id=hid)
+    db.session.add(v)
+    apply_vehicle_lookup(v, item, decoded)
+    if make:
+        v.make = make
+    if model:
+        v.model = model
+    if year.isdigit():
+        v.year = int(year)
+    if plate:
+        v.plate = plate[:20]
+    if vin:
+        v.vin = vin[:32]
+    db.session.commit()
+    return {
+        "ok": True,
+        "id": item.id,
+        "name": item.name,
+        "did": "saved",
+        "need_vin": bool(decoded.get("need_vin")),
+        "href": _path("items.detail", item_id=item.id),
+    }
+
+
+def run_tool(name: str, args: dict | None) -> dict:
+    args = args if isinstance(args, dict) else {}
+    key = (name or "").strip().lower()
+    try:
+        if key == "find":
+            return tool_find(args.get("q") or args.get("query") or "")
+        if key == "due":
+            return tool_due()
+        if key == "lookup":
+            return tool_lookup(args)
+        if key == "vault_unlock":
+            return tool_vault_unlock(args)
+        if key == "vault_list":
+            return tool_vault_list(args.get("q") or "")
+        if key == "vault_open":
+            return tool_vault_open(args.get("id") or args.get("entry_id"))
+        if key == "vault_save":
+            return tool_vault_save(args)
+        if key == "note_save":
+            return tool_note_save(args)
+        if key == "basket_add":
+            return tool_basket_add(args)
+        if key == "reminder_save":
+            return tool_reminder_save(args)
+        if key == "inventory":
+            return tool_inventory(args)
+        if key == "tool_save":
+            return tool_tool_save(args)
+        if key == "vehicle_save":
+            return tool_vehicle_save(args)
+    except Exception as exc:
+        return {"ok": False, "error": f"Could not do that: {exc}"}
+    return {"ok": False, "error": f"Unknown tool {name}."}
+
+
+def _parse_turn(text: str) -> dict:
+    parsed = parse_json_object(text or "")
+    if isinstance(parsed, dict):
+        tool = (parsed.get("tool") or "").strip().lower()
+        if tool in TOOLS:
+            args = parsed.get("args") if isinstance(parsed.get("args"), dict) else {}
+            if not args:
+                args = {k: v for k, v in parsed.items() if k not in ("tool", "say")}
+            return {"kind": "tool", "tool": tool, "args": args}
+        if "say" in parsed:
+            return {"kind": "say", "text": _trim(parsed.get("say"), 4000)}
+    raw = (text or "").strip()
+    return {"kind": "say", "text": raw[:4000]} if raw else {"kind": "say", "text": ""}
+
+
+def _prompt_for(history: list, message: str, tool_notes: list) -> str:
+    bits = []
+    for row in history[-8:]:
+        role = "You" if row.get("role") == "assistant" else "Them"
+        bits.append(f"{role}: {_trim(row.get('text'), 800)}")
+    bits.append(f"Them: {_trim(message, MSG_CAP)}")
+    for note in tool_notes:
+        bits.append("Tool result JSON:\n" + json.dumps(note, ensure_ascii=False)[:3500])
+    bits.append("Reply with JSON only.")
+    return "\n\n".join(bits)
+
+
+def run_ask(message: str, *, household) -> dict:
+    text = _trim(message, MSG_CAP)
+    if not text:
+        return {"ok": False, "error": "Say something first."}
+    if not ask_ready(household, current_user):
+        return {"ok": False, "error": "Ask is off. Add an AI key in Household, or turn Ask back on."}
+    if not _rate_ok():
+        return {"ok": False, "error": "Give Ask a minute. Too many questions just now."}
+    history = _history()
+    tool_notes = []
+    did = []
+    last_say = ""
+    for _ in range(MAX_TOOL_ROUNDS + 1):
+        ok, raw = complete(
+            _prompt_for(history, text, tool_notes),
+            system=SYSTEM,
+            max_tokens=900,
+            timeout=40,
+            household=household,
+            household_only=True,
+        )
+        if not ok:
+            return {"ok": False, "error": raw}
+        turn = _parse_turn(raw)
+        if turn["kind"] == "tool":
+            result = run_tool(turn["tool"], turn.get("args"))
+            tool_notes.append({"tool": turn["tool"], "result": result})
+            if result.get("ok") and turn["tool"] in WRITE_TOOLS:
+                did.append(
+                    {
+                        "tool": turn["tool"],
+                        "href": result.get("href") or "",
+                        "title": result.get("title") or result.get("name") or "",
+                    }
+                )
+            continue
+        last_say = turn.get("text") or ""
+        break
+    if not last_say:
+        if tool_notes:
+            last_say = "Done. Check the links."
+        else:
+            return {"ok": False, "error": "Ask had nothing to say. Try that again."}
+    history.append({"role": "user", "text": text})
+    history.append({"role": "assistant", "text": last_say})
+    _save_history(history)
+    return {"ok": True, "say": last_say, "did": did, "vault_locked": any((n.get("result") or {}).get("need") == "vault_unlock" for n in tool_notes)}

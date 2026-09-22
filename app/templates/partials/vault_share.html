@@ -10,21 +10,11 @@
 </form>
 
 <div class="house-seen" id="house-seen-{{ card.row.id }}" {% if card.row.share_mode != 'household' %}hidden{% endif %}>
-  <p class="muted">Every adult in this house can open it. Kids cannot.</p>
-  {% if card.opened_by %}
-  <ul class="access-list">
-    {% for row in card.opened_by %}
-    <li>
-      <strong>{{ row.name }}</strong>
-      <span class="muted">{{ row.seen }}</span>
-    </li>
-    {% endfor %}
-  </ul>
-  {% endif %}
+  <p class="muted">Every adult in this house can open it. Kids cannot. Who opened it is under Activity.</p>
 </div>
 
 <div class="people-pick" id="people-pick-{{ card.row.id }}" {% if card.row.share_mode != 'selected' %}hidden{% endif %}>
-  <p class="muted">Named people only. You always keep it. Expired access unchecks itself — it does not stay on.</p>
+  <p class="muted">Named people only. You always keep it. Time left shows here. Ended access is under Activity.</p>
 
   <p class="kicker">Has it now</p>
   {% if card.live_grants %}
@@ -88,7 +78,11 @@
   {% else %}
   <p class="muted">Everyone else in this house already has it, or there are no other adults yet.</p>
   {% endif %}
+</div>
 
+{% if card.ended_grants or card.access_log or card.opened_by %}
+<details class="vault-more vault-activity">
+  <summary>Activity</summary>
   {% if card.ended_grants %}
   <p class="kicker">Ended</p>
   <ul class="access-ended">
@@ -104,11 +98,19 @@
     {% endfor %}
   </ul>
   {% endif %}
-</div>
-
-{% if card.access_log %}
-<details class="vault-more">
-  <summary>Activity</summary>
+  {% if card.opened_by %}
+  <p class="kicker">Opened by</p>
+  <ul class="access-list">
+    {% for row in card.opened_by %}
+    <li>
+      <strong>{{ row.name }}</strong>
+      <span class="muted">{{ row.seen }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if card.access_log %}
+  <p class="kicker">Log</p>
   <ul class="access-log">
     {% for row in card.access_log %}
     <li>
@@ -117,5 +119,6 @@
     </li>
     {% endfor %}
   </ul>
+  {% endif %}
 </details>
 {% endif %}

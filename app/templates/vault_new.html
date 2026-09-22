@@ -9,6 +9,8 @@
 </head>
 <body class="sheet-body">
 {% set draft = draft or {} %}
+{% set fields = draft %}
+{% set kind = kind or 'password' %}
 <div id="vault-keep" hidden></div>
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
@@ -19,11 +21,9 @@
 {% endwith %}
 <h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">New {{ kind_one or 'item' }}</h1>
 <p class="muted">Save it first. Then pick who can see it. Put every phone, site, code, login, and whether it uses 2FA.</p>
-<form method="post" action="{{ url_for('vault.add') }}" autocomplete="off">
+<form method="post" action="{{ url_for('vault.add', kind=kind or 'password') }}" autocomplete="off">
   <input type="hidden" name="next" value="sheet">
-  {% with fields=draft, kind=kind %}
   {% include "partials/vault_fields.html" %}
-  {% endwith %}
   <div class="btn-row"><button class="btn" type="submit">Save in vault</button></div>
 </form>
 <script src="{{ url_for('static', filename='js/app.js') }}?v=os23"></script>

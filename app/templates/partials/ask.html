@@ -1,0 +1,24 @@
+<div class="ask-root" id="ask-root">
+  <button type="button" class="ask-fab" id="ask-open" aria-expanded="false" aria-controls="ask-panel">
+    Ask
+  </button>
+  <section class="ask-panel" id="ask-panel" hidden>
+    <header class="ask-head">
+      <div>
+        <strong>Ask</strong>
+        <p class="muted">Bills, logins, tools, vehicles, notes, inventory, scan codes.</p>
+      </div>
+      <div class="btn-row" style="margin:0">
+        <button type="button" class="btn sm secondary" id="ask-clear">New</button>
+        <button type="button" class="btn sm secondary" id="ask-close">Close</button>
+      </div>
+    </header>
+    <div class="ask-log" id="ask-log" aria-live="polite"></div>
+    <form class="ask-form" id="ask-form" autocomplete="off">
+      <label class="sr-only" for="ask-input">Ask</label>
+      <textarea id="ask-input" maxlength="2000" rows="2" placeholder="Add the water bill monthly. Look up this UPC. Save a drill…" required></textarea>
+      <button class="btn" type="submit" id="ask-send">Send</button>
+    </form>
+  </section>
+</div>
+<script src="{{ url_for('static', filename='js/ask.js') }}?v=os2" defer></script>

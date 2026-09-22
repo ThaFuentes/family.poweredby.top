@@ -1,6 +1,7 @@
 """Household-English labels for reminder type and how often."""
 
 REMINDER_TYPES = (
+    ("bill", "Bill"),
     ("oil_change", "Oil change"),
     ("filter", "Filter"),
     ("blades", "Blades"),

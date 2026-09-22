@@ -1,16 +1,48 @@
 {% set f = fields or {} %}
+{% set kind = kind or 'password' %}
 <label>This is</label>
 <select name="kind">
-  {% for k in kinds %}
-  <option value="{{ k }}" {% if kind==k %}selected{% endif %}>{{ (kind_choices or kind_labels)[k] }}</option>
-  {% endfor %}
+  <option value="password" {% if kind=='password' %}selected{% endif %}>Password / login</option>
+  <option value="billing" {% if kind=='billing' %}selected{% endif %}>Billing</option>
+  <option value="info" {% if kind=='info' %}selected{% endif %}>Shareable information</option>
 </select>
 <label>Title</label>
-<input name="title" required maxlength="200" value="{{ f.title or '' }}" placeholder="Aminos, city water, alarm company…" autocomplete="off">
+<input name="title" required maxlength="200" value="{{ f.title or '' }}" placeholder="{% if kind=='billing' %}City water, electric, insurance{% elif kind=='info' %}Alarm company, pediatrician, Wi-Fi{% else %}Aminos, Netflix, bank{% endif %}" autocomplete="off">
 <label>What it’s for</label>
-<input name="purpose" maxlength="500" value="{{ f.purpose or '' }}" placeholder="Streaming, electric bill, doctor’s office…" autocomplete="off">
+<input name="purpose" maxlength="500" value="{{ f.purpose or '' }}" placeholder="{% if kind=='billing' %}Monthly bill, auto-pay{% elif kind=='info' %}Who to call, what they need{% else %}Streaming, work, bank{% endif %}" autocomplete="off">
 
-<p class="kicker" style="margin:1rem 0 .35rem">Reach them</p>
+<p class="kicker" style="margin:1rem 0 .35rem">{% if kind=='billing' %}Account{% elif kind=='info' %}Reach them{% else %}Site{% endif %}</p>
+{% if kind == 'billing' %}
+<label>Account / member number</label>
+<input name="account_no" maxlength="200" value="{{ f.account_no or '' }}" placeholder="what they ask for on the phone" autocomplete="off">
+<div class="desk-form">
+  <div>
+    <label>Phone</label>
+    <input name="phone" maxlength="80" value="{{ f.phone or '' }}" placeholder="billing / support number" inputmode="tel" autocomplete="off">
+  </div>
+  <div>
+    <label>Web address</label>
+    <input name="url" maxlength="500" value="{{ f.url or '' }}" placeholder="https://…" inputmode="url" autocomplete="off">
+  </div>
+</div>
+<label>Second phone</label>
+<input name="phone_alt" maxlength="80" value="{{ f.phone_alt or '' }}" placeholder="after-hours, mobile…" inputmode="tel" autocomplete="off">
+{% elif kind == 'info' %}
+<div class="desk-form">
+  <div>
+    <label>Phone</label>
+    <input name="phone" maxlength="80" value="{{ f.phone or '' }}" placeholder="the number you call" inputmode="tel" autocomplete="off">
+  </div>
+  <div>
+    <label>Web address</label>
+    <input name="url" maxlength="500" value="{{ f.url or '' }}" placeholder="https://…" inputmode="url" autocomplete="off">
+  </div>
+</div>
+<label>Second phone</label>
+<input name="phone_alt" maxlength="80" value="{{ f.phone_alt or '' }}" placeholder="after-hours, mobile…" inputmode="tel" autocomplete="off">
+<label>Account / member number</label>
+<input name="account_no" maxlength="200" value="{{ f.account_no or '' }}" placeholder="member #, patient #, account #" autocomplete="off">
+{% else %}
 <div class="desk-form">
   <div>
     <label>Web address</label>
@@ -18,15 +50,16 @@
   </div>
   <div>
     <label>Phone</label>
-    <input name="phone" maxlength="80" value="{{ f.phone or '' }}" placeholder="the number you call" inputmode="tel" autocomplete="off">
+    <input name="phone" maxlength="80" value="{{ f.phone or '' }}" placeholder="support number if they have one" inputmode="tel" autocomplete="off">
   </div>
 </div>
 <label>Second phone</label>
-<input name="phone_alt" maxlength="80" value="{{ f.phone_alt or '' }}" placeholder="after-hours, billing, mobile…" inputmode="tel" autocomplete="off">
+<input name="phone_alt" maxlength="80" value="{{ f.phone_alt or '' }}" placeholder="after-hours, mobile…" inputmode="tel" autocomplete="off">
+<label>Account / member number</label>
+<input name="account_no" maxlength="200" value="{{ f.account_no or '' }}" placeholder="optional" autocomplete="off">
+{% endif %}
 
 <p class="kicker" style="margin:1rem 0 .35rem">Login</p>
-<label>Account / member number</label>
-<input name="account_no" maxlength="200" value="{{ f.account_no or '' }}" placeholder="what they ask for on the phone" autocomplete="off">
 <div class="desk-form">
   <div>
     <label>Email / username</label>
@@ -39,15 +72,19 @@
 </div>
 <label>Two-factor?</label>
 <select name="two_factor">
-  {% for key, lab in two_factor %}
-  <option value="{{ key }}" {% if (f.two_factor or '')==key %}selected{% endif %}>{{ lab }}</option>
-  {% endfor %}
+  <option value="" {% if not f.two_factor %}selected{% endif %}>Not set</option>
+  <option value="none" {% if f.two_factor=='none' %}selected{% endif %}>No 2FA</option>
+  <option value="sms" {% if f.two_factor=='sms' %}selected{% endif %}>Text / SMS</option>
+  <option value="app" {% if f.two_factor=='app' %}selected{% endif %}>Authenticator app</option>
+  <option value="email" {% if f.two_factor=='email' %}selected{% endif %}>Email code</option>
+  <option value="hardware" {% if f.two_factor=='hardware' %}selected{% endif %}>Hardware key</option>
+  <option value="other" {% if f.two_factor=='other' %}selected{% endif %}>Yes — see details</option>
 </select>
 <label>2FA details</label>
 <input name="two_factor_detail" maxlength="1000" value="{{ f.two_factor_detail or '' }}" placeholder="Authenticator on Pat’s phone. Recovery codes in the fire box." autocomplete="off">
 
 <p class="kicker" style="margin:1rem 0 .35rem">For the call or the site</p>
 <label>Codes and information they will ask for</label>
-<textarea name="call_info" maxlength="4000" placeholder="PIN, security word, last 4 of SSN, ‘account is under Maya’, confirmation code, store number…">{{ f.call_info or '' }}</textarea>
+<textarea name="call_info" maxlength="4000" placeholder="PIN, security word, last 4, ‘account is under Maya’, confirmation code, store number…">{{ f.call_info or '' }}</textarea>
 <label>More details</label>
 <textarea name="details" maxlength="4000" placeholder="Anything else someone needs to finish this">{{ f.details or '' }}</textarea>

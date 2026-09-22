@@ -184,6 +184,14 @@ def create_app():
                 places = _list_places(hh)
             except Exception:
                 places = []
+        ask_open = False
+        try:
+            if getattr(current_user, "is_authenticated", False) and _role_of() != "child":
+                from app.utils.ask import ask_ready as _ask_ready
+
+                ask_open = _ask_ready(hh, current_user)
+        except Exception:
+            ask_open = False
         return {
             "SITE_MODE": "family",
             "SITE_NAME": "Family OS",
@@ -195,6 +203,7 @@ def create_app():
             "theme_color": THEMES[theme_id]["color"],
             "places": places,
             "is_child": _role_of() == "child" if getattr(current_user, "is_authenticated", False) else False,
+            "ask_open": ask_open,
         }
 
     from app.utils.thumbs import item_thumb_url as _item_thumb_filter
@@ -227,6 +236,7 @@ def create_app():
     from app.routes.sort import sort_bp
     from app.routes.security import security_bp
     from app.routes.vault import vault_bp
+    from app.routes.ask import ask_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(home_bp)
@@ -247,6 +257,7 @@ def create_app():
     app.register_blueprint(sort_bp)
     app.register_blueprint(security_bp)
     app.register_blueprint(vault_bp)
+    app.register_blueprint(ask_bp)
 
     @app.before_request
     def _block_paused_household():
