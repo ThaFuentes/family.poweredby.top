@@ -8,7 +8,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from app.utils.ask import _parse_turn
+from app.utils.ask import _local_house_say, _parse_turn, _speak_house
 from app.utils.household_ai import ask_available, chat_on, household_config
 
 
@@ -70,6 +70,27 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(turn["tool"], "vault_unlock")
         turn = _parse_turn('{"tool":"vehicle_save","args":{"vin":"1HGCM82633A004352"}}')
         self.assertEqual(turn["tool"], "vehicle_save")
+        turn = _parse_turn('{"tool":"house","args":{"kind":"tools"}}')
+        self.assertEqual(turn["tool"], "house")
+
+
+class LocalHouseTests(unittest.TestCase):
+    def test_tools_question_hits_local(self):
+        with patch("app.utils.ask._find_items", return_value=[
+            type("I", (), {"id": 4, "name": "DeWalt drill", "item_type": "tool", "grocery": None})()
+        ]):
+            with patch("app.utils.ask._path", return_value="/items/4"):
+                say = _local_house_say("can you look up what tools i have")
+        self.assertIsNotNone(say)
+        self.assertIn("DeWalt drill", say)
+        self.assertIn("/items/4", say)
+
+    def test_save_tool_is_not_a_list(self):
+        self.assertIsNone(_local_house_say("save a tool named hammer"))
+
+    def test_speak_empty(self):
+        text = _speak_house({"kind": "tools", "lines": [], "empty": "No tools saved yet."})
+        self.assertIn("No tools", text)
 
 
 class AskHttpTests(unittest.TestCase):

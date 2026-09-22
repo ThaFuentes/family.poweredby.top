@@ -6,6 +6,7 @@ need the vault unlocked for this login.
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import datetime
 
@@ -27,6 +28,7 @@ MSG_CAP = 2000
 
 TOOLS = (
     "find",
+    "house",
     "due",
     "lookup",
     "vault_unlock",
@@ -58,6 +60,9 @@ SYSTEM = """You are Ask in Family OS. Do house work for the signed-in adult: vau
 
 Reply with ONLY JSON. To act:
 {"tool":"find","args":{"q":"batteries"}}
+{"tool":"house","args":{"kind":"tools"}}
+{"tool":"house","args":{"kind":"vehicles"}}
+{"tool":"house","args":{"kind":"basket"}}
 {"tool":"due","args":{}}
 {"tool":"lookup","args":{"upc":"012345678905"}}
 {"tool":"lookup","args":{"vin":"1HGCM82633A004352"}}
@@ -168,6 +173,124 @@ def _find_items(q: str, item_type: str | None = None, limit: int = 8):
     elif needle:
         return []
     return qry.order_by(Item.name.asc()).limit(limit).all()
+
+
+def tool_house(args: dict | None = None) -> dict:
+    args = args if isinstance(args, dict) else {}
+    kind = _trim(args.get("kind") or args.get("what") or "tools", 20).lower()
+    if kind in ("tool", "tools", "drill", "drills"):
+        rows = _find_items("", "tool", limit=40)
+        lines = [_item_line(i) for i in rows]
+        return {
+            "ok": True,
+            "kind": "tools",
+            "count": len(lines),
+            "lines": lines,
+            "href": "/tools/",
+            "empty": "No tools saved yet. Add one on /tools/ or tell me the name.",
+        }
+    if kind in ("vehicle", "vehicles", "car", "cars", "truck", "trucks"):
+        rows = _find_items("", "vehicle", limit=40)
+        lines = [_item_line(i) for i in rows]
+        return {
+            "ok": True,
+            "kind": "vehicles",
+            "count": len(lines),
+            "lines": lines,
+            "href": "/vehicles/",
+            "empty": "No vehicles saved yet. Add one on /vehicles/.",
+        }
+    if kind in ("basket", "list", "shopping"):
+        from app.builddb.table_grocery_list import GroceryListEntry
+        from app.utils.household import scoped
+
+        rows = scoped(GroceryListEntry).filter_by(status="open").order_by(GroceryListEntry.id.desc()).limit(40).all()
+        lines = []
+        for r in rows:
+            bit = r.name
+            if r.note:
+                bit += f" · {r.note}"
+            lines.append(bit)
+        return {
+            "ok": True,
+            "kind": "basket",
+            "count": len(lines),
+            "lines": lines,
+            "href": "/groceries/list",
+            "empty": "Basket is empty.",
+        }
+    if kind in ("grocery", "groceries", "inventory", "pantry", "food"):
+        rows = _find_items("", "grocery", limit=40)
+        lines = [_item_line(i) for i in rows]
+        return {
+            "ok": True,
+            "kind": "inventory",
+            "count": len(lines),
+            "lines": lines,
+            "href": "/groceries/",
+            "empty": "Nothing in inventory yet.",
+        }
+    return tool_due()
+
+
+def _speak_house(result: dict) -> str:
+    lines = result.get("lines") or []
+    kind = result.get("kind") or "items"
+    href = result.get("href") or ""
+    if not lines:
+        return result.get("empty") or f"No {kind} saved yet."
+    body = "\n".join(f"· {ln}" for ln in lines)
+    tail = f"\n{href}" if href else ""
+    return f"{kind.capitalize()} in this house ({result.get('count') or len(lines)}):\n{body}{tail}"
+
+
+def _local_house_say(text: str) -> str | None:
+    t = (text or "").strip().lower()
+    if not t:
+        return None
+    if re.search(r"\b(add|save|create|new|delete|remove|share)\b", t):
+        return None
+    wants = bool(re.search(r"\b(what|which|list|have|has|show|my|our|got|lookup|look up|tell)\b", t)) or t in (
+        "tools",
+        "vehicles",
+        "basket",
+        "inventory",
+    )
+    if not wants:
+        return None
+    if re.search(r"\btools?\b", t):
+        return _speak_house(tool_house({"kind": "tools"}))
+    if re.search(r"\b(vehicles?|cars?|trucks?)\b", t):
+        return _speak_house(tool_house({"kind": "vehicles"}))
+    if re.search(r"\b(basket|shopping list)\b", t):
+        return _speak_house(tool_house({"kind": "basket"}))
+    if re.search(r"\b(inventory|pantry|groceries)\b", t):
+        return _speak_house(tool_house({"kind": "inventory"}))
+    if re.search(r"\b(due|reminders?)\b", t):
+        due = tool_due()
+        open_rows = due.get("open") or []
+        if not open_rows:
+            return "Nothing due right now. /reminders/"
+        return "Due:\n" + "\n".join(f"· {ln}" for ln in open_rows)
+    return None
+
+
+def _speak_tool_notes(notes: list) -> str:
+    bits = []
+    for n in notes:
+        r = n.get("result") or {}
+        if n.get("tool") == "house":
+            bits.append(_speak_house(r))
+            continue
+        if r.get("items"):
+            bits.extend(str(x) for x in r["items"])
+        elif r.get("lines"):
+            bits.append(_speak_house(r))
+        elif r.get("error"):
+            bits.append(str(r["error"]))
+        elif r.get("ok") and (r.get("href") or r.get("title") or r.get("name")):
+            bits.append(str(r.get("title") or r.get("name") or "Saved.") + (f" {r.get('href')}" if r.get("href") else ""))
+    return "\n".join(b for b in bits if b).strip()
 
 
 def _item_line(item) -> str:
@@ -969,6 +1092,8 @@ def run_tool(name: str, args: dict | None) -> dict:
     try:
         if key == "find":
             return tool_find(args.get("q") or args.get("query") or "")
+        if key == "house":
+            return tool_house(args)
         if key == "due":
             return tool_due()
         if key == "lookup":
@@ -1037,6 +1162,13 @@ def run_ask(message: str, *, household) -> dict:
         return {"ok": False, "error": "Ask is off. Add an AI key in Household, or turn Ask back on."}
     if not _rate_ok():
         return {"ok": False, "error": "Give Ask a minute. Too many questions just now."}
+    local = _local_house_say(text)
+    if local:
+        history = _history()
+        history.append({"role": "user", "text": text})
+        history.append({"role": "assistant", "text": local})
+        _save_history(history)
+        return {"ok": True, "say": local, "did": [], "vault_locked": False}
     history = _history()
     tool_notes = []
     did = []
@@ -1051,7 +1183,14 @@ def run_ask(message: str, *, household) -> dict:
             household_only=True,
         )
         if not ok:
-            return {"ok": False, "error": raw}
+            spoken = _speak_tool_notes(tool_notes) or _local_house_say(text)
+            if spoken:
+                last_say = spoken
+                break
+            if re.match(r"^(hi|hello|hey|yo)\b", text, re.I):
+                last_say = "Hey. I can look up this house even when the model is busy — try “what tools do I have.”"
+                break
+            return {"ok": False, "error": raw or "The model is busy. Try “what tools do I have.”"}
         turn = _parse_turn(raw)
         if turn["kind"] == "tool":
             result = run_tool(turn["tool"], turn.get("args"))
@@ -1065,13 +1204,17 @@ def run_ask(message: str, *, household) -> dict:
                     }
                 )
             continue
-        last_say = turn.get("text") or ""
+        last_say = (turn.get("text") or "").strip()
+        if not last_say and tool_notes:
+            last_say = _speak_tool_notes(tool_notes)
         break
     if not last_say:
-        if tool_notes:
-            last_say = "Done. Check the links."
-        else:
-            return {"ok": False, "error": "Ask had nothing to say. Try that again."}
+        last_say = _speak_tool_notes(tool_notes) or _local_house_say(text)
+    if not last_say:
+        return {
+            "ok": False,
+            "error": "I didn’t catch that. Try “what tools do I have” or “what’s due.”",
+        }
     history.append({"role": "user", "text": text})
     history.append({"role": "assistant", "text": last_say})
     _save_history(history)

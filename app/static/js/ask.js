@@ -114,7 +114,7 @@
         })
         .then(function (out) {
           var data = out.data || {};
-          var say = data.say || data.error || "Ask had nothing.";
+          var say = (data.say || data.error || "").trim() || "Couldn’t get an answer. Try “what tools do I have.”";
           if (pending) pending.remove();
           addBubble(data.ok ? "them" : "them err", say);
           if (data.vault_locked) addBubble("them", "Open /vault/ with this login, then ask again.");

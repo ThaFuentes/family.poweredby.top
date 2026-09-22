@@ -9,6 +9,7 @@ import base64
 import json
 import os
 import re
+import time
 from typing import Any
 
 import requests
@@ -362,6 +363,31 @@ def public_ai_config(household=None, *, household_only: bool = False) -> dict:
     return cfg
 
 
+def _capacity_err(err: str) -> bool:
+    t = (err or "").lower()
+    return any(
+        s in t
+        for s in (
+            "503",
+            "429",
+            "high demand",
+            "overloaded",
+            "unavailable",
+            "resource exhausted",
+            "try again later",
+        )
+    )
+
+
+def _next_gemini_model(current: str | None) -> str | None:
+    models = list((PROVIDERS.get("gemini") or {}).get("models") or ())
+    cur = _live_model("gemini", current or "")
+    if cur in models:
+        rest = [m for m in models if m != cur]
+        return rest[0] if rest else None
+    return models[0] if models else None
+
+
 def complete(
     prompt: str,
     *,
@@ -380,41 +406,56 @@ def complete(
     if not key:
         return False, "No AI key on this household. Paste your own Gemini (free) or other key in Household. Family OS does not share the owner's key."
     kind = cfg.get("kind") or "openai"
-    try:
+
+    def _call(use_cfg):
         if kind == "gemini":
-            text = _gemini(
-                cfg, prompt, system, max_tokens, timeout, image_bytes, image_mime, household=household
+            return _gemini(
+                use_cfg, prompt, system, max_tokens, timeout, image_bytes, image_mime, household=household
             )
-        elif kind == "anthropic":
-            text = _anthropic(cfg, prompt, system, max_tokens, timeout, image_bytes, image_mime)
-        else:
-            text = _openai_compat(cfg, prompt, system, max_tokens, timeout, image_bytes, image_mime)
-    except requests.Timeout:
-        return False, "AI timed out."
-    except Exception as exc:
-        err = str(exc)
-        suggested = _suggested_model(err)
-        if suggested and suggested != cfg.get("model"):
-            cfg = dict(cfg)
-            cfg["model"] = suggested
-            persist_model(suggested, household=household)
-            try:
-                if kind == "gemini":
-                    text = _gemini(
-                        cfg, prompt, system, max_tokens, timeout, image_bytes, image_mime, household=household
-                    )
-                else:
-                    raise
-            except Exception as exc2:
-                return False, f"AI request failed: {exc2}"
-            else:
-                if text:
-                    return True, text
-                return False, f"AI request failed: {err}"
-        return False, f"AI request failed: {exc}"
-    if text is None:
-        return False, "AI returned nothing. Check the key, model, and base URL."
-    return True, text
+        if kind == "anthropic":
+            return _anthropic(use_cfg, prompt, system, max_tokens, timeout, image_bytes, image_mime)
+        return _openai_compat(use_cfg, prompt, system, max_tokens, timeout, image_bytes, image_mime)
+
+    last_err = ""
+    for attempt in range(3):
+        try:
+            text = _call(cfg)
+            if text:
+                return True, text
+            last_err = "AI returned nothing. Check the key, model, and base URL."
+        except requests.Timeout:
+            last_err = "AI timed out."
+        except Exception as exc:
+            last_err = str(exc)
+            suggested = _suggested_model(last_err)
+            if suggested and suggested != cfg.get("model"):
+                nxt = dict(cfg)
+                nxt["model"] = suggested
+                persist_model(suggested, household=household)
+                cfg = nxt
+                continue
+        busy = _capacity_err(last_err)
+        if busy and attempt < 2:
+            time.sleep(0.6 * (attempt + 1))
+            continue
+        if busy and kind == "gemini":
+            alt = _next_gemini_model(cfg.get("model"))
+            if alt:
+                nxt = dict(cfg)
+                nxt["model"] = alt
+                try:
+                    text = _call(nxt)
+                    if text:
+                        persist_model(alt, household=household)
+                        return True, text
+                except Exception as exc2:
+                    last_err = str(exc2)
+        break
+    if _capacity_err(last_err):
+        return False, "The model is busy right now. I can still look up this house — tools, vehicles, basket, what’s due."
+    if last_err:
+        return False, f"AI request failed: {last_err}" if "AI " not in last_err[:4] and "timed" not in last_err.lower() else last_err
+    return False, "AI returned nothing. Check the key, model, and base URL."
 
 
 def complete_json(prompt: str, **kwargs) -> tuple[bool, dict]:
