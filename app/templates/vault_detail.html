@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>{{ card.fields.title or 'Login' }} · Vault</title>
+  <title>{{ card.fields.title or card.kind_one or 'Vault' }} · Vault</title>
   <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
   {% include "partials/theme_head.html" %}
 </head>
@@ -29,23 +29,29 @@
 {% if card.can_manage %}
 <details class="vault-more" open>
   <summary>Who can see it</summary>
-  <form method="post" action="{{ url_for('vault.share', entry_id=card.row.id) }}">
-    <input type="hidden" name="next" value="sheet">
-    {% include "partials/vault_share.html" %}
-    <div class="btn-row"><button class="btn" type="submit">Save who can see it</button></div>
-  </form>
+  {% include "partials/vault_share.html" %}
 </details>
 {% endif %}
 {% endif %}
-<script src="{{ url_for('static', filename='js/app.js') }}?v=os21"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}?v=os23"></script>
 <script>
 (function () {
   document.querySelectorAll(".share-mode").forEach(function (sel) {
-    var box = document.getElementById(sel.getAttribute("data-people") || "");
-    if (!box) return;
-    function sync() { box.hidden = sel.value !== "selected"; }
+    var people = document.getElementById(sel.getAttribute("data-people") || "");
+    var house = document.getElementById(sel.getAttribute("data-house") || "");
+    function sync() {
+      if (people) people.hidden = sel.value !== "selected";
+      if (house) house.hidden = sel.value !== "household";
+    }
     sel.addEventListener("change", sync);
     sync();
+  });
+  document.querySelectorAll("[data-local-time]").forEach(function (el) {
+    var iso = el.getAttribute("data-local-time");
+    if (!iso) return;
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return;
+    el.textContent = d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   });
 })();
 </script>

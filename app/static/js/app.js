@@ -139,6 +139,8 @@
       if (wrap) wrap.remove();
       return;
     }
+    var seenBtn = e.target.closest("[data-vault-seen]");
+    if (seenBtn) vaultSeen(seenBtn);
     var btn = e.target.closest("[data-copy]");
     if (btn) {
       e.preventDefault();
@@ -186,6 +188,25 @@
   function csrfToken() {
     var m = document.querySelector('meta[name="csrf-token"]');
     return m ? m.getAttribute("content") : "";
+  }
+
+  function vaultSeen(btn) {
+    if (!btn) return;
+    var url = btn.getAttribute("data-vault-seen-url") || "";
+    var action = btn.getAttribute("data-vault-seen") || "";
+    if (!url || !action) return;
+    var body = new URLSearchParams();
+    body.set("action", action);
+    fetch(url, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "X-CSRF-Token": csrfToken(),
+        "X-Requested-With": "fetch",
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: body.toString(),
+    }).catch(function () {});
   }
 
   function paintQty(root, data) {

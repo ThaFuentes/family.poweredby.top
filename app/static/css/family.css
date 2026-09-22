@@ -1796,6 +1796,54 @@ html.family-intro-out #family-intro{opacity:0;transition:opacity .4s ease}
   font-weight: 650;
 }
 .person-row select { width: auto; min-width: 8rem; margin: 0; }
+.access-now,
+.access-list,
+.access-ended,
+.access-log {
+  list-style: none;
+  margin: .35rem 0 .85rem;
+  padding: 0;
+  display: grid;
+  gap: .55rem;
+}
+.access-person {
+  display: grid;
+  gap: .55rem;
+  padding: .7rem .8rem;
+  border: 1.5px solid var(--edge);
+  border-radius: 12px;
+  background: var(--card);
+}
+.access-person .access-remain {
+  margin: .15rem 0 0;
+  font-weight: 800;
+}
+.access-person .muted { margin: .15rem 0 0; }
+.access-actions {
+  display: grid;
+  gap: .4rem;
+}
+.access-actions form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+  align-items: center;
+  margin: 0;
+}
+.access-actions select { margin: 0; flex: 1 1 8rem; }
+.give-access { margin: .5rem 0 1rem; }
+.access-ended li,
+.access-list li,
+.access-log li {
+  display: grid;
+  gap: .1rem;
+  padding: .35rem 0;
+  border-bottom: 1px solid var(--edge);
+  font-size: .92rem;
+}
+.access-ended li:last-child,
+.access-list li:last-child,
+.access-log li:last-child { border-bottom: 0; }
 .vault-more { margin: .7rem 0 0; }
 .vault-more > summary {
   cursor: pointer;

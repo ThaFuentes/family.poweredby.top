@@ -1,26 +1,121 @@
-<label>Who can see it</label>
-<select name="share_mode" class="share-mode" data-people="people-pick-{{ card.row.id }}">
-  <option value="personal" {% if card.row.share_mode=='personal' %}selected{% endif %}>Just me</option>
-  <option value="household" {% if card.row.share_mode=='household' %}selected{% endif %}>Whole household</option>
-  <option value="selected" {% if card.row.share_mode=='selected' %}selected{% endif %}>These people</option>
-</select>
-<div class="people-pick" id="people-pick-{{ card.row.id }}" {% if card.row.share_mode != 'selected' %}hidden{% endif %}>
-  <p class="muted">Pick who, and how long. You always keep it. Change anytime.</p>
-  {% for p in adults if p.id != current_user.id %}
-  {% set g = card.grant_ids.get(p.id) if card.grant_ids else none %}
-  {% set dur = card.grant_durs.get(p.id, 'forever') if card.grant_durs else 'forever' %}
-  <label class="person-row">
-    <span>
-      <input type="checkbox" name="person" value="{{ p.id }}" {% if g %}checked{% endif %}>
-      {{ p.name or p.username }}
-    </span>
-    <select name="for_{{ p.id }}">
-      {% for key, lab in durations %}
-      <option value="{{ key }}" {% if dur==key %}selected{% endif %}>{{ lab }}</option>
-      {% endfor %}
-    </select>
-  </label>
-  {% else %}
-  <p class="muted">No other adults in this house yet.</p>
-  {% endfor %}
+<form method="post" action="{{ url_for('vault.share', entry_id=card.row.id) }}">
+  <input type="hidden" name="next" value="sheet">
+  <label>Who can see it</label>
+  <select name="share_mode" class="share-mode" data-people="people-pick-{{ card.row.id }}" data-house="house-seen-{{ card.row.id }}">
+    <option value="personal" {% if card.row.share_mode=='personal' %}selected{% endif %}>Just me</option>
+    <option value="household" {% if card.row.share_mode=='household' %}selected{% endif %}>Whole household</option>
+    <option value="selected" {% if card.row.share_mode=='selected' %}selected{% endif %}>These people</option>
+  </select>
+  <div class="btn-row"><button class="btn" type="submit">Save who can see it</button></div>
+</form>
+
+<div class="house-seen" id="house-seen-{{ card.row.id }}" {% if card.row.share_mode != 'household' %}hidden{% endif %}>
+  <p class="muted">Every adult in this house can open it. Kids cannot.</p>
+  {% if card.opened_by %}
+  <ul class="access-list">
+    {% for row in card.opened_by %}
+    <li>
+      <strong>{{ row.name }}</strong>
+      <span class="muted">{{ row.seen }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
 </div>
+
+<div class="people-pick" id="people-pick-{{ card.row.id }}" {% if card.row.share_mode != 'selected' %}hidden{% endif %}>
+  <p class="muted">Named people only. You always keep it. Expired access unchecks itself — it does not stay on.</p>
+
+  <p class="kicker">Has it now</p>
+  {% if card.live_grants %}
+  <ul class="access-now">
+    {% for g in card.live_grants %}
+    <li class="access-person">
+      <div>
+        <strong>{{ g.name }}</strong>
+        <p class="access-remain">{{ g.remaining }}{% if g.until %} · until <time data-local-time="{{ g.until }}">{{ g.until_label }}</time>{% endif %}</p>
+        <p class="muted">Given for {{ g.given_for }}{% if g.started_label %} · from {{ g.started_label }}{% endif %}</p>
+        <p class="muted">{{ g.seen }}</p>
+      </div>
+      <div class="access-actions">
+        <form method="post" action="{{ url_for('vault.extend', entry_id=card.row.id, user_id=g.user_id) }}">
+          <input type="hidden" name="next" value="sheet">
+          <label class="sr-only" for="keep-{{ card.row.id }}-{{ g.user_id }}">Give this long from now</label>
+          <select id="keep-{{ card.row.id }}-{{ g.user_id }}" name="for">
+            {% for key, lab in durations %}
+            <option value="{{ key }}" {% if key=='1h' %}selected{% endif %}>{{ lab }} from now</option>
+            {% endfor %}
+          </select>
+          <button class="btn sm secondary" type="submit">Keep longer</button>
+        </form>
+        <form method="post" action="{{ url_for('vault.revoke', entry_id=card.row.id, user_id=g.user_id) }}" onsubmit="return confirm('Take this back from {{ g.name }} now?')">
+          <input type="hidden" name="next" value="sheet">
+          <button class="btn sm" type="submit">Take back</button>
+        </form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">Nobody else can see this right now.</p>
+  {% endif %}
+
+  {% if card.give_people %}
+  <form method="post" action="{{ url_for('vault.grant', entry_id=card.row.id) }}" class="give-access">
+    <input type="hidden" name="next" value="sheet">
+    <p class="kicker">Give access</p>
+    <div class="desk-form">
+      <div>
+        <label>Person</label>
+        <select name="person" required>
+          <option value="">Pick someone</option>
+          {% for p in card.give_people %}
+          <option value="{{ p.id }}">{{ p.name or p.username }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>How long</label>
+        <select name="for">
+          {% for key, lab in durations %}
+          <option value="{{ key }}" {% if key=='1h' %}selected{% endif %}>{{ lab }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="btn-row"><button class="btn sm" type="submit">Give access</button></div>
+  </form>
+  {% else %}
+  <p class="muted">Everyone else in this house already has it, or there are no other adults yet.</p>
+  {% endif %}
+
+  {% if card.ended_grants %}
+  <p class="kicker">Ended</p>
+  <ul class="access-ended">
+    {% for g in card.ended_grants %}
+    <li>
+      <strong>{{ g.name }}</strong>
+      <span class="muted">
+        {{ 'taken back' if g.status=='revoked' else 'time ran out' }}
+        {% if g.ended_label %} · <time data-local-time="{{ g.ended_at }}">{{ g.ended_label }}</time>{% endif %}
+        · {{ g.seen }}
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>
+
+{% if card.access_log %}
+<details class="vault-more">
+  <summary>Activity</summary>
+  <ul class="access-log">
+    {% for row in card.access_log %}
+    <li>
+      <strong>{{ row.name }}</strong> {{ row.action }}
+      <span class="muted"> · {{ row.ago }}{% if row.when %} · <time data-local-time="{{ row.when }}">{{ row.label }}</time>{% endif %}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</details>
+{% endif %}

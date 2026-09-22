@@ -173,6 +173,8 @@ def _schema_ready() -> bool:
             return False
         if "vault_entries" not in names or "vault_grants" not in names:
             return False
+        if "vault_access" not in names:
+            return False
         if "note_files" not in names:
             return False
         items = {c["name"] for c in inspect(db.engine).get_columns("items")}
@@ -246,6 +248,7 @@ def init_tenant_system(app):
                 "table_note_files",
                 "table_vault_entries",
                 "table_vault_grants",
+                "table_vault_access",
                 "table_legal_cases",
                 "table_legal_records",
                 "table_legal_followups",

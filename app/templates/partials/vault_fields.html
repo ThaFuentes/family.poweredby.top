@@ -1,0 +1,53 @@
+{% set f = fields or {} %}
+<label>This is</label>
+<select name="kind">
+  {% for k in kinds %}
+  <option value="{{ k }}" {% if kind==k %}selected{% endif %}>{{ (kind_choices or kind_labels)[k] }}</option>
+  {% endfor %}
+</select>
+<label>Title</label>
+<input name="title" required maxlength="200" value="{{ f.title or '' }}" placeholder="Aminos, city water, alarm company…" autocomplete="off">
+<label>What it’s for</label>
+<input name="purpose" maxlength="500" value="{{ f.purpose or '' }}" placeholder="Streaming, electric bill, doctor’s office…" autocomplete="off">
+
+<p class="kicker" style="margin:1rem 0 .35rem">Reach them</p>
+<div class="desk-form">
+  <div>
+    <label>Web address</label>
+    <input name="url" maxlength="500" value="{{ f.url or '' }}" placeholder="https://…" inputmode="url" autocomplete="off">
+  </div>
+  <div>
+    <label>Phone</label>
+    <input name="phone" maxlength="80" value="{{ f.phone or '' }}" placeholder="the number you call" inputmode="tel" autocomplete="off">
+  </div>
+</div>
+<label>Second phone</label>
+<input name="phone_alt" maxlength="80" value="{{ f.phone_alt or '' }}" placeholder="after-hours, billing, mobile…" inputmode="tel" autocomplete="off">
+
+<p class="kicker" style="margin:1rem 0 .35rem">Login</p>
+<label>Account / member number</label>
+<input name="account_no" maxlength="200" value="{{ f.account_no or '' }}" placeholder="what they ask for on the phone" autocomplete="off">
+<div class="desk-form">
+  <div>
+    <label>Email / username</label>
+    <input name="login" maxlength="300" value="{{ f.login or '' }}" placeholder="the login" autocomplete="off">
+  </div>
+  <div>
+    <label>Password</label>
+    <input type="password" name="secret" maxlength="500" value="{{ f.secret or '' }}" placeholder="the password" autocomplete="new-password">
+  </div>
+</div>
+<label>Two-factor?</label>
+<select name="two_factor">
+  {% for key, lab in two_factor %}
+  <option value="{{ key }}" {% if (f.two_factor or '')==key %}selected{% endif %}>{{ lab }}</option>
+  {% endfor %}
+</select>
+<label>2FA details</label>
+<input name="two_factor_detail" maxlength="1000" value="{{ f.two_factor_detail or '' }}" placeholder="Authenticator on Pat’s phone. Recovery codes in the fire box." autocomplete="off">
+
+<p class="kicker" style="margin:1rem 0 .35rem">For the call or the site</p>
+<label>Codes and information they will ask for</label>
+<textarea name="call_info" maxlength="4000" placeholder="PIN, security word, last 4 of SSN, ‘account is under Maya’, confirmation code, store number…">{{ f.call_info or '' }}</textarea>
+<label>More details</label>
+<textarea name="details" maxlength="4000" placeholder="Anything else someone needs to finish this">{{ f.details or '' }}</textarea>

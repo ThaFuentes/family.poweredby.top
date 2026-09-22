@@ -2,7 +2,7 @@ from app.builddb.builddb import db, evolve_table
 
 
 class VaultGrant(db.Model):
-    """Who else may open a vault entry, and until when."""
+    """Who else may open a vault entry, until when, and whether they opened it."""
 
     __tablename__ = "vault_grants"
 
@@ -19,7 +19,11 @@ class VaultGrant(db.Model):
     granted_by = db.Column(
         db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    duration_key = db.Column(db.String(20), nullable=False, default="forever")
     expires_at = db.Column(db.DateTime, nullable=True)
+    last_seen_at = db.Column(db.DateTime, nullable=True)
+    seen_count = db.Column(db.Integer, nullable=False, default=0)
+    revoked_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.current_timestamp())
 
     entry = db.relationship("VaultEntry", back_populates="grants")
@@ -33,7 +37,11 @@ def create_table():
             ("entry_id", "INT NOT NULL"),
             ("user_id", "INT NOT NULL"),
             ("granted_by", "INT NULL"),
+            ("duration_key", "VARCHAR(20) NOT NULL DEFAULT 'forever'"),
             ("expires_at", "TIMESTAMP NULL DEFAULT NULL"),
+            ("last_seen_at", "TIMESTAMP NULL DEFAULT NULL"),
+            ("seen_count", "INT NOT NULL DEFAULT 0"),
+            ("revoked_at", "TIMESTAMP NULL DEFAULT NULL"),
             ("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
         ],
         indexes=[

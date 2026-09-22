@@ -16,9 +16,11 @@ from app.utils.password_vault import (
     decrypt_vault_text,
     encrypt_vault_text,
     grant_is_live,
+    grant_status,
     href_for,
     open_fields,
     parse_duration,
+    remaining_text,
     seal_fields,
     share_label,
     site_label,
@@ -60,6 +62,11 @@ class EncryptTests(unittest.TestCase):
             "url": "https://aminos.example",
             "purpose": "Work bots",
             "details": "Recovery is the house Gmail",
+            "phone": "555-0100",
+            "account_no": "A-441",
+            "two_factor": "app",
+            "two_factor_detail": "Pat's phone",
+            "call_info": "PIN 9921, account under dad",
         }
         sealed = seal_fields(fields, hid)
         for key, plain in fields.items():
@@ -115,8 +122,8 @@ class AccessTests(unittest.TestCase):
         self.assertFalse(can_manage_entry(row, member))
 
     def test_selected_until_expiry(self):
-        live = SimpleNamespace(user_id=2, expires_at=datetime.utcnow() + timedelta(hours=2))
-        dead = SimpleNamespace(user_id=2, expires_at=datetime.utcnow() - timedelta(minutes=1))
+        live = SimpleNamespace(user_id=2, expires_at=datetime.utcnow() + timedelta(hours=2), revoked_at=None)
+        dead = SimpleNamespace(user_id=2, expires_at=datetime.utcnow() - timedelta(minutes=1), revoked_at=None)
         row = _entry(created_by=1, share_mode="selected", grants=[live])
         member = _user(id=2)
         self.assertTrue(can_view_entry(row, member))
@@ -124,6 +131,33 @@ class AccessTests(unittest.TestCase):
         self.assertFalse(can_view_entry(row, member))
         self.assertTrue(grant_is_live(live))
         self.assertFalse(grant_is_live(dead))
+        self.assertEqual(grant_status(dead), "ended")
+        self.assertIn("ended", remaining_text(dead))
+
+    def test_revoked_is_dead_even_with_time_left(self):
+        g = SimpleNamespace(
+            user_id=2,
+            expires_at=datetime.utcnow() + timedelta(hours=4),
+            revoked_at=datetime.utcnow(),
+        )
+        row = _entry(created_by=1, share_mode="selected", grants=[g])
+        member = _user(id=2)
+        self.assertFalse(grant_is_live(g))
+        self.assertFalse(can_view_entry(row, member))
+        self.assertEqual(grant_status(g), "revoked")
+        self.assertIn("taken back", remaining_text(g))
+
+    def test_remaining_text_hours(self):
+        g = SimpleNamespace(
+            user_id=2,
+            expires_at=datetime.utcnow() + timedelta(hours=1, minutes=5),
+            revoked_at=None,
+        )
+        text = remaining_text(g)
+        self.assertIn("left", text)
+        self.assertNotEqual(text, "1 hour")
+        forever = SimpleNamespace(user_id=2, expires_at=None, revoked_at=None)
+        self.assertIn("no end", remaining_text(forever))
 
     def test_child_never(self):
         row = _entry(share_mode="household")
@@ -353,7 +387,12 @@ class VaultHttpTests(unittest.TestCase):
         self.assertIn(b"Kids profile is the fourth one", sheet.data)
         self.assertIn(b"Open site", sheet.data)
         self.assertIn(b"Who can see it", sheet.data)
-        self.assertIn(b"Edit this login", sheet.data)
+        self.assertIn(b"Edit this", sheet.data)
+        self.assertIn(b"Two-factor", sheet.data)
+        self.assertIn(b"Password / login", sheet.data)
+        self.assertIn(b"Passwords", opened.data)
+        self.assertIn(b"Billing", opened.data)
+        self.assertIn(b"Shareable", opened.data)
         self.assertIn("no-store", sheet.headers.get("Cache-Control", ""))
         token = self._csrf(sheet.data)
         shared = self.client.post(
@@ -425,11 +464,10 @@ class VaultHttpTests(unittest.TestCase):
             water_id = water_row.id
         token = self._csrf(water.data)
         water_share = self.client.post(
-            f"/vault/{water_id}/share",
+            f"/vault/{water_id}/grant",
             data={
-                "share_mode": "selected",
                 "person": str(spouse_id),
-                f"for_{spouse_id}": "1h",
+                "for": "1h",
                 "csrf_token": token,
             },
             headers={"X-CSRF-Token": token},
@@ -437,6 +475,8 @@ class VaultHttpTests(unittest.TestCase):
         )
         self.assertEqual(water_share.status_code, 200)
         self.assertIn(b"These people", water_share.data)
+        self.assertIn(b"Spouse", water_share.data)
+        self.assertIn(b"left", water_share.data)
 
         token = self._csrf(self.client.get("/vault/").data)
         private = self.client.post(
@@ -490,6 +530,155 @@ class VaultHttpTests(unittest.TestCase):
         self.assertEqual(blocked.status_code, 403)
         sneak = self.client.get(f"/vault/{netflix_id}")
         self.assertEqual(sneak.status_code, 403)
+
+    def test_kinds_and_access_clock(self):
+        admin = f"vault_b_{self.suffix}"
+        member = f"vault_s_{self.suffix}"
+        self._register(admin, household=f"VaultB {self.suffix}", name="Pat")
+        self._unlock(admin)
+        token = self._csrf(self.client.get("/vault/").data)
+        added = self.client.post(
+            "/vault/add",
+            data={
+                "kind": "billing",
+                "title": "City water",
+                "phone": "555-0199",
+                "account_no": "W-441",
+                "login": "water-user",
+                "secret": "Pipe-Secret",
+                "url": "https://water.city.test",
+                "two_factor": "sms",
+                "call_info": "PIN 4410, last 4 1234",
+                "csrf_token": token,
+            },
+            headers={"X-CSRF-Token": token},
+            follow_redirects=True,
+        )
+        self.assertEqual(added.status_code, 200)
+        billing = self.client.get("/vault/?kind=billing")
+        self.assertIn(b"City water", billing.data)
+        self.assertNotIn(b"Pipe-Secret", billing.data)
+        passwords = self.client.get("/vault/?kind=password")
+        self.assertNotIn(b"City water", passwords.data)
+        with self.app.app_context():
+            from app.builddb.table_vault_entries import VaultEntry
+
+            row = VaultEntry.query.order_by(VaultEntry.id.desc()).first()
+            self.assertEqual(row.kind, "billing")
+            bill_id = row.id
+        sheet = self.client.get(f"/vault/{bill_id}")
+        self.assertIn(b"555-0199", sheet.data)
+        self.assertIn(b"W-441", sheet.data)
+        self.assertIn(b"PIN 4410", sheet.data)
+        self.assertIn(b"Text / SMS", sheet.data)
+        self.assertIn(b"Has it now", sheet.data)
+        self.assertIn(b"Nobody else can see this right now", sheet.data)
+
+        page = self.client.get("/members/")
+        token = self._csrf(page.data)
+        inv = self.client.post(
+            "/members/invite",
+            data={
+                "role": "member",
+                "label": "Spouse",
+                "csrf_token": token,
+                "next": "sheet",
+                "panel": "keys",
+            },
+            headers={"X-CSRF-Token": token},
+            follow_redirects=True,
+        )
+        import re
+
+        m = re.search(r"Family key ([A-Z0-9-]+)", inv.data.decode("utf-8", "replace"))
+        self.assertIsNotNone(m, inv.data[-800:])
+        self._register(member, invite=m.group(1), name="Spouse")
+        self._logout()
+        self.client.post(
+            "/auth/login",
+            data={"username": admin, "password": "FamilyTest1!"},
+            follow_redirects=True,
+        )
+        self._unlock(admin)
+        with self.app.app_context():
+            from app.builddb.table_users import User
+
+            spouse = User.query.filter_by(username=member).first()
+            spouse_id = spouse.id
+        token = self._csrf(self.client.get(f"/vault/{bill_id}").data)
+        given = self.client.post(
+            f"/vault/{bill_id}/grant",
+            data={
+                "person": str(spouse_id),
+                "for": "1h",
+                "next": "sheet",
+                "csrf_token": token,
+            },
+            headers={"X-CSRF-Token": token},
+            follow_redirects=True,
+        )
+        self.assertEqual(given.status_code, 200)
+        body = given.data.decode("utf-8", "replace")
+        self.assertIn("Spouse", body)
+        self.assertRegex(body, r"(min left|hr left)")
+        self.assertIn("Never opened", body)
+        self.assertIn("Given for 1 hour", body)
+        self.assertNotIn('name="person" type="checkbox"', body)
+        self.assertNotIn('type="checkbox" name="person"', body)
+
+        self._logout()
+        self.client.post(
+            "/auth/login",
+            data={"username": member, "password": "FamilyTest1!"},
+            follow_redirects=True,
+        )
+        self._unlock(member)
+        opened = self.client.get(f"/vault/{bill_id}")
+        self.assertEqual(opened.status_code, 200)
+        self.assertIn(b"Pipe-Secret", opened.data)
+        self.client.post(
+            f"/vault/{bill_id}/seen",
+            data={"action": "copy_secret"},
+            headers={"X-CSRF-Token": self._csrf(opened.data)},
+        )
+
+        self._logout()
+        self.client.post(
+            "/auth/login",
+            data={"username": admin, "password": "FamilyTest1!"},
+            follow_redirects=True,
+        )
+        self._unlock(admin)
+        after = self.client.get(f"/vault/{bill_id}")
+        after_body = after.data.decode("utf-8", "replace")
+        self.assertIn("Opened", after_body)
+        self.assertIn("copied the password", after_body)
+
+        with self.app.app_context():
+            from app.builddb.table_vault_grants import VaultGrant
+
+            g = VaultGrant.query.filter_by(entry_id=bill_id, user_id=spouse_id).first()
+            self.assertIsNotNone(g)
+            g.expires_at = datetime.utcnow() - timedelta(minutes=2)
+            from app.builddb.builddb import db
+
+            db.session.commit()
+        expired = self.client.get(f"/vault/{bill_id}")
+        exp_body = expired.data.decode("utf-8", "replace")
+        self.assertIn("Ended", exp_body)
+        self.assertIn("time ran out", exp_body)
+        self.assertIn("Nobody else can see this right now", exp_body)
+        self.assertNotRegex(exp_body, r"Has it now[\s\S]*?(min left|hr left)")
+
+        self._logout()
+        self.client.post(
+            "/auth/login",
+            data={"username": member, "password": "FamilyTest1!"},
+            follow_redirects=True,
+        )
+        self._unlock(member)
+        gone = self.client.get("/vault/")
+        self.assertNotIn(b"City water", gone.data)
 
 
 if __name__ == "__main__":
