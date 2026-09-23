@@ -1942,6 +1942,19 @@ html.family-intro-out #family-intro{opacity:0;transition:opacity .4s ease}
 }
 .ask-bubble.pending { opacity: .85; font-weight: 500; }
 .ask-bubble.err { background: #f4d0c8; color: #5c1810; }
+.ask-retry {
+  display: inline-flex;
+  margin-top: .45rem;
+  padding: .35rem .7rem;
+  border: 0;
+  border-radius: .65rem;
+  background: #5c1810;
+  color: #fff;
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 800;
+  cursor: pointer;
+}
 .ask-bubble a { font-weight: 800; color: inherit; }
 .ask-form {
   display: grid;

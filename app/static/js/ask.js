@@ -48,8 +48,12 @@
     return text.replace(/\n/g, "<br>");
   }
 
-  function addBubble(role, text, imageUrl) {
-    if (!log) return;
+  function canRetry(say) {
+    return /model is busy|timed out|could not reach|request failed/i.test(say || "");
+  }
+
+  function addBubble(role, text, imageUrl, retry) {
+    if (!log) return null;
     var el = document.createElement("div");
     el.className = "ask-bubble " + role;
     el.innerHTML = linkify(text);
@@ -60,8 +64,20 @@
       img.src = imageUrl;
       el.appendChild(img);
     }
+    if (retry) {
+      var again = document.createElement("button");
+      again.type = "button";
+      again.className = "ask-retry";
+      again.textContent = "Try again";
+      again.addEventListener("click", function () {
+        if (el.parentNode) el.parentNode.removeChild(el);
+        sendAsk(retry.text, retry.image, true);
+      });
+      el.appendChild(again);
+    }
     log.appendChild(el);
     log.scrollTop = log.scrollHeight;
+    return el;
   }
 
   function setPreview(url, name) {
@@ -164,57 +180,64 @@
     });
   }
 
-  if (form) {
-    form.addEventListener("submit", function (e) {
-      e.preventDefault();
-      if (busy) return;
-      var text = (input && input.value || "").trim();
-      var imageUrl = pendingImage;
-      if (!text && !imageUrl) return;
+  function sendAsk(text, imageUrl, again) {
+    if (busy) return;
+    text = (text || "").trim();
+    imageUrl = imageUrl || "";
+    if (!text && !imageUrl) return;
+    if (!again) {
       addBubble("me", text || "Photo", imageUrl);
       if (input) input.value = "";
       setPreview("");
       if (fileInput) fileInput.value = "";
-      busy = true;
-      if (send) send.disabled = true;
-      addBubble("them pending", imageUrl ? "Reading the photo…" : "Looking…");
-      var pending = log ? log.lastElementChild : null;
-      var body = { message: text };
-      if (imageUrl) {
-        body.image = imageUrl;
-        body.image_mime = "image/jpeg";
-      }
-      fetch("/ask/message", {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-          "X-CSRF-Token": csrfToken(),
-          "X-Requested-With": "fetch",
-        },
-        body: JSON.stringify(body),
-      })
-        .then(function (res) {
-          return res.json().then(function (data) {
-            return { ok: res.ok, data: data };
-          });
-        })
-        .then(function (out) {
-          var data = out.data || {};
-          var say = (data.say || data.error || "").trim() || "Couldn’t get an answer. Try “what tools do I have.”";
-          if (pending) pending.remove();
-          addBubble(data.ok ? "them" : "them err", say);
-          if (data.vault_locked) addBubble("them", "Open /vault/ with this login, then ask again.");
-        })
-        .catch(function () {
-          if (pending) pending.remove();
-          addBubble("them err", "Could not reach Ask.");
-        })
-        .then(function () {
-          busy = false;
-          if (send) send.disabled = false;
-          if (input) input.focus();
+    }
+    busy = true;
+    if (send) send.disabled = true;
+    addBubble("them pending", imageUrl ? "Reading the photo…" : "Looking…");
+    var pending = log ? log.lastElementChild : null;
+    var body = { message: text };
+    if (imageUrl) {
+      body.image = imageUrl;
+      body.image_mime = "image/jpeg";
+    }
+    var retry = { text: text, image: imageUrl };
+    fetch("/ask/message", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "X-CSRF-Token": csrfToken(),
+        "X-Requested-With": "fetch",
+      },
+      body: JSON.stringify(body),
+    })
+      .then(function (res) {
+        return res.json().then(function (data) {
+          return { ok: res.ok, data: data };
         });
+      })
+      .then(function (out) {
+        var data = out.data || {};
+        var say = (data.say || data.error || "").trim() || "Couldn’t get an answer. Try “what tools do I have.”";
+        if (pending) pending.remove();
+        addBubble(data.ok ? "them" : "them err", say, "", !data.ok && canRetry(say) ? retry : null);
+        if (data.vault_locked) addBubble("them", "Open /vault/ with this login, then ask again.");
+      })
+      .catch(function () {
+        if (pending) pending.remove();
+        addBubble("them err", "Could not reach Ask.", "", retry);
+      })
+      .then(function () {
+        busy = false;
+        if (send) send.disabled = false;
+        if (input) input.focus();
+      });
+  }
+
+  if (form) {
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      sendAsk(input && input.value, pendingImage, false);
     });
   }
 })();
