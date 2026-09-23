@@ -177,6 +177,8 @@ def _schema_ready() -> bool:
             return False
         if "note_files" not in names:
             return False
+        if "ask_turns" not in names:
+            return False
         items = {c["name"] for c in inspect(db.engine).get_columns("items")}
         if "removed_at" not in items:
             return False
@@ -246,6 +248,7 @@ def init_tenant_system(app):
                 "table_photo_notes",
                 "table_notes",
                 "table_note_files",
+                "table_ask_turns",
                 "table_vault_entries",
                 "table_vault_grants",
                 "table_vault_access",

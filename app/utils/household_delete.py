@@ -7,6 +7,7 @@ from pathlib import Path
 from flask import current_app
 
 from app.builddb.builddb import db
+from app.builddb.table_ask_turns import AskTurn
 from app.builddb.table_grocery_items import GroceryItem
 from app.builddb.table_grocery_list import GroceryListEntry
 from app.builddb.table_households import Household
@@ -65,6 +66,7 @@ def delete_household(household: Household) -> str:
     LegalRecord.query.filter_by(household_id=hid).delete(synchronize_session=False)
     NoteFile.query.filter_by(household_id=hid).delete(synchronize_session=False)
     Note.query.filter_by(household_id=hid).delete(synchronize_session=False)
+    AskTurn.query.filter_by(household_id=hid).delete(synchronize_session=False)
     VaultAccess.query.filter_by(household_id=hid).delete(synchronize_session=False)
     VaultGrant.query.filter_by(household_id=hid).delete(synchronize_session=False)
     VaultEntry.query.filter_by(household_id=hid).delete(synchronize_session=False)

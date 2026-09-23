@@ -111,6 +111,7 @@ Reply with ONLY JSON. To act:
 place what: tool, part, grocery, vehicle, house, note, legal.
 A photo with a barcode, VIN, or serial: read the code, then place or lookup. No code: identify the tool or part and place it. Do not invent codes.
 Oil: needs is the spec the vehicle or tool requires. in_it is what was poured. last_date plus interval_miles or interval_months fills next when next is left blank. Notes with item are pinned on that vehicle, tool, or equipment.
+If they say add that, save that, or put that on a vehicle, tool, or the house, save your previous reply on that item with note_save. When the reply is an oil spec, also oil_save with needs set to that spec. Do not ask them to paste it again.
 Adding a person: call member_add only when you have a name and username. If either is missing, ask. Role member, admin, or child. Password may be blank.
 When member_add returns a password, say the username and password once so they can copy it.
 inventory action: restock, used, set, need, create.
@@ -149,6 +150,9 @@ def _trim(value, cap: int) -> str:
 def _history() -> list:
     if not has_request_context():
         return []
+    stored = _load_turns()
+    if stored:
+        return stored
     rows = session.get(SESSION_HISTORY) or []
     if not isinstance(rows, list):
         return []
@@ -159,11 +163,105 @@ def _save_history(rows: list) -> None:
     if not has_request_context():
         return
     session[SESSION_HISTORY] = rows[-MAX_HISTORY:]
+    _store_latest(rows)
+
+
+TURN_KEEP = 40
+
+
+def _turn_user():
+    if not has_request_context() or not getattr(current_user, "is_authenticated", False):
+        return None
+    uid = int(getattr(current_user, "id", 0) or 0)
+    hid = int(getattr(current_user, "household_id", 0) or 0)
+    if not uid or not hid:
+        return None
+    return uid, hid
+
+
+def _load_turns() -> list:
+    who = _turn_user()
+    if not who:
+        return []
+    try:
+        from app.builddb.table_ask_turns import AskTurn
+
+        uid, hid = who
+        rows = (
+            AskTurn.query.filter_by(household_id=hid, user_id=uid)
+            .order_by(AskTurn.id.desc())
+            .limit(16)
+            .all()
+        )
+    except Exception:
+        return []
+    out = []
+    for row in reversed(rows):
+        text = (row.body or "").strip()
+        if text and row.role in ("user", "assistant"):
+            out.append({"role": row.role, "text": text[:4000]})
+    return out
+
+
+def _store_latest(rows: list) -> None:
+    who = _turn_user()
+    if not who or not rows:
+        return
+    last_user = ""
+    last_assistant = ""
+    for row in rows:
+        if row.get("role") == "user":
+            last_user = (row.get("text") or "").strip()
+        elif row.get("role") == "assistant":
+            last_assistant = (row.get("text") or "").strip()
+    if not last_assistant:
+        return
+    try:
+        from app.builddb.table_ask_turns import AskTurn
+
+        uid, hid = who
+        latest = (
+            AskTurn.query.filter_by(household_id=hid, user_id=uid, role="assistant")
+            .order_by(AskTurn.id.desc())
+            .first()
+        )
+        if latest is not None and (latest.body or "").strip() == last_assistant:
+            return
+        if last_user:
+            db.session.add(AskTurn(household_id=hid, user_id=uid, role="user", body=last_user[:4000]))
+        db.session.add(AskTurn(household_id=hid, user_id=uid, role="assistant", body=last_assistant[:4000]))
+        db.session.flush()
+        stale = (
+            AskTurn.query.filter_by(household_id=hid, user_id=uid)
+            .order_by(AskTurn.id.desc())
+            .offset(TURN_KEEP)
+            .all()
+        )
+        for row in stale:
+            db.session.delete(row)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
+def _clear_turns() -> None:
+    who = _turn_user()
+    if not who:
+        return
+    try:
+        from app.builddb.table_ask_turns import AskTurn
+
+        uid, hid = who
+        AskTurn.query.filter_by(household_id=hid, user_id=uid).delete(synchronize_session=False)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
 
 
 def clear_history() -> None:
     if has_request_context():
         session.pop(SESSION_HISTORY, None)
+        _clear_turns()
     try:
         from app.utils.ask_photo import clear_ask_photo
 
@@ -281,11 +379,124 @@ def _speak_house(result: dict) -> str:
     return f"{kind.capitalize()} in this house ({result.get('count') or len(lines)}):\n{body}{tail}"
 
 
+_SAVE_THAT = re.compile(
+    r"^\s*(?:please\s+)?(?:add|save|put|keep|store|pin)\s+(?:that|this|it)\s+(?:on|to|onto|in|into)\s+(?:my|the|our|this)?\s*(.+?)\s*[.!?]*\s*$",
+    re.I,
+)
+_OIL_SPEC = re.compile(r"\b(\d{1,2}\s*W-\s*\d{2}|SAE\s*\d{2})\b", re.I)
+
+
+def _last_assistant(history: list) -> str:
+    for row in reversed(history or []):
+        if row.get("role") == "assistant" and (row.get("text") or "").strip():
+            return str(row.get("text")).strip()
+    return ""
+
+
+def _oil_blurb(text: str) -> str:
+    match = _OIL_SPEC.search(text or "")
+    if not match:
+        return ""
+    start = max(0, match.start() - 60)
+    end = min(len(text), match.end() + 80)
+    return " ".join(text[start:end].split())[:200]
+
+
+def _remember_target(name: str):
+    """Return an item, a dict error, or None when the name is empty."""
+    label = _trim(name, 200)
+    generic = {
+        "vehicle": "vehicle",
+        "car": "vehicle",
+        "truck": "vehicle",
+        "van": "vehicle",
+        "suv": "vehicle",
+        "tool": "tool",
+        "equipment": "tool",
+        "mower": "tool",
+        "house": "house",
+        "home": "house",
+    }
+    kind = generic.get(label.lower())
+    if kind:
+        rows = _find_items("", kind, limit=8)
+    else:
+        rows = []
+        for item_type in ("vehicle", "tool", "house"):
+            for row in _find_items(label, item_type, limit=4):
+                if all(row.id != old.id for old in rows):
+                    rows.append(row)
+    if len(rows) == 1:
+        return rows[0]
+    if len(rows) > 1:
+        names = ", ".join(r.name for r in rows[:6])
+        return {
+            "ok": True,
+            "say": f"Which one? {names}",
+            "did": [],
+            "vault_locked": False,
+        }
+    return {
+        "ok": True,
+        "say": f"I don’t see a vehicle, tool, or equipment named {label}.",
+        "did": [],
+        "vault_locked": False,
+    }
+
+
+def _remember_reply(text: str) -> dict | None:
+    """Save the previous Ask reply onto an item. No new model call."""
+    match = _SAVE_THAT.match(text or "")
+    if not match:
+        return None
+    prior = _last_assistant(_history())
+    if not prior:
+        return {
+            "ok": True,
+            "say": "Ask something first. Then say add that to the vehicle, tool, or equipment.",
+            "did": [],
+            "vault_locked": False,
+        }
+    target = _remember_target(match.group(1))
+    if isinstance(target, dict):
+        return target
+    from app.builddb.table_notes import Note
+    from app.utils.household import household_id
+    from app.utils.oil import save_item_oil
+
+    hid = household_id()
+    oil = _oil_blurb(prior)
+    title = "Oil it needs" if oil else "From Ask"
+    note = Note(
+        household_id=hid,
+        user_id=current_user.id,
+        visibility="household",
+        title=title,
+        body=prior[:8000],
+        item_id=target.id,
+    )
+    db.session.add(note)
+    oil_saved = False
+    if oil and (target.vehicle is not None or target.tool is not None):
+        if can("maintain") or can("edit_meta"):
+            save_item_oil(target, {"needs": oil}, clear=False)
+            oil_saved = True
+    db.session.commit()
+    where = f"/items/{target.id}?tab=notes"
+    extra = " The oil it needs is on that page too." if oil_saved else ""
+    return {
+        "ok": True,
+        "say": f"Saved on {target.name}. {where}{extra}",
+        "did": ["note"],
+        "vault_locked": False,
+    }
+
+
 def _local_house_say(text: str) -> str | None:
     t = (text or "").strip().lower()
     if not t:
         return None
-    if re.search(r"\b(add|save|create|new|delete|remove|share)\b", t):
+    if re.search(r"\b(add|save|create|new|delete|remove|share|oil|note|spec|filter|tire|battery)\b", t):
         return None
     wants = bool(re.search(r"\b(what|which|list|have|has|show|my|our|got|lookup|look up|tell)\b", t)) or t in (
         "tools",
@@ -1332,6 +1543,13 @@ def run_ask(message: str, *, household, image_bytes: bytes | None = None, image_
             }
     if not _rate_ok():
         return {"ok": False, "error": "Give Ask a minute. Too many questions just now."}
+    remembered = None if has_photo else _remember_reply(text)
+    if remembered:
+        history = _history()
+        history.append({"role": "user", "text": text})
+        history.append({"role": "assistant", "text": remembered.get("say") or ""})
+        _save_history(history)
+        return remembered
     local = None if has_photo else _local_house_say(text)
     if local:
         history = _history()

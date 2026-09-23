@@ -601,6 +601,47 @@ class AskHttpTests(unittest.TestCase):
 
             self.assertIsNone(User.query.filter_by(username=f"riley{self.suffix}").first())
 
+    def test_add_that_saves_the_last_reply_on_the_vehicle(self):
+        self.admin = f"ask_oil_{self.suffix}"
+        self._register(self.admin, household=f"AskOil {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        self._vehicle("Silverado")
+        token = self._csrf(self.client.get("/").data)
+        with patch("app.utils.ask.complete", return_value=(True, '{"say":"Use 5W-30 full synthetic."}')):
+            first = self.client.post(
+                "/ask/message",
+                json={"message": "what oil does the truck take"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertTrue(first.get_json().get("ok"), first.get_json())
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("add that should not call the model")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            second = self.client.post(
+                "/ask/message",
+                json={"message": "add that to my truck"},
+                headers={"X-CSRF-Token": token},
+            )
+        data = second.get_json()
+        self.assertEqual(second.status_code, 200, data)
+        self.assertIn("Silverado", data.get("say") or "")
+        with self.app.app_context():
+            from app.builddb.table_ask_turns import AskTurn
+            from app.builddb.table_items import Item
+            from app.builddb.table_notes import Note
+            from app.builddb.table_users import User
+
+            user = User.query.filter_by(username=self.admin).first()
+            item = Item.query.filter_by(household_id=user.household_id, name="Silverado").first()
+            self.assertIsNotNone(item)
+            self.assertIn("5W-30", item.vehicle.oil_needs or "")
+            notes = Note.query.filter_by(item_id=item.id).all()
+            self.assertTrue(any("5W-30" in (n.body or "") for n in notes))
+            turns = AskTurn.query.filter_by(user_id=user.id).count()
+            self.assertGreaterEqual(turns, 2)
+
 
 if __name__ == "__main__":
     unittest.main()
