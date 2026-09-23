@@ -69,11 +69,13 @@
     if (!preview) return;
     if (!pendingImage) {
       preview.hidden = true;
+      preview.classList.remove("is-on");
       if (previewImg) previewImg.removeAttribute("src");
       if (previewName) previewName.textContent = "";
       return;
     }
     preview.hidden = false;
+    preview.classList.add("is-on");
     if (previewImg) previewImg.src = pendingImage;
     if (previewName) previewName.textContent = name || "Photo";
   }

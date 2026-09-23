@@ -4,14 +4,14 @@
   </button>
   <section class="ask-panel" id="ask-panel" hidden>
     <header class="ask-head">
-      <div>
+      <div class="ask-bar">
         <strong>Ask</strong>
-        <p class="muted">Photo a tool, part, barcode, or ticket. Or ask to add someone, a bill, a note.</p>
+        <div class="ask-actions">
+          <button type="button" class="btn sm secondary" id="ask-clear">New</button>
+          <button type="button" class="btn sm secondary" id="ask-close">Close</button>
+        </div>
       </div>
-      <div class="btn-row" style="margin:0">
-        <button type="button" class="btn sm secondary" id="ask-clear">New</button>
-        <button type="button" class="btn sm secondary" id="ask-close">Close</button>
-      </div>
+      <p class="ask-hint">Photo a tool, part, barcode, or ticket. Or ask to add someone, a bill, a note.</p>
     </header>
     <div class="ask-log" id="ask-log" aria-live="polite"></div>
     <form class="ask-form" id="ask-form" autocomplete="off">
@@ -28,4 +28,4 @@
     </form>
   </section>
 </div>
-<script src="{{ url_for('static', filename='js/ask.js') }}?v=os5" defer></script>
+<script src="{{ url_for('static', filename='js/ask.js') }}?v=os6" defer></script>
