@@ -30,6 +30,12 @@ class Vehicle(db.Model):
     battery_type = db.Column(db.String(80), nullable=True)
     last_oil_change_mileage = db.Column(db.Integer, nullable=True)
     last_oil_change_date = db.Column(db.Date, nullable=True)
+    oil_needs = db.Column(db.String(200), nullable=True)
+    oil_capacity = db.Column(db.String(40), nullable=True)
+    oil_interval_miles = db.Column(db.Integer, nullable=True)
+    oil_interval_months = db.Column(db.Integer, nullable=True)
+    next_oil_due_date = db.Column(db.Date, nullable=True)
+    next_oil_due_mileage = db.Column(db.Integer, nullable=True)
     current_mileage = db.Column(db.Integer, nullable=True)
     manual_url = db.Column(db.String(500), nullable=True)
     extra_data = db.Column(db.JSON, nullable=True)
@@ -62,6 +68,12 @@ def create_table():
             ("battery_type", "VARCHAR(80) NULL"),
             ("last_oil_change_mileage", "INT NULL"),
             ("last_oil_change_date", "DATE NULL"),
+            ("oil_needs", "VARCHAR(200) NULL"),
+            ("oil_capacity", "VARCHAR(40) NULL"),
+            ("oil_interval_miles", "INT NULL"),
+            ("oil_interval_months", "INT NULL"),
+            ("next_oil_due_date", "DATE NULL"),
+            ("next_oil_due_mileage", "INT NULL"),
             ("current_mileage", "INT NULL"),
             ("manual_url", "VARCHAR(500) NULL"),
             ("extra_data", "JSON NULL"),

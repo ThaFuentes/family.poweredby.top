@@ -50,6 +50,7 @@ TOOLS = (
     "part_save",
     "log_save",
     "legal_save",
+    "oil_save",
 )
 
 WRITE_TOOLS = (
@@ -68,6 +69,7 @@ WRITE_TOOLS = (
     "part_save",
     "log_save",
     "legal_save",
+    "oil_save",
 )
 
 SYSTEM = """You are Ask in Family OS. Do the house work this person is already allowed to do: people, vault, bills, tools, parts, vehicles, the house, notes, inventory, basket, logs, legal paper, and photos.
@@ -101,11 +103,14 @@ Reply with ONLY JSON. To act:
 {"tool":"member_add","args":{"name":"Sam","username":"sam","role":"member","email":"","password":""}}
 {"tool":"member_role","args":{"username":"sam","role":"member"}}
 {"tool":"log_save","args":{"item":"Silverado","kind":"miles","reading":"81200","notes":""}}
+{"tool":"oil_save","args":{"item":"Silverado","needs":"5W-30 full synthetic API SP","capacity":"6 qt","in_it":"Mobil 1 5W-30","last_date":"2026-03-01","last_miles":"80000","interval_miles":"5000","interval_months":"6"}}
+{"tool":"note_save","args":{"title":"Spare key","body":"In the kitchen drawer.","item":"Silverado","share":"household"}}
 {"tool":"legal_save","args":{"title":"Parking ticket","kind":"ticket","agency":"","due":"","amount":"","body":""}}
 {"tool":"guide","args":{"action":"add_person"}}
 
 place what: tool, part, grocery, vehicle, house, note, legal.
 A photo with a barcode, VIN, or serial: read the code, then place or lookup. No code: identify the tool or part and place it. Do not invent codes.
+Oil: needs is the spec the vehicle or tool requires. in_it is what was poured. last_date plus interval_miles or interval_months fills next when next is left blank. Notes with item are pinned on that vehicle, tool, or equipment.
 Adding a person: call member_add only when you have a name and username. If either is missing, ask. Role member, admin, or child. Password may be blank.
 When member_add returns a password, say the username and password once so they can copy it.
 inventory action: restock, used, set, need, create.
@@ -656,6 +661,37 @@ def tool_vault_save(args: dict) -> dict:
     }
 
 
+def _pin_note_item(args: dict):
+    raw = args.get("item_id")
+    name = _trim(args.get("item") or args.get("on") or "", 200)
+    if not raw and not name:
+        return None
+    from app.builddb.table_items import Item
+    from app.utils.household import household_id
+
+    hid = household_id()
+    if raw and str(raw).isdigit():
+        item = Item.query.filter_by(id=int(raw), household_id=hid).filter(Item.removed_at.is_(None)).first()
+        if item is None:
+            return {"ok": False, "error": "That item is not in this household."}
+        return item.id
+    seen = []
+    for kind in ("vehicle", "tool", "house"):
+        for row in _find_items(name, kind, limit=4):
+            if all(row.id != old.id for old in seen):
+                seen.append(row)
+    if len(seen) == 1:
+        return seen[0].id
+    if len(seen) > 1:
+        return {
+            "ok": False,
+            "need": ["item"],
+            "choices": [r.name for r in seen],
+            "hint": "Which one should this note sit on? " + ", ".join(r.name for r in seen),
+        }
+    return {"ok": False, "error": f"No vehicle, tool, or equipment named {name}."}
+
+
 def tool_note_save(args: dict) -> dict:
     from sqlalchemy import or_
     from app.builddb.table_notes import VISIBILITY, Note
@@ -685,6 +721,9 @@ def tool_note_save(args: dict) -> dict:
         )
         if note is not None and note.user_id != current_user.id and not getattr(current_user, "is_admin", False):
             note = None
+    pinned = _pin_note_item(args)
+    if isinstance(pinned, dict):
+        return pinned
     if note is None:
         if not title:
             return {"ok": False, "error": "Need a note title."}
@@ -696,23 +735,27 @@ def tool_note_save(args: dict) -> dict:
             visibility=vis,
             title=title,
             body=body or None,
+            item_id=pinned,
         )
         db.session.add(note)
         db.session.commit()
-        return {"ok": True, "id": note.id, "title": title, "share": vis, "href": "/notes/", "did": "saved"}
+        href = f"/items/{pinned}?tab=notes" if pinned else "/notes/"
+        return {"ok": True, "id": note.id, "title": title, "share": vis, "href": href, "did": "saved"}
     if title:
         note.title = title
     if body:
         note.body = ((note.body or "") + "\n" + body).strip() if args.get("append") else body
     if vis in VISIBILITY:
         note.visibility = vis
+    if pinned:
+        note.item_id = pinned
     db.session.commit()
     return {
         "ok": True,
         "id": note.id,
         "title": note.title,
         "share": note.visibility,
-        "href": "/notes/",
+        "href": f"/items/{note.item_id}?tab=notes" if note.item_id else "/notes/",
         "did": "updated",
     }
 
@@ -1186,6 +1229,10 @@ def run_tool(name: str, args: dict | None) -> dict:
             from app.utils.ask_do import tool_legal_save
 
             return tool_legal_save(args)
+        if key == "oil_save":
+            from app.utils.ask_do import tool_oil_save
+
+            return tool_oil_save(args)
     except Exception as exc:
         return {"ok": False, "error": f"Could not do that: {exc}"}
     return {"ok": False, "error": f"Unknown tool {name}."}

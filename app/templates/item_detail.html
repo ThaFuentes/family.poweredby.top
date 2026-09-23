@@ -42,6 +42,7 @@
     <p class="muted" style="margin:.85rem 0 0;font-size:.78rem"><a href="{{ url_for('items.systems_ui', item_id=item.id, mode='calm') }}">Try the calmer systems view</a></p>
   {% endif %}
 {% elif tab == 'overview' %}
+  {% include "partials/item_desk.html" %}
   <div class="card">
     {% if item.grocery %}
       {% set lots_info = lots_info or {} %}
@@ -321,7 +322,15 @@
     {% if item.tool %}
       <label>Kind</label><input name="tool_type" value="{{ item.tool.type or '' }}">
       <label>Power</label><input name="power_source" value="{{ item.tool.power_source or '' }}">
-      <label>Oil</label><input name="oil_type" value="{{ item.tool.oil_type or '' }}">
+      <label>Oil it needs</label><input name="oil_needs" value="{{ item.tool.oil_needs or '' }}" placeholder="SAE 30">
+      <label>How much</label><input name="oil_capacity" value="{{ item.tool.oil_capacity or '' }}">
+      <label>What’s in it now</label><input name="oil_type" value="{{ item.tool.oil_type or '' }}">
+      <label>Last oil date</label><input type="date" name="last_oil_date" value="{{ item.tool.last_oil_date or '' }}">
+      <label>Last oil hours</label><input name="last_oil_hours" value="{{ item.tool.last_oil_hours or '' }}">
+      <label>Every hours</label><input name="oil_interval_hours" value="{{ item.tool.oil_interval_hours or '' }}">
+      <label>Every months</label><input name="oil_interval_months" value="{{ item.tool.oil_interval_months or '' }}">
+      <label>Next oil date</label><input type="date" name="next_oil_due_date" value="{{ item.tool.next_oil_due_date or '' }}">
+      <label>Next oil hours</label><input name="next_oil_due_hours" value="{{ item.tool.next_oil_due_hours or '' }}">
       <label>Fuel</label><input name="fuel_type" value="{{ item.tool.fuel_type or '' }}">
       <label>Usage notes</label><textarea name="usage_notes">{{ item.tool.usage_notes or '' }}</textarea>
       <label>Interval hours</label><input name="maintenance_interval_hours" value="{{ item.tool.maintenance_interval_hours or '' }}">
@@ -332,8 +341,16 @@
       <label>Year</label><input name="year" value="{{ item.vehicle.year or '' }}">
       <label>Trim</label><input name="trim" placeholder="SR5" value="{{ item.vehicle.trim or '' }}">
       <label>Engine</label><input name="engine" placeholder="4.7L V8" value="{{ item.vehicle.engine or '' }}">
-      <label>Oil</label><input name="oil_type" placeholder="0W-20 synthetic" value="{{ item.vehicle.oil_type or '' }}">
+      <label>Oil it needs</label><input name="oil_needs" placeholder="5W-30 full synthetic, API SP" value="{{ item.vehicle.oil_needs or '' }}">
+      <label>How much</label><input name="oil_capacity" placeholder="6 qt" value="{{ item.vehicle.oil_capacity or '' }}">
+      <label>What’s in it now</label><input name="oil_type" placeholder="Mobil 1 5W-30" value="{{ item.vehicle.oil_type or '' }}">
       <label>Oil filter</label><input name="filter_type" value="{{ item.vehicle.filter_type or '' }}">
+      <label>Last oil date</label><input type="date" name="last_oil_change_date" value="{{ item.vehicle.last_oil_change_date or '' }}">
+      <label>Last oil miles</label><input name="last_oil_change_mileage" value="{{ item.vehicle.last_oil_change_mileage or '' }}">
+      <label>Every miles</label><input name="oil_interval_miles" value="{{ item.vehicle.oil_interval_miles or '' }}">
+      <label>Every months</label><input name="oil_interval_months" value="{{ item.vehicle.oil_interval_months or '' }}">
+      <label>Next oil date</label><input type="date" name="next_oil_due_date" value="{{ item.vehicle.next_oil_due_date or '' }}">
+      <label>Next oil miles</label><input name="next_oil_due_mileage" value="{{ item.vehicle.next_oil_due_mileage or '' }}">
       <label>VIN</label><input name="vin" value="{{ item.vehicle.vin or '' }}">
       <label>Plate</label><input name="plate" value="{{ item.vehicle.plate or '' }}">
       <label>Color</label><input name="color" value="{{ item.vehicle.color or '' }}">

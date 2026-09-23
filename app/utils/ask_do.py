@@ -127,6 +127,15 @@ JOBS = (
         "how": "Needs the vault unlocked for this login. Ask for the Family OS password if it is locked. Do not invent a password.",
     },
     {
+        "id": "oil",
+        "perm": "maintain",
+        "title": "Oil spec, last change, and next change",
+        "tool": "oil_save",
+        "need": ["item"],
+        "optional": ["needs", "capacity", "in_it", "last_date", "last_miles", "interval_miles", "next_date"],
+        "how": "needs is the oil the vehicle or tool requires. in_it is what was poured. Last date plus an interval fills the next due date when next is left blank.",
+    },
+    {
         "id": "log",
         "perm": ("scan", "maintain", "edit_meta", "photo"),
         "title": "Log miles, hours, a fill-up, a repair, or a code",
@@ -791,6 +800,59 @@ def tool_place(args: dict | None = None) -> dict:
         "ok": False,
         "need": ["what", "name"],
         "hint": "What is it — a tool, a car part, something in the house, groceries, or a paper notice? A name helps me file it.",
+    }
+
+
+def tool_oil_save(args: dict | None = None) -> dict:
+    args = args if isinstance(args, dict) else {}
+    if not (can("maintain") or can("edit_meta")):
+        return _denied("update the oil record")
+    from app.utils.ask import _find_items, _path
+    from app.utils.oil import save_item_oil
+
+    q = _trim(args.get("item") or args.get("q") or args.get("name") or args.get("vehicle"), 200)
+    if not q:
+        return {"ok": False, "need": ["item"], "hint": "Which vehicle, tool, or piece of equipment?"}
+    item = None
+    if q.isdigit():
+        found = _find_items(q, None, limit=1)
+        item = found[0] if found else None
+    else:
+        for kind in ("vehicle", "tool", "house"):
+            found = _find_items(q, kind, limit=3)
+            if len(found) == 1:
+                item = found[0]
+                break
+            if len(found) > 1:
+                return {
+                    "ok": False,
+                    "need": ["item"],
+                    "choices": [r.name for r in found],
+                    "hint": "Which one? " + ", ".join(r.name for r in found),
+                }
+    if item is None:
+        return {"ok": False, "error": f"Nothing saved matches {q}."}
+    if item.vehicle is None and item.tool is None:
+        return {"ok": False, "error": f"{item.name} does not keep an oil record."}
+    try:
+        save_item_oil(item, args, clear=False)
+    except ValueError:
+        return {"ok": False, "error": f"{item.name} does not keep an oil record."}
+    db.session.commit()
+    host = item.vehicle or item.tool
+    return {
+        "ok": True,
+        "id": item.id,
+        "name": item.name,
+        "needs": getattr(host, "oil_needs", None) or "",
+        "in_it": getattr(host, "oil_type", None) or "",
+        "capacity": getattr(host, "oil_capacity", None) or "",
+        "last": str(getattr(host, "last_oil_change_date", None) or getattr(host, "last_oil_date", None) or ""),
+        "next": str(getattr(host, "next_oil_due_date", None) or ""),
+        "next_miles": getattr(host, "next_oil_due_mileage", None) or "",
+        "next_hours": getattr(host, "next_oil_due_hours", None) or "",
+        "href": (_path("items.detail", item_id=item.id) or f"/items/{item.id}") + "?tab=overview",
+        "did": "saved",
     }
 
 

@@ -1,5 +1,6 @@
 {% from "partials/part_pic.html" import part_pic %}
 <p class="muted" style="margin:0 0 .55rem">Scan for this {% if systems_host == 'house' %}house{% else %}vehicle{% endif %}.</p>
+{% include "partials/item_desk.html" %}
 
 {% if can_maintain or can_edit %}
 <p class="btn-row" style="margin:0 0 .75rem">

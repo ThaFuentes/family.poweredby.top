@@ -14,6 +14,14 @@ class Tool(db.Model):
     type = db.Column(db.String(80), nullable=True)
     power_source = db.Column(db.String(40), nullable=True)
     oil_type = db.Column(db.String(80), nullable=True)
+    oil_needs = db.Column(db.String(200), nullable=True)
+    oil_capacity = db.Column(db.String(40), nullable=True)
+    last_oil_date = db.Column(db.Date, nullable=True)
+    last_oil_hours = db.Column(db.Integer, nullable=True)
+    oil_interval_hours = db.Column(db.Integer, nullable=True)
+    oil_interval_months = db.Column(db.Integer, nullable=True)
+    next_oil_due_date = db.Column(db.Date, nullable=True)
+    next_oil_due_hours = db.Column(db.Integer, nullable=True)
     fuel_type = db.Column(db.String(80), nullable=True)
     usage_notes = db.Column(EncryptedText, nullable=True)
     maintenance_interval_hours = db.Column(db.Integer, nullable=True)
@@ -35,6 +43,14 @@ def create_table():
             ("type", "VARCHAR(80) NULL"),
             ("power_source", "VARCHAR(40) NULL"),
             ("oil_type", "VARCHAR(80) NULL"),
+            ("oil_needs", "VARCHAR(200) NULL"),
+            ("oil_capacity", "VARCHAR(40) NULL"),
+            ("last_oil_date", "DATE NULL"),
+            ("last_oil_hours", "INT NULL"),
+            ("oil_interval_hours", "INT NULL"),
+            ("oil_interval_months", "INT NULL"),
+            ("next_oil_due_date", "DATE NULL"),
+            ("next_oil_due_hours", "INT NULL"),
             ("fuel_type", "VARCHAR(80) NULL"),
             ("usage_notes", "TEXT NULL"),
             ("maintenance_interval_hours", "INT NULL"),

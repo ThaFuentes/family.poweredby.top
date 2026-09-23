@@ -258,6 +258,9 @@ def _attach_type_row(item, form):
         t.type = (form.get("tool_type") or "").strip() or None
         t.power_source = (form.get("power_source") or "").strip() or None
         t.oil_type = (form.get("oil_type") or "").strip() or None
+        from app.utils.oil import apply_tool_oil
+
+        apply_tool_oil(t, form, clear=True)
         t.fuel_type = (form.get("fuel_type") or "").strip() or None
         t.usage_notes = (form.get("usage_notes") or "").strip() or None
         hours = form.get("maintenance_interval_hours") or ""
@@ -282,8 +285,9 @@ def _attach_type_row(item, form):
         v.transmission = (form.get("transmission") or "").strip() or None
         v.doors = (form.get("doors") or "").strip() or None
         v.manufacturer = (form.get("manufacturer") or "").strip() or None
-        v.oil_type = (form.get("oil_type") or "").strip() or None
-        v.filter_type = (form.get("filter_type") or "").strip() or None
+        from app.utils.oil import apply_vehicle_oil
+
+        apply_vehicle_oil(v, form, clear=True)
         v.tire_size = (form.get("tire_size") or "").strip() or None
         v.battery_type = (form.get("battery_type") or "").strip() or None
         miles = form.get("current_mileage") or ""
@@ -1043,9 +1047,13 @@ def maintenance(item_id):
         if miles:
             item.vehicle.current_mileage = int(_dec(miles, "0"))
         if mtype in ("oil_change", "oil change", "oil"):
-            item.vehicle.last_oil_change_date = date
-            if miles:
-                item.vehicle.last_oil_change_mileage = int(_dec(miles, "0"))
+            from app.utils.oil import apply_vehicle_oil
+
+            apply_vehicle_oil(
+                item.vehicle,
+                {"last_date": date.isoformat(), "last_miles": miles or ""},
+                clear=False,
+            )
     try:
         from app.utils.item_log import add_item_log
 
@@ -1343,6 +1351,24 @@ def add_log(item_id):
     else:
         flash("Saved to the log.", "success")
     return redirect(url_for("items.detail", item_id=item.id, tab="log"))
+
+
+@items_bp.route("/<int:item_id>/oil", methods=["POST"])
+@login_required
+def save_oil(item_id):
+    if not (can("maintain") or can("edit_meta")):
+        abort(403)
+    item = _item_or_404(item_id)
+    from app.utils.oil import save_item_oil
+
+    try:
+        save_item_oil(item, request.form, clear=True)
+    except ValueError:
+        flash("Oil stays on a vehicle, tool, or piece of equipment.", "warning")
+        return redirect(url_for("items.detail", item_id=item.id))
+    db.session.commit()
+    flash("Oil record saved.", "success")
+    return redirect(url_for("items.detail", item_id=item.id, tab=request.form.get("next") or "overview"))
 
 
 @items_bp.route("/<int:item_id>/mileage", methods=["POST"])
