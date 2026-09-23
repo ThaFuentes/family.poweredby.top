@@ -16,6 +16,10 @@
   var previewClear = document.getElementById("ask-preview-clear");
   var busy = false;
   var pendingImage = "";
+  var room = root.getAttribute("data-room") || "house";
+  var mode = root.getAttribute("data-mode") || "fab";
+  var cacheKey = "family-ask-log:" + room;
+  var historyLoaded = false;
 
   function csrfToken() {
     var m = document.querySelector('meta[name="csrf-token"]');
@@ -40,7 +44,7 @@
       var tail = href.slice(clean.length);
       return pre + '<a href="' + clean + '" rel="noopener noreferrer" target="_blank">' + clean + "</a>" + tail;
     });
-    text = text.replace(/(^|[\s(])(\/(?:vault|find|notes|groceries|reminders|items|legal|members|house|tools|vehicles)[^\s<]*)/g, function (_, pre, href) {
+    text = text.replace(/(^|[\s(])(\/(?:ask|vault|find|notes|groceries|reminders|items|legal|members|house|tools|vehicles)[^\s<]*)/g, function (_, pre, href) {
       var clean = href.replace(/[.,;:!?)]+$/, "");
       var tail = href.slice(clean.length);
       return pre + '<a href="' + clean + '">' + clean + "</a>" + tail;
@@ -121,18 +125,106 @@
     img.src = url;
   }
 
+  function cacheRead() {
+    try {
+      var raw = window.localStorage.getItem(cacheKey);
+      var data = raw ? JSON.parse(raw) : null;
+      if (!data || !Array.isArray(data.turns)) return null;
+      return data.turns;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function cacheWrite(turns) {
+    try {
+      window.localStorage.setItem(cacheKey, JSON.stringify({ turns: turns || [], at: Date.now() }));
+    } catch (e) {}
+  }
+
+  function cacheClear() {
+    try { window.localStorage.removeItem(cacheKey); } catch (e) {}
+  }
+
+  function turnsFromLog() {
+    if (!log) return [];
+    var out = [];
+    Array.prototype.forEach.call(log.children, function (el) {
+      var cls = el.className || "";
+      if (cls.indexOf("pending") >= 0 || cls.indexOf("err") >= 0) return;
+      var role = /\bme\b/.test(cls) ? "user" : "assistant";
+      var text = (el.innerText || el.textContent || "").replace(/\s*Try again\s*$/, "").trim();
+      if (text) out.push({ role: role, text: text });
+    });
+    return out;
+  }
+
+  function paintTurns(turns) {
+    if (!log) return;
+    log.innerHTML = "";
+    (turns || []).forEach(function (row) {
+      var role = row.role === "user" ? "me" : "them";
+      addBubble(role, row.text || "");
+    });
+  }
+
+  function loadHistory(force) {
+    if (!force && historyLoaded && log && log.childElementCount) return;
+    if (!log || !log.childElementCount) {
+      var cached = cacheRead();
+      if (cached && cached.length) paintTurns(cached);
+    }
+    fetch("/ask/history?room=" + encodeURIComponent(room), {
+      headers: { Accept: "application/json", "X-Requested-With": "fetch" },
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        var turns = (data && data.turns) || [];
+        if (historyLoaded && log && log.childElementCount && turns.length < turnsFromLog().length) {
+          return;
+        }
+        paintTurns(turns);
+        cacheWrite(turns);
+        historyLoaded = true;
+      })
+      .catch(function () {
+        historyLoaded = true;
+      });
+  }
+
   function setOpen(on) {
+    if (mode === "desk") {
+      if (panel) {
+        panel.hidden = false;
+        panel.classList.add("is-open");
+      }
+      if (on && input) {
+        try { input.focus(); } catch (e) {}
+      }
+      return;
+    }
     if (!panel || !openBtn) return;
     panel.hidden = !on;
     panel.classList.toggle("is-open", !!on);
     openBtn.hidden = on;
     openBtn.setAttribute("aria-expanded", on ? "true" : "false");
     root.classList.toggle("ask-on", on);
-    if (on && input) {
-      try { input.focus(); } catch (e) {}
+    if (on) {
+      if (!log || !log.childElementCount) loadHistory(true);
+      if (input) {
+        try { input.focus(); } catch (e) {}
+      }
+    } else {
+      cacheWrite(turnsFromLog());
     }
   }
-  setOpen(false);
+  if (mode === "desk") {
+    setOpen(true);
+    loadHistory(true);
+  } else {
+    setOpen(false);
+    loadHistory(false);
+  }
 
   if (openBtn) openBtn.addEventListener("click", function () { setOpen(true); });
   if (closeBtn) closeBtn.addEventListener("click", function () { setOpen(false); });
@@ -140,9 +232,16 @@
     clearBtn.addEventListener("click", function () {
       fetch("/ask/clear", {
         method: "POST",
-        headers: { "X-CSRF-Token": csrfToken(), "X-Requested-With": "fetch" },
+        headers: {
+          "X-CSRF-Token": csrfToken(),
+          "X-Requested-With": "fetch",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ room: room }),
       }).catch(function () {});
       if (log) log.innerHTML = "";
+      cacheClear();
+      historyLoaded = true;
       setPreview("");
       if (fileInput) fileInput.value = "";
     });
@@ -195,7 +294,7 @@
     if (send) send.disabled = true;
     addBubble("them pending", imageUrl ? "Reading the photo…" : "Looking…");
     var pending = log ? log.lastElementChild : null;
-    var body = { message: text };
+    var body = { message: text, room: room };
     if (imageUrl) {
       body.image = imageUrl;
       body.image_mime = "image/jpeg";
@@ -222,6 +321,7 @@
         if (pending) pending.remove();
         addBubble(data.ok ? "them" : "them err", say, "", !data.ok && canRetry(say) ? retry : null);
         if (data.vault_locked) addBubble("them", "Open /vault/ with this login, then ask again.");
+        if (data.ok) cacheWrite(turnsFromLog());
       })
       .catch(function () {
         if (pending) pending.remove();

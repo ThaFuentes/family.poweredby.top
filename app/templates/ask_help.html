@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Ask help · Family OS{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Ask</h1>
+    <p>Looks this house up. Rooms keep threads apart. Slash commands work even when the model is busy.</p>
+  </div>
+  {% if not need_key %}
+  <a class="btn sm" href="{{ url_for('ask.index') }}">Open Ask</a>
+  {% endif %}
+</div>
+{% if need_key %}
+<p class="flash info">Add an AI key in Household to talk. Slash lists below still describe the rooms.</p>
+{% endif %}
+<nav class="ask-rooms" aria-label="Ask rooms">
+  {% for r in rooms %}
+  <a href="{{ r.href }}">{{ r.title }}</a>
+  {% endfor %}
+</nav>
+<div class="card ask-help-card">
+  <pre class="ask-help-body">{{ help_body }}</pre>
+</div>
+{% endblock %}

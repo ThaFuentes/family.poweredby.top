@@ -185,13 +185,34 @@ def create_app():
             except Exception:
                 places = []
         ask_open = False
+        ask_embed = False
+        ask_room = "house"
+        ask_room_meta = None
+        ask_path = ""
+        try:
+            from flask import request as _req
+
+            from app.utils.ask_rooms import room_from_path as _ask_room_path
+            from app.utils.ask_rooms import room_meta as _ask_room_meta
+
+            ask_path = getattr(_req, "path", "") or ""
+            ask_room = _ask_room_path(ask_path)
+            if not ask_path.startswith("/ask"):
+                ask_room = "house"
+            ask_room_meta = _ask_room_meta(ask_room)
+        except Exception:
+            ask_room = "house"
+            ask_room_meta = None
+            ask_path = ""
         try:
             if getattr(current_user, "is_authenticated", False) and _role_of() != "child":
                 from app.utils.ask import ask_ready as _ask_ready
 
                 ask_open = _ask_ready(hh, current_user)
+                ask_embed = bool(ask_open) and not ask_path.startswith("/ask")
         except Exception:
             ask_open = False
+            ask_embed = False
         return {
             "SITE_MODE": "family",
             "SITE_NAME": "Family OS",
@@ -204,6 +225,9 @@ def create_app():
             "places": places,
             "is_child": _role_of() == "child" if getattr(current_user, "is_authenticated", False) else False,
             "ask_open": ask_open,
+            "ask_embed": ask_embed,
+            "ask_room": ask_room,
+            "ask_room_meta": ask_room_meta,
         }
 
     from app.utils.thumbs import item_thumb_url as _item_thumb_filter

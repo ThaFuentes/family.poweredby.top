@@ -8,9 +8,9 @@ from __future__ import annotations
 import json
 import re
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
-from flask import has_request_context, session, url_for
+from flask import g, has_request_context, session, url_for
 from flask_login import current_user
 
 from app.builddb.builddb import db
@@ -20,17 +20,23 @@ from app.utils.permissions import can, role_of
 
 SESSION_HISTORY = "family_ask_history"
 SESSION_HITS = "family_ask_hits"
-MAX_HISTORY = 12
-MAX_TOOL_ROUNDS = 5
-MAX_HITS = 24
+SESSION_OIL_PENDING = "family_ask_oil_pending"
+SESSION_EXPIRE_PENDING = "family_ask_expire_pending"
+MAX_HISTORY = 24
+MAX_TOOL_ROUNDS = 6
+MAX_HITS = 40
 HIT_WINDOW = 600
 MSG_CAP = 2000
+TURN_KEEP = 80
+IDLE_DAYS = 14
 
 TOOLS = (
     "find",
     "house",
     "due",
     "vehicle_card",
+    "item_inspect",
+    "item_remove",
     "lookup",
     "vault_unlock",
     "vault_list",
@@ -52,6 +58,10 @@ TOOLS = (
     "log_save",
     "legal_save",
     "oil_save",
+    "oil_lookup",
+    "expire_list",
+    "expire_save",
+    "expire_guess",
 )
 
 WRITE_TOOLS = (
@@ -71,17 +81,30 @@ WRITE_TOOLS = (
     "log_save",
     "legal_save",
     "oil_save",
+    "item_remove",
+    "expire_save",
+    "expire_guess",
 )
 
-SYSTEM = """You are Ask in Family OS. Do the house work this person is already allowed to do: people, vault, bills, tools, parts, vehicles, the house, notes, inventory, basket, logs, legal paper, and photos.
+SYSTEM = """You are Ask in Family OS. Do the house work this person is already allowed to do: people, tools, parts, vehicles, the house, notes, inventory, basket, logs, legal paper, photos, oil specs, food dates, and (only when unlocked) the vault.
 
-Reply with ONLY JSON. To act:
+You look things up on this site yourself with find and item_inspect. Never tell them to go look, type a VIN, or open a page to read a field you can inspect.
+
+Reply with ONE JSON object per turn.
+To act: {"tool":"find","args":{"q":"gas generator"}}
+To talk: {"say":"short spoken English with /items/4 links."}
+The say field is spoken English only. Never put JSON, tool names, or raw tool results in say.
+
 {"tool":"find","args":{"q":"batteries"}}
+{"tool":"item_inspect","args":{"q":"gas gen"}}
+{"tool":"item_remove","args":{"q":"old drill"}}
 {"tool":"house","args":{"kind":"tools"}}
 {"tool":"house","args":{"kind":"vehicles"}}
 {"tool":"vehicle_card","args":{"q":"2006 tundra"}}
 {"tool":"house","args":{"kind":"basket"}}
 {"tool":"due","args":{}}
+{"tool":"expire_list","args":{"days":21}}
+{"tool":"expire_save","args":{"q":"milk","date":"2026-10-04","amount":1,"place":"fridge"}}
 {"tool":"lookup","args":{"upc":"012345678905"}}
 {"tool":"lookup","args":{"vin":"1HGCM82633A004352"}}
 {"tool":"lookup","args":{"plate":"ABC1234"}}
@@ -105,27 +128,32 @@ Reply with ONLY JSON. To act:
 {"tool":"member_add","args":{"name":"Sam","username":"sam","role":"member","email":"","password":""}}
 {"tool":"member_role","args":{"username":"sam","role":"member"}}
 {"tool":"log_save","args":{"item":"Silverado","kind":"miles","reading":"81200","notes":""}}
-{"tool":"oil_save","args":{"item":"Silverado","needs":"5W-30 full synthetic API SP","capacity":"6 qt","in_it":"Mobil 1 5W-30","last_date":"2026-03-01","last_miles":"80000","interval_miles":"5000","interval_months":"6"}}
+{"tool":"oil_save","args":{"item":"Honda generator","needs":"SAE 10W-30","capacity":"20 oz","in_it":"","last_date":"","interval_hours":"50","interval_months":"6"}}
+{"tool":"oil_lookup","args":{"q":"white tundra 2011"}}
+{"tool":"expire_list","args":{"days":21}}
+{"tool":"expire_guess","args":{}}
 {"tool":"note_save","args":{"title":"Spare key","body":"In the kitchen drawer.","item":"Silverado","share":"household"}}
 {"tool":"legal_save","args":{"title":"Parking ticket","kind":"ticket","agency":"","due":"","amount":"","body":""}}
 {"tool":"guide","args":{"action":"add_person"}}
 
 place what: tool, part, grocery, vehicle, house, note, legal.
 A photo with a barcode, VIN, or serial: read the code, then place or lookup. No code: identify the tool or part and place it. Do not invent codes.
-Oil: needs is the exact text for the Oil it needs field. in_it is what was poured. capacity, last_date, last_miles, interval_miles, and interval_months fill those form fields. Do not say the oil was added unless oil_save returns a needs value. Notes with item are pinned on that vehicle, tool, or equipment.
-If they say add that, save that, or put that on a vehicle, tool, or the house, save your previous reply on that item with note_save. When the reply is an oil spec, also oil_save with needs set to that spec. Do not ask them to paste it again.
+Oil: inspect the named vehicle or tool first (gas gen, mower, white tundra 2011). If oil_needs is filled, tell them that spec. If it is empty, call oil_lookup using the saved year/make/model/VIN so the OEM spec is looked up, tell them that spec, and ask if you should oil_save it. Do not ask them to look it up or to paste a VIN.
+needs is the Oil it needs field. in_it is what was poured. Do not say the oil was added unless oil_save returns a needs value.
+If they say add that, save that, yes, or put that on a vehicle, tool, or the house, save your previous reply on that item with note_save. When the reply is an oil spec, also oil_save with needs set to that spec.
 Adding a person: call member_add only when you have a name and username. If either is missing, ask. Role member, admin, or child. Password may be blank.
 When member_add returns a password, say the username and password once so they can copy it.
 inventory action: restock, used, set, need, create.
+expire_save writes a use-by date on food. expire_list says what is going bad soon and how many food rows have no date. expire_guess writes typical shelf life on those undated rows when they say add generic expirations.
+item_remove takes a tool, vehicle, or grocery out of the house. Confirm the name you found, then remove it. Do not remove vault cards this way.
 vault kind: password, billing, info. share: personal or household.
 two_factor: none, sms, app, email, hardware, other.
 reminder type: bill, oil_change, filter, custom. every: 30d, 90d, 180d, 365d, 3000mi, 5000mi, 50h, or monthly/yearly.
-To talk: {"say":"short answer with /vault/12 /items/4 /find/?q=oil or https links."}
 
 If they name a store run (Sam's, Costco) put those names on the basket with store set — no barcode yet. When they later scan a product that fits (french vanilla creamer vs coffee creamer), call basket_match so it links and comes off the list.
 If vault is locked, call vault_unlock when they gave the password, else tell them to open /vault/ or paste the password.
 Look up a UPC/VIN before creating a tool, vehicle, or grocery when they gave a code.
-A saved vehicle already has its year, make, model, color, VIN, plate, and oil. Call vehicle_card before you ask them for any of those. Use the VIN on the card. Do not ask them to type a VIN, plate, or oil spec that is already stored. Words like April, Black, 2006, and Tundra are how that truck is saved.
+A saved vehicle or tool already has its year, make, model, color, VIN, plate, serial, and oil. Call item_inspect or vehicle_card before you ask for any of those.
 Do not invent counts, passwords, VINs, or bills. Keep answers short.
 """
 
@@ -150,13 +178,39 @@ def _trim(value, cap: int) -> str:
     return ("" if value is None else str(value)).strip()[:cap]
 
 
+def _set_room(room: str | None) -> str:
+    from app.utils.ask_rooms import normalize_room
+
+    key = normalize_room(room)
+    if has_request_context():
+        g.ask_room = key
+    return key
+
+
+def _room() -> str:
+    from app.utils.ask_rooms import normalize_room
+
+    if has_request_context():
+        return normalize_room(getattr(g, "ask_room", None))
+    return "house"
+
+
+def _sess_key() -> str:
+    room = _room()
+    if room == "house":
+        return SESSION_HISTORY
+    return f"{SESSION_HISTORY}:{room}"
+
+
 def _history() -> list:
     if not has_request_context():
         return []
     stored = _load_turns()
     if stored:
         return stored
-    rows = session.get(SESSION_HISTORY) or []
+    rows = session.get(_sess_key()) or []
+    if not isinstance(rows, list) and _room() == "house":
+        rows = session.get(SESSION_HISTORY) or []
     if not isinstance(rows, list):
         return []
     return rows[-MAX_HISTORY:]
@@ -165,11 +219,8 @@ def _history() -> list:
 def _save_history(rows: list) -> None:
     if not has_request_context():
         return
-    session[SESSION_HISTORY] = rows[-MAX_HISTORY:]
+    session[_sess_key()] = rows[-MAX_HISTORY:]
     _store_latest(rows)
-
-
-TURN_KEEP = 40
 
 
 def _turn_user():
@@ -182,6 +233,35 @@ def _turn_user():
     return uid, hid
 
 
+def _turn_age_days(row) -> int | None:
+    ts = getattr(row, "created_at", None)
+    if ts is None:
+        return None
+    try:
+        if getattr(ts, "tzinfo", None) is not None:
+            ts = ts.replace(tzinfo=None)
+        return max(0, (_utcnow() - ts).days)
+    except Exception:
+        return None
+
+
+def _expire_idle_turns(uid: int, hid: int, room: str, newest) -> bool:
+    age = _turn_age_days(newest)
+    if age is None or age < IDLE_DAYS:
+        return False
+    try:
+        from app.builddb.table_ask_turns import AskTurn
+
+        AskTurn.query.filter_by(household_id=hid, user_id=uid, room=room).delete(
+            synchronize_session=False
+        )
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return False
+    return True
+
+
 def _load_turns() -> list:
     who = _turn_user()
     if not who:
@@ -190,12 +270,15 @@ def _load_turns() -> list:
         from app.builddb.table_ask_turns import AskTurn
 
         uid, hid = who
+        room = _room()
         rows = (
-            AskTurn.query.filter_by(household_id=hid, user_id=uid)
+            AskTurn.query.filter_by(household_id=hid, user_id=uid, room=room)
             .order_by(AskTurn.id.desc())
-            .limit(16)
+            .limit(TURN_KEEP)
             .all()
         )
+        if rows and _expire_idle_turns(uid, hid, room, rows[0]):
+            return []
     except Exception:
         return []
     out = []
@@ -204,6 +287,30 @@ def _load_turns() -> list:
         if text and row.role in ("user", "assistant"):
             out.append({"role": row.role, "text": text[:4000]})
     return out
+
+
+def history_payload(room: str | None = None) -> dict:
+    if room is not None:
+        _set_room(room)
+    turns = _load_turns()
+    return {
+        "ok": True,
+        "room": _room(),
+        "turns": [{"role": row.get("role"), "text": row.get("text") or ""} for row in turns],
+    }
+
+
+def _prune_turns(uid: int, hid: int) -> None:
+    from app.builddb.table_ask_turns import AskTurn
+
+    stale = (
+        AskTurn.query.filter_by(household_id=hid, user_id=uid, room=_room())
+        .order_by(AskTurn.id.desc())
+        .offset(TURN_KEEP)
+        .all()
+    )
+    for row in stale:
+        db.session.delete(row)
 
 
 def _store_latest(rows: list) -> None:
@@ -223,25 +330,31 @@ def _store_latest(rows: list) -> None:
         from app.builddb.table_ask_turns import AskTurn
 
         uid, hid = who
+        room = _room()
         latest = (
-            AskTurn.query.filter_by(household_id=hid, user_id=uid, role="assistant")
+            AskTurn.query.filter_by(household_id=hid, user_id=uid, room=room)
             .order_by(AskTurn.id.desc())
-            .first()
-        )
-        if latest is not None and (latest.body or "").strip() == last_assistant:
-            return
-        if last_user:
-            db.session.add(AskTurn(household_id=hid, user_id=uid, role="user", body=last_user[:4000]))
-        db.session.add(AskTurn(household_id=hid, user_id=uid, role="assistant", body=last_assistant[:4000]))
-        db.session.flush()
-        stale = (
-            AskTurn.query.filter_by(household_id=hid, user_id=uid)
-            .order_by(AskTurn.id.desc())
-            .offset(TURN_KEEP)
+            .limit(2)
             .all()
         )
-        for row in stale:
-            db.session.delete(row)
+        last_bodies = [(r.role, (r.body or "").strip()) for r in latest]
+        if ("assistant", last_assistant) in last_bodies:
+            return
+        if last_user:
+            db.session.add(
+                AskTurn(household_id=hid, user_id=uid, role="user", room=room, body=last_user[:4000])
+            )
+        db.session.add(
+            AskTurn(
+                household_id=hid,
+                user_id=uid,
+                role="assistant",
+                room=room,
+                body=last_assistant[:4000],
+            )
+        )
+        db.session.flush()
+        _prune_turns(uid, hid)
         db.session.commit()
     except Exception:
         db.session.rollback()
@@ -255,15 +368,21 @@ def _clear_turns() -> None:
         from app.builddb.table_ask_turns import AskTurn
 
         uid, hid = who
-        AskTurn.query.filter_by(household_id=hid, user_id=uid).delete(synchronize_session=False)
+        AskTurn.query.filter_by(household_id=hid, user_id=uid, room=_room()).delete(
+            synchronize_session=False
+        )
         db.session.commit()
     except Exception:
         db.session.rollback()
 
 
-def clear_history() -> None:
+def clear_history(room: str | None = None) -> None:
+    if room is not None:
+        _set_room(room)
     if has_request_context():
-        session.pop(SESSION_HISTORY, None)
+        session.pop(_sess_key(), None)
+        if _room() == "house":
+            session.pop(SESSION_HISTORY, None)
         _clear_turns()
     try:
         from app.utils.ask_photo import clear_ask_photo
@@ -425,6 +544,540 @@ def _speak_vehicle_facts(rows: list, text: str) -> str:
     return "\n".join(lines)
 
 
+_TOKEN_EXPAND = {
+    "gen": ("gen", "generator", "genset"),
+    "genset": ("gen", "generator", "genset"),
+    "generator": ("gen", "generator", "genset"),
+    "mower": ("mower", "lawnmower", "lawn"),
+    "lawnmower": ("mower", "lawnmower", "lawn"),
+}
+
+
+def _machine_tokens(text: str) -> list[str]:
+    return _vehicle_tokens(text)
+
+
+def _machine_blob(item) -> str:
+    parts = [
+        getattr(item, "name", None) or "",
+        getattr(item, "notes", None) or "",
+        getattr(item, "category", None) or "",
+        getattr(item, "item_type", None) or "",
+    ]
+    tool = getattr(item, "tool", None)
+    if tool is not None:
+        parts.extend(
+            str(getattr(tool, key) or "")
+            for key in (
+                "type",
+                "model",
+                "serial_number",
+                "power_source",
+                "fuel_type",
+                "oil_needs",
+                "oil_type",
+                "asset_id",
+            )
+        )
+    return " ".join(parts).lower() + " " + _vehicle_blob(item)
+
+
+def _machine_hits(item, tokens: list[str]) -> int:
+    blob = _machine_blob(item)
+    hits = 0
+    for tok in tokens:
+        alts = _TOKEN_EXPAND.get(tok, (tok,))
+        if any(alt in blob for alt in alts):
+            hits += 1
+            continue
+        if tok.isdigit() and len(tok) == 4 and tok[-2:] in blob:
+            hits += 1
+    return hits
+
+
+def _matching_machines(text: str, types: tuple[str, ...] = ("tool", "vehicle")) -> list:
+    tokens = _machine_tokens(text)
+    rows = []
+    for kind in types:
+        for item in _find_items("", kind, limit=40):
+            if all(item.id != old.id for old in rows):
+                rows.append(item)
+    if not rows or not tokens:
+        return []
+    scored = [(_machine_hits(item, tokens), item) for item in rows]
+    scored = [(hits, item) for hits, item in scored if hits]
+    if not scored:
+        try:
+            from app.utils.household import household_id
+            from app.utils.search import search_household
+
+            hits = search_household(
+                household_id(),
+                " ".join(tokens),
+                user_id=current_user.id,
+                limit=12,
+                scope="all",
+            )
+            for item in hits.get("item_rows") or []:
+                if item.item_type in types and all(item.id != old.id for old in rows):
+                    scored.append((1, item))
+        except Exception:
+            pass
+    if not scored:
+        return []
+    scored.sort(key=lambda pair: (-pair[0], (pair[1].name or "").lower()))
+    best = scored[0][0]
+    return [item for hits, item in scored if hits == best]
+
+
+def _oil_fields(item) -> dict:
+    host = getattr(item, "vehicle", None) or getattr(item, "tool", None)
+    if host is None:
+        return {}
+    return {
+        "needs": getattr(host, "oil_needs", None) or "",
+        "in_it": getattr(host, "oil_type", None) or "",
+        "capacity": getattr(host, "oil_capacity", None) or "",
+        "last": str(getattr(host, "last_oil_change_date", None) or getattr(host, "last_oil_date", None) or ""),
+        "next": str(getattr(host, "next_oil_due_date", None) or ""),
+        "interval_miles": getattr(host, "oil_interval_miles", None) or "",
+        "interval_hours": getattr(host, "oil_interval_hours", None) or "",
+        "interval_months": getattr(host, "oil_interval_months", None) or "",
+    }
+
+
+def _item_card(item) -> dict:
+    href = _path("items.detail", item_id=item.id) or f"/items/{item.id}"
+    card = {
+        "id": item.id,
+        "name": item.name,
+        "kind": item.item_type,
+        "href": href,
+        "barcode": getattr(item, "barcode", None) or "",
+        "notes": (getattr(item, "notes", None) or "")[:500],
+    }
+    tool = getattr(item, "tool", None)
+    if tool is not None:
+        card.update(
+            {
+                "type": tool.type or "",
+                "model": tool.model or "",
+                "serial": tool.serial_number or "",
+                "power": tool.power_source or "",
+                "fuel": tool.fuel_type or "",
+                "hours": str(tool.hours_used or ""),
+            }
+        )
+        card.update(_oil_fields(item))
+    if getattr(item, "vehicle", None) is not None:
+        card.update(_vehicle_facts(item))
+        card.update(_oil_fields(item))
+    grocery = getattr(item, "grocery", None)
+    if grocery is not None:
+        from app.utils.lots import soonest
+        from app.utils.scan import qty_label
+
+        day = soonest(grocery)
+        card.update(
+            {
+                "qty": qty_label(getattr(grocery, "quantity", None)),
+                "place": grocery.default_location or "",
+                "expires": day.isoformat() if day else "",
+            }
+        )
+    return card
+
+
+def _speak_card(card: dict) -> str:
+    if not isinstance(card, dict):
+        return str(card or "")
+    name = card.get("name") or "item"
+    who = " ".join(
+        str(card.get(k) or "")
+        for k in ("year", "make", "model", "color", "type")
+        if card.get(k)
+    ).strip()
+    bits = [f"{name} · {who}" if who else name]
+    if card.get("serial"):
+        bits.append(f"serial {card['serial']}")
+    if card.get("vin"):
+        bits.append(f"VIN {card['vin']}")
+    if card.get("plate"):
+        bits.append(card["plate"])
+    if card.get("power"):
+        bits.append(card["power"])
+    if card.get("fuel"):
+        bits.append(card["fuel"])
+    needs = card.get("oil_needs") or card.get("needs") or ""
+    in_it = card.get("oil_in_it") or card.get("in_it") or ""
+    if needs:
+        bits.append(f"needs {needs}")
+    elif in_it:
+        bits.append(f"in it {in_it}")
+    elif card.get("kind") in ("tool", "vehicle") or "needs" in card or "oil_needs" in card:
+        bits.append("no oil spec saved")
+    if card.get("capacity"):
+        bits.append(card["capacity"])
+    if card.get("expires"):
+        bits.append(f"use by {card['expires']}")
+    if card.get("qty"):
+        bits.append(str(card["qty"]))
+    if card.get("place"):
+        bits.append(card["place"])
+    if card.get("href"):
+        bits.append(card["href"])
+    return " · ".join(str(b) for b in bits if b)
+
+
+def _speak_oil(item) -> str:
+    card = _item_card(item)
+    return _speak_card(card)
+
+
+def _all_oil_say() -> str:
+    lines = []
+    for kind in ("vehicle", "tool"):
+        for item in _find_items("", kind, limit=40):
+            oil = _oil_fields(item)
+            if oil.get("needs") or oil.get("in_it"):
+                lines.append(_speak_oil(item))
+    bottles = []
+    try:
+        from app.utils.household import household_id
+        from app.utils.search import search_household
+
+        hits = search_household(household_id(), "oil", user_id=current_user.id, limit=8, scope="groceries")
+        for item in hits.get("item_rows") or []:
+            bottles.append(_item_line(item))
+    except Exception:
+        pass
+    if not lines and not bottles:
+        return "No oil spec is saved on a vehicle or tool yet. Name one and I can look it up and add it."
+    parts = []
+    if lines:
+        parts.append("Oil on file:\n" + "\n".join(f"· {ln}" for ln in lines))
+    if bottles:
+        parts.append("Oil in inventory:\n" + "\n".join(f"· {ln}" for ln in bottles))
+    return "\n".join(parts)
+
+
+def _oil_targets(text: str) -> list:
+    raw = text or ""
+    rows = _matching_machines(raw)
+    if rows:
+        return rows
+    if re.search(r"\b(truck|trucks|car|cars|van|suv|vehicle|vehicles)\b", raw, re.I):
+        return _find_items("", "vehicle", limit=8)
+    if re.search(r"\b(gen|genset|generator|mower|tool|tools|equipment)\b", raw, re.I):
+        tools = _find_items("", "tool", limit=12)
+        if re.search(r"\b(gen|genset|generator)\b", raw, re.I):
+            named = [t for t in tools if _machine_hits(t, ["gen", "gas"]) or "generat" in _machine_blob(t)]
+            if named:
+                return named
+        return tools
+    return []
+
+
+def _oil_overview(text: str) -> bool:
+    raw = text or ""
+    if _machine_tokens(raw):
+        return False
+    if re.search(r"\b(truck|trucks|car|cars|van|suv|vehicle|vehicles|gen|genset|generator|mower|tool|tools)\b", raw, re.I):
+        return False
+    return True
+
+
+def _oil_local_say(text: str) -> str | None:
+    raw = (text or "").strip()
+    if not re.search(r"\boil\b", raw, re.I):
+        return None
+    rows = _oil_targets(raw)
+    if not rows:
+        if _oil_overview(raw):
+            return _all_oil_say()
+        return None
+    with_oil = [item for item in rows if _oil_fields(item).get("needs") or _oil_fields(item).get("in_it")]
+    if len(rows) == 1 and with_oil:
+        return _speak_oil(rows[0])
+    if len(rows) == 1:
+        researched = _oil_research_say(rows[0])
+        if researched:
+            return researched
+        return None
+    if with_oil and len(with_oil) == len(rows):
+        return "\n".join(_speak_oil(item) for item in rows)
+    if len(rows) > 1:
+        names = ", ".join(r.name for r in rows[:6])
+        return f"Which one? {names}"
+    if _oil_overview(raw):
+        return _all_oil_say()
+    return None
+
+
+def _oil_inspect_note(text: str) -> dict | None:
+    raw = (text or "").strip()
+    if not re.search(r"\boil\b", raw, re.I):
+        return None
+    rows = _oil_targets(raw)
+    if len(rows) != 1:
+        return None
+    item = rows[0]
+    oil = _oil_fields(item)
+    if oil.get("needs") or oil.get("in_it"):
+        return None
+    return {
+        "tool": "item_inspect",
+        "result": {
+            "ok": True,
+            "card": _item_card(item),
+            "oil_saved": False,
+            "hint": "No oil spec is saved. Look up the OEM spec from year/make/model/VIN, tell them, and ask if you should oil_save it.",
+        },
+    }
+
+
+def _stash_pending_oil(item, spec: dict) -> None:
+    if not has_request_context() or not spec.get("needs"):
+        return
+    session[SESSION_OIL_PENDING] = {
+        "item_id": item.id,
+        "name": item.name,
+        "needs": spec.get("needs") or "",
+        "capacity": spec.get("capacity") or "",
+        "interval_miles": spec.get("interval_miles") or "",
+        "interval_months": spec.get("interval_months") or "",
+        "interval_hours": spec.get("interval_hours") or "",
+        "note": spec.get("note") or "",
+    }
+    session.pop(SESSION_EXPIRE_PENDING, None)
+
+
+def _lookup_oem_oil(item) -> dict:
+    """OEM spec from saved year/make/model/VIN plus the household AI key."""
+    card = _item_card(item)
+    vin = (card.get("vin") or "").strip()
+    engine = ""
+    if vin:
+        try:
+            from app.utils.vehicle_lookup import decode_vin
+
+            decoded = decode_vin(vin)
+            facts = decoded.get("facts") or {}
+            engine = " ".join(
+                str(facts.get(k) or "")
+                for k in ("engine", "displacement_l", "cylinders", "fuel_type")
+                if facts.get(k)
+            ).strip()
+            for key in ("year", "make", "model", "trim"):
+                if not card.get(key) and facts.get(key):
+                    card[key] = facts.get(key)
+        except Exception:
+            engine = ""
+    who = " ".join(
+        str(card.get(k) or "") for k in ("year", "make", "model", "color", "type") if card.get(k)
+    ).strip()
+    prompt = (
+        "OEM engine oil for this exact machine. JSON only.\n"
+        "No oil spec is saved on this site.\n"
+        f"Name: {card.get('name') or ''}\n"
+        f"Kind: {card.get('kind') or ''}\n"
+        f"Year/make/model: {who}\n"
+        f"VIN: {vin or 'none on file'}\n"
+        f"Engine: {engine or 'unknown'}\n"
+        f"Tool model: {card.get('model') or ''}\n"
+        f"Power: {card.get('power') or ''}\n"
+        "Return JSON: "
+        '{"needs":"0W-20 API SN ILSAC GF-5","capacity":"6.2 qt","interval_miles":"10000",'
+        '"interval_months":"12","interval_hours":null,"note":"Toyota spec for this engine"}.\n'
+        "needs is viscosity plus OEM spec. Use the owner's manual / OEM recommendation. "
+        "If this is a generator or tool, use that model's manual, not a truck. "
+        "null for unknown fields. No markdown."
+    )
+    household = getattr(current_user, "household", None)
+    ok, raw = complete(
+        prompt,
+        system="OEM oil lookup. Short JSON only. Not a chatbot.",
+        max_tokens=280,
+        timeout=25,
+        household=household,
+        household_only=True,
+    )
+    parsed = parse_json_object(raw) if ok else None
+    spec = {}
+    if isinstance(parsed, dict) and not parsed.get("error"):
+        spec = {
+            "needs": _trim(parsed.get("needs") or parsed.get("oil") or parsed.get("spec"), 200),
+            "capacity": _trim(parsed.get("capacity") or parsed.get("oil_capacity"), 40),
+            "interval_miles": _trim(parsed.get("interval_miles"), 20),
+            "interval_months": _trim(parsed.get("interval_months"), 8),
+            "interval_hours": _trim(parsed.get("interval_hours"), 8),
+            "note": _trim(parsed.get("note"), 200),
+        }
+    if not spec.get("needs") and ok:
+        from app.utils.oil import fields_from_text
+
+        pulled = fields_from_text(raw or "")
+        if pulled.get("needs"):
+            spec = {**pulled, "note": spec.get("note") or ""}
+    if spec.get("needs"):
+        spec["engine"] = engine
+        spec["who"] = who
+        spec["vin"] = vin
+        spec["href"] = card.get("href") or ""
+        spec["name"] = card.get("name") or item.name
+        return spec
+    return {}
+
+
+def _oil_research_say(item) -> str | None:
+    spec = _lookup_oem_oil(item)
+    if not spec.get("needs"):
+        return None
+    _stash_pending_oil(item, spec)
+    who = spec.get("who") or item.name
+    head = item.name if item.name in who else f"{item.name} · {who}".strip(" ·")
+    bits = [f"{head} is on the site. No oil spec saved."]
+    if spec.get("engine"):
+        bits.append(f"Engine {spec['engine']}.")
+    oem = f"OEM suggests {spec['needs']}"
+    if spec.get("capacity"):
+        oem += f", {spec['capacity']}"
+    if spec.get("interval_miles"):
+        oem += f", every {spec['interval_miles']} miles"
+    elif spec.get("interval_hours"):
+        oem += f", every {spec['interval_hours']} hours"
+    if spec.get("interval_months"):
+        oem += f" or {spec['interval_months']} months"
+    bits.append(oem + ".")
+    if spec.get("note"):
+        bits.append(spec["note"])
+    href = spec.get("href") or f"/items/{item.id}"
+    bits.append(f"Want me to add that? {href}")
+    return " ".join(bits)
+
+
+def tool_oil_lookup(args: dict | None = None) -> dict:
+    args = args if isinstance(args, dict) else {}
+    q = _trim(args.get("q") or args.get("item") or args.get("name") or args.get("vehicle"), 200)
+    item, err = _pick_named_item(q, ("vehicle", "tool"))
+    if err:
+        return err
+    oil = _oil_fields(item)
+    card = _item_card(item)
+    if oil.get("needs") or oil.get("in_it"):
+        return {"ok": True, "saved": True, "card": card, "oil_saved": True, "href": card.get("href") or ""}
+    spec = _lookup_oem_oil(item)
+    if not spec.get("needs"):
+        return {
+            "ok": True,
+            "saved": False,
+            "card": card,
+            "oil_saved": False,
+            "hint": "No OEM spec came back. Say the viscosity if you know it, or try again.",
+            "href": card.get("href") or "",
+        }
+    _stash_pending_oil(item, spec)
+    return {
+        "ok": True,
+        "saved": False,
+        "card": card,
+        "oil_saved": False,
+        "oem": spec,
+        "href": spec.get("href") or "",
+        "hint": "Ask if they want this saved with oil_save.",
+    }
+
+
+_YES_ADD = re.compile(
+    r"^\s*(?:please\s+)?(?:"
+    r"(?:yes|yeah|yep|yup|ok|okay|sure)"
+    r"(?:\s*,?\s*(?:please\s+)?(?:add(?:\s+it|\s+that|\s+them)?|save(?:\s+it|\s+that)?|do it|go ahead))?|"
+    r"add(?:\s+it|\s+that|\s+them)?|"
+    r"save(?:\s+it|\s+that)?|"
+    r"do it|go ahead"
+    r")\s*[.!]?\s*$",
+    re.I,
+)
+_GENERIC_EXPIRE = re.compile(
+    r"(?:add|put|apply|fill|set|give).{0,50}(?:generic|typical|usual|standard|default|shelf).{0,30}(?:expir|use[- ]?by|date)|"
+    r"(?:generic|typical|usual)\s+(?:expir|use[- ]?by|dates?)",
+    re.I,
+)
+
+
+def _apply_pending_oil() -> dict | None:
+    if not has_request_context():
+        return None
+    pending = session.get(SESSION_OIL_PENDING)
+    if not isinstance(pending, dict) or not pending.get("item_id"):
+        return None
+    item, err = _pick_named_item(str(pending["item_id"]), ("vehicle", "tool"))
+    if err or item is None:
+        session.pop(SESSION_OIL_PENDING, None)
+        return {
+            "ok": True,
+            "say": "That vehicle or tool is gone. Name it again and I can look the oil up.",
+            "did": [],
+            "vault_locked": False,
+        }
+    if not (can("maintain") or can("edit_meta")):
+        return {
+            "ok": False,
+            "say": "You cannot update the oil record.",
+            "did": [],
+            "vault_locked": False,
+        }
+    from app.utils.oil import save_item_oil
+
+    save_item_oil(
+        item,
+        {
+            "needs": pending.get("needs"),
+            "capacity": pending.get("capacity"),
+            "interval_miles": pending.get("interval_miles"),
+            "interval_months": pending.get("interval_months"),
+            "interval_hours": pending.get("interval_hours"),
+        },
+        clear=False,
+    )
+    db.session.commit()
+    session.pop(SESSION_OIL_PENDING, None)
+    href = _path("items.detail", item_id=item.id) or f"/items/{item.id}"
+    return {
+        "ok": True,
+        "say": f"Saved {pending.get('needs')} on {item.name}. {href}",
+        "did": ["oil"],
+        "vault_locked": False,
+    }
+
+
+def _confirm_pending(text: str) -> dict | None:
+    raw = (text or "").strip()
+    if _GENERIC_EXPIRE.search(raw):
+        result = tool_expire_guess()
+        session.pop(SESSION_EXPIRE_PENDING, None)
+        return {
+            "ok": True,
+            "say": _speak_expire_guess(result),
+            "did": ["expire"] if result.get("ok") else [],
+            "vault_locked": False,
+        }
+    if not _YES_ADD.match(raw):
+        return None
+    if session.get(SESSION_OIL_PENDING):
+        return _apply_pending_oil()
+    if session.get(SESSION_EXPIRE_PENDING):
+        result = tool_expire_guess()
+        session.pop(SESSION_EXPIRE_PENDING, None)
+        return {
+            "ok": True,
+            "say": _speak_expire_guess(result),
+            "did": ["expire"] if result.get("ok") else [],
+            "vault_locked": False,
+        }
+    return None
+
+
 def tool_vehicle_card(args: dict | None = None) -> dict:
     args = args if isinstance(args, dict) else {}
     q = _trim(args.get("q") or args.get("name") or args.get("item") or "", 200)
@@ -438,14 +1091,16 @@ def _stored_vehicle_say(text: str) -> str | None:
     raw = (text or "").strip()
     if not raw:
         return None
-    if not re.search(r"\b(vin|plate|oil)\b", raw, re.I) and "my site" not in raw.lower() and "already" not in raw.lower():
+    if re.search(r"\boil\b", raw, re.I):
+        return None
+    if not re.search(r"\b(vin|plate)\b", raw, re.I) and "my site" not in raw.lower() and "already" not in raw.lower():
         return None
     if not _vehicle_tokens(raw) and not re.search(r"\bvin\b", raw, re.I):
         return None
     rows = _matching_vehicles(raw)
     if rows:
         return _speak_vehicle_facts(rows, raw)
-    if re.search(r"\b(vin|oil|truck|where|looking|april|tundra)\b", raw, re.I):
+    if re.search(r"\b(vin|truck|where|looking|april|tundra)\b", raw, re.I):
         saved = _find_items("", "vehicle", limit=12)
         if saved:
             return "Saved vehicles:\n" + _speak_vehicle_facts(saved, raw)
@@ -643,11 +1298,25 @@ def _remember_reply(text: str) -> dict | None:
     }
 
 
+def _expire_local_say(text: str) -> str | None:
+    t = (text or "").strip().lower()
+    if not t:
+        return None
+    if not re.search(r"expir|use[- ]?by|going bad|goes bad|about to go bad", t):
+        return None
+    if re.search(r"\b(add|save|create|set|put|change|delete|remove)\b", t):
+        return None
+    return _speak_expire(tool_expire_list({"days": 21}))
+
+
 def _local_house_say(text: str) -> str | None:
     t = (text or "").strip().lower()
     if not t:
         return None
-    if re.search(r"\b(add|save|create|new|delete|remove|share|oil|note|spec|filter|tire|battery)\b", t):
+    if re.search(
+        r"\b(add|save|create|new|delete|remove|share|oil|note|spec|filter|tire|battery|expir|set)\b",
+        t,
+    ):
         return None
     wants = bool(re.search(r"\b(what|which|list|have|has|show|my|our|got|lookup|look up|tell)\b", t)) or t in (
         "tools",
@@ -674,37 +1343,119 @@ def _local_house_say(text: str) -> str | None:
     return None
 
 
+def _undated_tail(result: dict) -> str:
+    try:
+        n = int(result.get("undated") or 0)
+    except (TypeError, ValueError):
+        n = 0
+    if n <= 0:
+        return ""
+    samples = [str(x) for x in (result.get("undated_names") or []) if x][:4]
+    extra = f" ({', '.join(samples)})" if samples else ""
+    return (
+        f"\n{n} have no use-by{extra}. "
+        "Say “add generic expirations” and I’ll put typical shelf life on those."
+    )
+
+
+def _speak_expire(result: dict) -> str:
+    rows = result.get("items") or result.get("expiring") or []
+    href = result.get("href") or "/groceries/"
+    tail = _undated_tail(result)
+    if has_request_context() and result.get("undated"):
+        session[SESSION_EXPIRE_PENDING] = True
+    if not rows:
+        empty = result.get("empty") or "Nothing with a use-by date in the next few weeks."
+        return (empty + tail).strip() + (f"\n{href}" if href else "")
+    lines = []
+    for row in rows:
+        if isinstance(row, dict):
+            name = row.get("name") or "item"
+            day = row.get("expires") or row.get("expires_on") or ""
+            when = f" · {day}" if day else ""
+            extra = ""
+            days = row.get("days")
+            if days is not None:
+                try:
+                    n = int(days)
+                    extra = " · expired" if n < 0 else (" · today" if n == 0 else f" · {n}d")
+                except (TypeError, ValueError):
+                    extra = ""
+            lines.append(f"· {name}{when}{extra}" + (f" · {row.get('href')}" if row.get("href") else ""))
+        else:
+            lines.append(f"· {row}")
+    return f"Going bad soon:\n" + "\n".join(lines) + tail + (f"\n{href}" if href else "")
+
+
+def _speak_result(tool: str, r: dict) -> str:
+    if not isinstance(r, dict):
+        return str(r or "")
+    if r.get("need"):
+        return str(r.get("hint") or ("Need: " + ", ".join(str(x) for x in r["need"])))
+    if r.get("error"):
+        return str(r["error"])
+    if tool == "house" or (r.get("kind") and r.get("lines") is not None):
+        return _speak_house(r)
+    if tool in ("expire_list",) or r.get("expiring") is not None or r.get("undated") is not None and r.get("items") is not None:
+        return _speak_expire(r)
+    if tool == "expire_guess" or r.get("filled") is not None and r.get("skipped") is not None:
+        return _speak_expire_guess(r)
+    if tool == "oil_lookup":
+        oem = r.get("oem") or {}
+        if oem.get("needs"):
+            name = (r.get("card") or {}).get("name") or oem.get("name") or "that machine"
+            return (
+                f"{name} is on the site. No oil spec saved. OEM suggests {oem.get('needs')}"
+                + (f", {oem['capacity']}" if oem.get("capacity") else "")
+                + ". Want me to add that?"
+            )
+        if r.get("card"):
+            return _speak_card(r["card"])
+    card = r.get("card")
+    if tool == "item_inspect" or card:
+        if card:
+            spoken = _speak_card(card)
+            if r.get("oil_saved") is False and "no oil spec" not in spoken.lower():
+                spoken += " · no oil spec saved"
+            return spoken
+        if r.get("choices"):
+            return r.get("hint") or ("Which one? " + ", ".join(str(x) for x in r["choices"]))
+    if r.get("vehicles"):
+        return "\n".join(_speak_card(card) if isinstance(card, dict) else str(card) for card in r["vehicles"])
+    if r.get("items"):
+        vals = r["items"]
+        if vals and isinstance(vals[0], dict):
+            if vals[0].get("expires") or vals[0].get("expires_on"):
+                return _speak_expire(r)
+            return "\n".join(_speak_card(v) for v in vals)
+        return "\n".join(str(x) for x in vals)
+    if r.get("lines"):
+        return _speak_house(r)
+    if r.get("people"):
+        return "People: " + ", ".join(
+            f"{p.get('name')} ({p.get('username')}, {p.get('role')})"
+            for p in r["people"]
+            if isinstance(p, dict)
+        )
+    if r.get("entries"):
+        return "Vault: " + ", ".join(
+            (e.get("title") or "card") + (f" {e.get('href')}" if e.get("href") else "")
+            for e in r["entries"]
+            if isinstance(e, dict)
+        )
+    if r.get("ok") and (r.get("href") or r.get("title") or r.get("name")):
+        did = r.get("did") or "Saved"
+        return f"{did} {r.get('title') or r.get('name') or ''}".strip() + (f" {r.get('href')}" if r.get("href") else "")
+    return ""
+
+
 def _speak_tool_notes(notes: list) -> str:
     bits = []
     for n in notes:
         r = n.get("result") or {}
-        if n.get("tool") == "house":
-            bits.append(_speak_house(r))
-            continue
-        if r.get("vehicles"):
-            for card in r["vehicles"]:
-                bits.append(
-                    " · ".join(
-                        str(bit)
-                        for bit in (
-                            card.get("name"),
-                            card.get("vin") and f"VIN {card.get('vin')}",
-                            card.get("oil_needs") and f"needs {card.get('oil_needs')}",
-                            card.get("href"),
-                        )
-                        if bit
-                    )
-                )
-        if r.get("items"):
-            bits.extend(str(x) for x in r["items"])
-        elif r.get("lines"):
-            bits.append(_speak_house(r))
-        elif r.get("need"):
-            bits.append(str(r.get("hint") or ("Need: " + ", ".join(str(x) for x in r["need"]))))
-        elif r.get("error"):
-            bits.append(str(r["error"]))
-        elif r.get("ok") and (r.get("href") or r.get("title") or r.get("name")):
-            bits.append(str(r.get("title") or r.get("name") or "Saved.") + (f" {r.get('href')}" if r.get("href") else ""))
+        spoken = _speak_result(n.get("tool") or "", r)
+        if spoken:
+            bits.append(spoken)
     return "\n".join(b for b in bits if b).strip()
 
 
@@ -726,6 +1477,21 @@ def _item_line(item) -> str:
     bits = [name]
     if kind:
         bits.append(kind)
+    tool = getattr(item, "tool", None)
+    if tool is not None:
+        who = " ".join(
+            str(getattr(tool, key) or "")
+            for key in ("type", "model", "power_source")
+            if getattr(tool, key, None)
+        ).strip()
+        if who:
+            bits.append(who)
+        if getattr(tool, "serial_number", None):
+            bits.append(f"serial {tool.serial_number}")
+        if getattr(tool, "oil_needs", None):
+            bits.append(f"needs {tool.oil_needs}")
+        elif getattr(tool, "oil_type", None):
+            bits.append(f"in it {tool.oil_type}")
     vehicle = getattr(item, "vehicle", None)
     if vehicle is not None:
         who = " ".join(
@@ -810,6 +1576,295 @@ def tool_due() -> dict:
         due = r.due_at.strftime("%Y-%m-%d") if r.due_at else "no date"
         out.append(f"{r.title} · {due} · {_path('reminders.index')}")
     return {"ok": True, "open": out, "href": "/reminders/"}
+
+
+def _pick_named_item(q: str, types: tuple[str, ...] | None = None):
+    needle = _trim(q, 200)
+    kinds = types or ("tool", "vehicle", "grocery", "house")
+    if not needle:
+        return None, {"ok": False, "need": ["q"], "hint": "Which tool, vehicle, or item?"}
+    if needle.isdigit():
+        found = _find_items(needle, None, limit=1)
+        item = found[0] if found else None
+        if item is None:
+            return None, {"ok": False, "error": "Nothing saved with that id."}
+        if item.item_type not in kinds:
+            return None, {"ok": False, "error": f"{item.name} is a {item.item_type}."}
+        return item, None
+    rows = _matching_machines(needle, tuple(k for k in kinds if k in ("tool", "vehicle", "house")))
+    if "grocery" in kinds:
+        for row in _find_items(needle, "grocery", limit=6):
+            if all(row.id != old.id for old in rows):
+                rows.append(row)
+    if not rows:
+        for kind in kinds:
+            for row in _find_items(needle, kind, limit=4):
+                if all(row.id != old.id for old in rows):
+                    rows.append(row)
+    if len(rows) == 1:
+        return rows[0], None
+    if len(rows) > 1:
+        names = ", ".join(r.name for r in rows[:6])
+        return None, {
+            "ok": False,
+            "need": ["q"],
+            "choices": [r.name for r in rows[:8]],
+            "hint": f"Which one? {names}",
+        }
+    return None, {"ok": False, "error": f"Nothing saved matches {needle}."}
+
+
+def tool_item_inspect(args: dict | None = None) -> dict:
+    args = args if isinstance(args, dict) else {}
+    q = _trim(args.get("q") or args.get("name") or args.get("item") or "", 200)
+    item, err = _pick_named_item(q)
+    if err:
+        return err
+    card = _item_card(item)
+    oil = _oil_fields(item)
+    return {
+        "ok": True,
+        "card": card,
+        "oil_saved": bool(oil.get("needs") or oil.get("in_it")),
+        "href": card.get("href") or "",
+    }
+
+
+def _can_remove_item(item) -> bool:
+    kind = getattr(item, "item_type", None) or ""
+    if kind == "house":
+        return False
+    from app.routes.items import can_create_type
+
+    return can_create_type(kind)
+
+
+def _soft_remove_item(item) -> dict:
+    from datetime import datetime as _dt
+
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from app.utils.activity import record
+
+    extra = dict(item.extra_data) if isinstance(item.extra_data, dict) else {}
+    if item.barcode:
+        extra["removed_barcode"] = item.barcode
+        item.barcode = None
+        item.extra_data = extra
+        flag_modified(item, "extra_data")
+    item.removed_at = _dt.utcnow()
+    record(
+        action="item.remove",
+        summary=f"{current_user.name or current_user.username} removed {item.name}",
+        target_table="items",
+        target_id=item.id,
+        item_id=item.id,
+        old_json={"name": item.name, "item_type": item.item_type},
+        reversible=True,
+    )
+    db.session.commit()
+    href = "/tools/" if item.item_type == "tool" else "/vehicles/" if item.item_type == "vehicle" else "/groceries/"
+    return {
+        "ok": True,
+        "id": item.id,
+        "name": item.name,
+        "kind": item.item_type,
+        "did": "removed",
+        "href": href,
+    }
+
+
+def tool_item_remove(args: dict | None = None) -> dict:
+    args = args if isinstance(args, dict) else {}
+    q = _trim(args.get("q") or args.get("name") or args.get("item") or "", 200)
+    item, err = _pick_named_item(q, ("tool", "vehicle", "grocery"))
+    if err:
+        return err
+    if not _can_remove_item(item):
+        return {
+            "ok": False,
+            "denied": True,
+            "error": f"You cannot remove {item.name}. That stays with someone who can edit it.",
+        }
+    return _soft_remove_item(item)
+
+
+def _expire_day(raw) -> date | None:
+    from app.utils.lots import parse_day
+
+    day = parse_day(raw)
+    if day:
+        return day
+    text = _trim(raw, 40).lower()
+    today = date.today()
+    if text in ("today",):
+        return today
+    if text in ("tomorrow",):
+        return today + timedelta(days=1)
+    match = re.match(r"in\s+(\d{1,3})\s+days?", text)
+    if match:
+        return today + timedelta(days=int(match.group(1)))
+    return None
+
+
+def tool_expire_list(args: dict | None = None) -> dict:
+    args = args if isinstance(args, dict) else {}
+    try:
+        days = int(args.get("days") or args.get("within") or 21)
+    except (TypeError, ValueError):
+        days = 21
+    days = max(1, min(days, 365))
+    today = date.today()
+    cutoff = today + timedelta(days=days)
+    from app.utils.lots import soonest
+    from app.utils.scan import qty_label
+
+    out = []
+    undated = []
+    for item in _find_items("", "grocery", limit=200):
+        grocery = getattr(item, "grocery", None)
+        if grocery is None:
+            continue
+        day = soonest(grocery)
+        href = _path("items.detail", item_id=item.id) or f"/items/{item.id}"
+        if day is None:
+            undated.append(item.name)
+            continue
+        if day > cutoff:
+            continue
+        out.append(
+            {
+                "id": item.id,
+                "name": item.name,
+                "expires": day.isoformat(),
+                "days": (day - today).days,
+                "qty": qty_label(getattr(grocery, "quantity", None)),
+                "place": grocery.default_location or "",
+                "href": href,
+            }
+        )
+    out.sort(key=lambda row: (row["expires"], (row["name"] or "").lower()))
+    n_undated = len(undated)
+    empty = f"Nothing with a use-by date in the next {days} days."
+    if n_undated and not out:
+        empty = f"None of the {n_undated} food rows have a use-by yet."
+    return {
+        "ok": True,
+        "days": days,
+        "items": out[:40],
+        "undated": n_undated,
+        "undated_names": undated[:8],
+        "href": "/groceries/",
+        "empty": empty,
+    }
+
+
+def tool_expire_save(args: dict | None = None) -> dict:
+    args = args if isinstance(args, dict) else {}
+    if not (can("edit_grocery") or can("scan") or can("edit_meta")):
+        return {"ok": False, "error": "You cannot set a use-by date."}
+    q = _trim(args.get("q") or args.get("name") or args.get("item") or "", 200)
+    item, err = _pick_named_item(q, ("grocery",))
+    if err:
+        return err
+    grocery = getattr(item, "grocery", None)
+    if grocery is None:
+        return {"ok": False, "error": f"{item.name} is not inventory."}
+    day = _expire_day(args.get("date") or args.get("expires") or args.get("expires_on") or args.get("due") or "")
+    if day is None:
+        return {
+            "ok": False,
+            "need": ["date"],
+            "hint": "What date? Use YYYY-MM-DD, today, tomorrow, or in 3 days.",
+        }
+    from app.utils.lots import apply_partial, summary_line
+
+    qty = args.get("amount") or args.get("qty") or args.get("quantity") or 1
+    place = _trim(args.get("place") or args.get("location"), 80)
+    apply_partial(
+        grocery,
+        [{"qty": qty, "expires_on": day.isoformat(), "place": place}],
+    )
+    if place and not (grocery.default_location or "").strip():
+        grocery.default_location = place
+    db.session.commit()
+    href = _path("items.detail", item_id=item.id) or f"/items/{item.id}"
+    return {
+        "ok": True,
+        "id": item.id,
+        "name": item.name,
+        "expires": day.isoformat(),
+        "line": summary_line(grocery) or day.isoformat(),
+        "href": href,
+        "did": "dated",
+    }
+
+
+def _speak_expire_guess(result: dict) -> str:
+    if not result.get("ok"):
+        return str(result.get("error") or "Could not put typical dates on those.")
+    filled = result.get("filled") or []
+    skipped = int(result.get("skipped") or 0)
+    still = int(result.get("undated") or 0)
+    n = len(filled)
+    if n == 0 and still:
+        return f"Could not guess a date for {still} rows (paper goods and the like stay blank). /groceries/"
+    lines = [f"Put typical use-by dates on {n} item{'s' if n != 1 else ''}."]
+    for row in filled[:8]:
+        if isinstance(row, dict):
+            lines.append(f"· {row.get('name')} · {row.get('expires')}")
+        else:
+            lines.append(f"· {row}")
+    if n > 8:
+        lines.append(f"· and {n - 8} more")
+    if skipped:
+        lines.append(f"{skipped} already had a date.")
+    if still:
+        lines.append(f"{still} still have no date.")
+    lines.append(result.get("href") or "/groceries/")
+    return "\n".join(lines)
+
+
+def tool_expire_guess(args: dict | None = None) -> dict:
+    args = args if isinstance(args, dict) else {}
+    if not (can("edit_grocery") or can("scan") or can("edit_meta")):
+        return {"ok": False, "error": "You cannot set a use-by date."}
+    from app.utils.lots import soonest
+    from app.utils.shelf_life import apply_shelf_life
+
+    household = getattr(current_user, "household", None)
+    filled = []
+    skipped = 0
+    still = []
+    for item in _find_items("", "grocery", limit=200):
+        grocery = getattr(item, "grocery", None)
+        if grocery is None:
+            continue
+        had = soonest(grocery)
+        if had is not None:
+            skipped += 1
+            continue
+        try:
+            apply_shelf_life(item, grocery, force=False, household=household)
+        except Exception:
+            still.append(item.name)
+            continue
+        day = soonest(grocery)
+        if day is None:
+            still.append(item.name)
+            continue
+        href = _path("items.detail", item_id=item.id) or f"/items/{item.id}"
+        filled.append({"id": item.id, "name": item.name, "expires": day.isoformat(), "href": href})
+    db.session.commit()
+    return {
+        "ok": True,
+        "filled": filled,
+        "skipped": skipped,
+        "undated": len(still),
+        "undated_names": still[:8],
+        "href": "/groceries/",
+        "did": "dated",
+    }
 
 
 def _vault_guard() -> dict | None:
@@ -1566,8 +2621,20 @@ def run_tool(name: str, args: dict | None) -> dict:
             return tool_house(args)
         if key == "vehicle_card":
             return tool_vehicle_card(args)
+        if key == "item_inspect":
+            return tool_item_inspect(args)
+        if key == "item_remove":
+            return tool_item_remove(args)
         if key == "due":
             return tool_due()
+        if key == "expire_list":
+            return tool_expire_list(args)
+        if key == "expire_save":
+            return tool_expire_save(args)
+        if key == "expire_guess":
+            return tool_expire_guess(args)
+        if key == "oil_lookup":
+            return tool_oil_lookup(args)
         if key == "lookup":
             return tool_lookup(args)
         if key == "vault_unlock":
@@ -1628,35 +2695,116 @@ def run_tool(name: str, args: dict | None) -> dict:
             from app.utils.ask_do import tool_oil_save
 
             return tool_oil_save(args)
+        if key == "oil_lookup":
+            return tool_oil_lookup(args)
+        if key == "expire_guess":
+            return tool_expire_guess(args)
     except Exception as exc:
         return {"ok": False, "error": f"Could not do that: {exc}"}
     return {"ok": False, "error": f"Unknown tool {name}."}
 
 
-def _parse_turn(text: str) -> dict:
-    parsed = parse_json_object(text or "")
-    if isinstance(parsed, dict):
-        tool = (parsed.get("tool") or "").strip().lower()
-        if tool in TOOLS:
-            args = parsed.get("args") if isinstance(parsed.get("args"), dict) else {}
-            if not args:
-                args = {k: v for k, v in parsed.items() if k not in ("tool", "say")}
-            return {"kind": "tool", "tool": tool, "args": args}
-        if "say" in parsed:
-            return {"kind": "say", "text": _trim(parsed.get("say"), 4000)}
+_JSON_FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.S | re.I)
+
+
+def _json_objects(text: str) -> list[dict]:
     raw = (text or "").strip()
-    return {"kind": "say", "text": raw[:4000]} if raw else {"kind": "say", "text": ""}
+    fenced = _JSON_FENCE.search(raw)
+    if fenced:
+        raw = fenced.group(1).strip()
+    decoder = json.JSONDecoder()
+    out = []
+    i = 0
+    while i < len(raw):
+        start = raw.find("{", i)
+        if start < 0:
+            break
+        try:
+            obj, end = decoder.raw_decode(raw, start)
+        except Exception:
+            i = start + 1
+            continue
+        if isinstance(obj, dict):
+            out.append(obj)
+        i = end
+        if len(out) >= 8:
+            break
+    return out
+
+
+def _looks_like_json(text: str) -> bool:
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    if raw.startswith("```"):
+        return True
+    if raw.startswith("{") and raw.endswith("}"):
+        return True
+    return bool(_json_objects(raw)) and raw.lstrip().startswith("{")
+
+
+def _plain_say(text: str, tool_notes: list | None = None, _depth: int = 0) -> str:
+    raw = (text or "").strip()
+    if not raw or _depth > 3:
+        return ""
+    objs = _json_objects(raw)
+    if objs:
+        for obj in objs:
+            tool = (obj.get("tool") or "").strip().lower()
+            if tool in TOOLS:
+                spoken = _speak_tool_notes(tool_notes or [{"tool": tool, "result": obj}])
+                if spoken:
+                    return spoken[:4000]
+        for obj in reversed(objs):
+            if "say" in obj:
+                inner = _trim(obj.get("say"), 4000)
+                if inner and not _looks_like_json(inner):
+                    return inner
+                if inner and inner != raw:
+                    return _plain_say(inner, tool_notes, _depth + 1)
+        spoken = _speak_result("", objs[-1]) or _speak_tool_notes(tool_notes or [])
+        if spoken:
+            return spoken[:4000]
+        return ""
+    if _looks_like_json(raw):
+        return (_speak_tool_notes(tool_notes or []) or "")[:4000]
+    return raw[:4000]
+
+
+def _parse_turn(text: str) -> dict:
+    objs = _json_objects(text or "")
+    if not objs:
+        parsed = parse_json_object(text or "")
+        objs = [parsed] if isinstance(parsed, dict) else []
+    for obj in objs:
+        tool = (obj.get("tool") or "").strip().lower()
+        if tool in TOOLS:
+            args = obj.get("args") if isinstance(obj.get("args"), dict) else {}
+            if not args:
+                args = {k: v for k, v in obj.items() if k not in ("tool", "say")}
+            return {"kind": "tool", "tool": tool, "args": args}
+    for obj in reversed(objs):
+        if "say" in obj:
+            return {"kind": "say", "text": _plain_say(str(obj.get("say") or ""), None)}
+        spoken = _speak_result("", obj)
+        if spoken:
+            return {"kind": "say", "text": spoken}
+    raw = (text or "").strip()
+    return {"kind": "say", "text": _plain_say(raw) if raw else ""}
 
 
 def _prompt_for(history: list, message: str, tool_notes: list) -> str:
     bits = []
-    for row in history[-8:]:
+    for row in history[-16:]:
         role = "You" if row.get("role") == "assistant" else "Them"
         bits.append(f"{role}: {_trim(row.get('text'), 800)}")
     bits.append(f"Them: {_trim(message, MSG_CAP)}")
     for note in tool_notes:
         bits.append("Tool result JSON:\n" + json.dumps(note, ensure_ascii=False)[:3500])
-    bits.append("Reply with JSON only.")
+    bits.append(
+        "Reply with one JSON object only. If you are done, {\"say\":\"spoken English, no JSON inside\"}. "
+        "Do not paste tool results. Look things up on this site; do not ask them to."
+    )
     return "\n\n".join(bits)
 
 
@@ -1683,8 +2831,11 @@ def _saved_vehicle_brief() -> str:
 
 def _system_now(has_photo: bool) -> str:
     from app.utils.ask_do import PHOTO_RULES, actor_lines
+    from app.utils.ask_rooms import room_system_line
 
     extra = actor_lines()
+    extra += "\n\n" + room_system_line(_room())
+    extra += "\nSlash /help, /vehicles, /inventory, /tools, /basket, /due, /oil list this house with no extra lookup. Do not invent those lists when they typed a slash — the site already answered."
     brief = _saved_vehicle_brief()
     if brief:
         extra += "\n\n" + brief
@@ -1707,7 +2858,14 @@ def _with_issued_login(say: str, tool_notes: list) -> str:
     return text
 
 
-def run_ask(message: str, *, household, image_bytes: bytes | None = None, image_mime: str | None = None) -> dict:
+def run_ask(
+    message: str,
+    *,
+    household,
+    image_bytes: bytes | None = None,
+    image_mime: str | None = None,
+    room: str | None = None,
+) -> dict:
     from app.utils.ask_photo import (
         attach_pending,
         clear_ask_photo,
@@ -1716,6 +2874,7 @@ def run_ask(message: str, *, household, image_bytes: bytes | None = None, image_
         stash_ask_photo,
     )
 
+    _set_room(room)
     text = _trim(message, MSG_CAP)
     photo = None
     if image_bytes:
@@ -1742,8 +2901,24 @@ def run_ask(message: str, *, household, image_bytes: bytes | None = None, image_
                 "ok": False,
                 "error": "This AI key cannot read photos. Use Gemini or Grok in Household, or type the code.",
             }
+    from app.utils.ask_rooms import slash_reply
+
+    slash = None if has_photo else slash_reply(text, _room())
+    if slash:
+        history = _history()
+        history.append({"role": "user", "text": text})
+        history.append({"role": "assistant", "text": slash})
+        _save_history(history)
+        return {"ok": True, "say": slash, "did": [], "vault_locked": False, "room": _room()}
     if not _rate_ok():
         return {"ok": False, "error": "Give Ask a minute. Too many questions just now."}
+    confirmed = None if has_photo else _confirm_pending(text)
+    if confirmed:
+        history = _history()
+        history.append({"role": "user", "text": text})
+        history.append({"role": "assistant", "text": confirmed.get("say") or ""})
+        _save_history(history)
+        return confirmed
     remembered = None if has_photo else _remember_reply(text)
     if remembered:
         history = _history()
@@ -1751,6 +2926,13 @@ def run_ask(message: str, *, household, image_bytes: bytes | None = None, image_
         history.append({"role": "assistant", "text": remembered.get("say") or ""})
         _save_history(history)
         return remembered
+    oil_say = None if has_photo else _oil_local_say(text)
+    if oil_say:
+        history = _history()
+        history.append({"role": "user", "text": text})
+        history.append({"role": "assistant", "text": oil_say})
+        _save_history(history)
+        return {"ok": True, "say": oil_say, "did": [], "vault_locked": False}
     stored = None if has_photo else _stored_vehicle_say(text)
     if stored:
         history = _history()
@@ -1758,6 +2940,13 @@ def run_ask(message: str, *, household, image_bytes: bytes | None = None, image_
         history.append({"role": "assistant", "text": stored})
         _save_history(history)
         return {"ok": True, "say": stored, "did": [], "vault_locked": False}
+    expire_say = None if has_photo else _expire_local_say(text)
+    if expire_say:
+        history = _history()
+        history.append({"role": "user", "text": text})
+        history.append({"role": "assistant", "text": expire_say})
+        _save_history(history)
+        return {"ok": True, "say": expire_say, "did": [], "vault_locked": False}
     local = None if has_photo else _local_house_say(text)
     if local:
         history = _history()
@@ -1767,6 +2956,9 @@ def run_ask(message: str, *, household, image_bytes: bytes | None = None, image_
         return {"ok": True, "say": local, "did": [], "vault_locked": False}
     history = _history()
     tool_notes = []
+    oil_note = None if has_photo else _oil_inspect_note(text)
+    if oil_note:
+        tool_notes.append(oil_note)
     did = []
     last_say = ""
     system = _system_now(has_photo)
@@ -1809,12 +3001,13 @@ def run_ask(message: str, *, household, image_bytes: bytes | None = None, image_
                     }
                 )
             continue
-        last_say = (turn.get("text") or "").strip()
+        last_say = _plain_say(turn.get("text") or "", tool_notes)
         if not last_say and tool_notes:
             last_say = _speak_tool_notes(tool_notes)
         break
     if not last_say:
-        last_say = _speak_tool_notes(tool_notes) or _local_house_say(text)
+        last_say = _speak_tool_notes(tool_notes) or _oil_local_say(text) or _expire_local_say(text) or _local_house_say(text)
+    last_say = _plain_say(last_say or "", tool_notes)
     if not last_say:
         return {
             "ok": False,

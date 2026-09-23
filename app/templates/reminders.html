@@ -6,7 +6,10 @@
     <h1>Due</h1>
     <p>Oil, blades, filters. Auto-add puts them on <em>your</em> email calendar — the one named on this page.</p>
   </div>
-  <a class="btn sm" href="#add-reminder" data-open-fold="add-reminder">Add</a>
+  <div class="btn-row" style="margin:0">
+    <a class="btn sm" href="#add-reminder" data-open-fold="add-reminder">Add</a>
+    <a class="btn sm secondary" href="{{ url_for('ask.room', room='due') }}">Ask</a>
+  </div>
 </div>
 {% include "partials/calendar_connect.html" %}
 {% if can_set_via %}

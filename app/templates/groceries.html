@@ -73,6 +73,7 @@
     {% if can('edit_grocery') %}
     <a class="btn sm" href="#add-grocery" data-open-fold="add-grocery">Add</a>
     {% endif %}
+    <a class="btn sm secondary" href="{{ url_for('ask.room', room='inventory') }}">Ask</a>
     <a class="btn sm secondary" href="{{ url_for('groceries.grocery_list') }}">Basket</a>
     {% if can('edit_grocery') %}
     <form method="post" action="{{ url_for('groceries.ai_place') }}" style="margin:0">

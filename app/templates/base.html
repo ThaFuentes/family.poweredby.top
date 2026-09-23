@@ -8,7 +8,7 @@
   {% include "partials/theme_head.html" %}
   {% block head %}{% endblock %}
 </head>
-<body class="{% if current_user.is_authenticated %}has-nav{% endif %}">
+<body class="{% if current_user.is_authenticated %}has-nav{% endif %}{% if request.endpoint and request.endpoint.startswith('ask.') %} ask-page{% endif %}">
   {% include "partials/part_icons.svg" %}
   {% if current_user.is_authenticated %}
   {% include "partials/side_nav.html" %}
@@ -42,6 +42,9 @@
       <div class="sheet" role="menu">
         <div class="muted" style="padding:.45rem .75rem .2rem;font-size:.75rem">{{ current_user.name or current_user.username }} · {{ current_user.role }}</div>
         <a href="{{ url_for('find.index') }}">Find</a>
+        {% if current_user.role != 'child' %}
+        <a href="{{ url_for('ask.index') }}">Ask</a>
+        {% endif %}
         <a href="{{ url_for('notes.index') }}">Notes</a>
         <a href="{{ url_for('house.index') }}">House</a>
         {% if current_user.role != 'child' %}
@@ -107,6 +110,9 @@
     <a href="{{ url_for('vault.index') }}">Vault</a>
     {% endif %}
     <a href="{{ url_for('find.index') }}">Find</a>
+    {% if current_user.role != 'child' %}
+    <a href="{{ url_for('ask.index') }}">Ask</a>
+    {% endif %}
     <a href="{{ url_for('reminders.index') }}">Due</a>
     {% if current_user.role != 'child' %}
     <a href="{{ url_for('sort.index') }}">Sort</a>
@@ -156,7 +162,7 @@
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="{{ url_for('static', filename='js/scan.js') }}?v=os38"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}?v=os23"></script>
-  {% if ask_open %}
+  {% if ask_open and ask_embed %}
   {% include "partials/ask.html" %}
   {% endif %}
   {% block scripts %}{% endblock %}

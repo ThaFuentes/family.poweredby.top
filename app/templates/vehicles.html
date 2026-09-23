@@ -13,6 +13,7 @@
     {% if can_add %}
     <a class="btn sm" href="#add-vehicle" data-open-fold="add-vehicle">Add</a>
     {% endif %}
+    <a class="btn sm secondary" href="{{ url_for('ask.room', room='vehicles') }}">Ask</a>
     <a class="btn sm secondary" href="{{ url_for('tools.index') }}">Tools</a>
   </div>
 </div>

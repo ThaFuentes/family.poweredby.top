@@ -9,6 +9,9 @@
   <nav class="side-links">
     <a href="{{ url_for('home.home') }}" class="{% if request.endpoint == 'home.home' %}active{% endif %}">Home</a>
     <a href="{{ url_for('find.index') }}" class="{% if request.endpoint == 'find.index' %}active{% endif %}">Find</a>
+    {% if current_user.role != 'child' %}
+    <a href="{{ url_for('ask.index') }}" class="{% if request.endpoint and request.endpoint.startswith('ask.') %}active{% endif %}">Ask</a>
+    {% endif %}
     <button type="button" class="side-scan" data-open-scan>Scan</button>
     <a href="{{ url_for('groceries.index') }}" class="{% if request.endpoint == 'groceries.index' %}active{% endif %}">Inventory</a>
     <a href="{{ url_for('groceries.grocery_list') }}" class="{% if request.endpoint == 'groceries.grocery_list' %}active{% endif %}">Basket</a>

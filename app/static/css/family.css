@@ -2098,6 +2098,53 @@ html.family-intro-out #family-intro{opacity:0;transition:opacity .4s ease}
     height: min(36rem, calc(100dvh - 2.5rem));
   }
 }
+.ask-rooms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+  margin: 0 0 1rem;
+}
+.ask-rooms a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.1rem;
+  padding: .25rem .75rem;
+  border-radius: 999px;
+  background: var(--card, #f3efe4);
+  color: inherit;
+  font-weight: 800;
+  font-size: .88rem;
+  text-decoration: none;
+  border: 1.5px solid #141814;
+}
+.ask-rooms a.active {
+  background: #1f6a45;
+  color: #fff;
+  border-color: #0c0f0d;
+}
+.ask-desk-root {
+  margin: 0 0 1.5rem;
+}
+.ask-desk-root .ask-panel {
+  position: relative;
+  inset: auto;
+  display: flex;
+  width: 100%;
+  height: min(70dvh, 42rem);
+  max-height: none;
+  border-radius: 1.1rem;
+}
+.ask-desk-root .ask-fab,
+.ask-page .ask-fab { display: none !important; }
+.ask-help-card { overflow: auto; }
+.ask-help-body {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-weight: 600;
+  line-height: 1.45;
+  font-size: .95rem;
+}
 
 .vault-more { margin: .7rem 0 0; }
 .vault-more > summary {

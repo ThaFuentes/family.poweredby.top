@@ -1,17 +1,26 @@
-<div class="ask-root" id="ask-root">
+{% set ask_mode = ask_mode|default('fab') %}
+{% set ask_room = ask_room|default('house') %}
+{% set meta = ask_room_meta if ask_room_meta is defined else (room if room is defined and room.title is defined else none) %}
+{% set room_label = meta.title if meta else (ask_room|capitalize) %}
+<div class="ask-root{% if ask_mode == 'desk' %} ask-desk-root{% endif %}" id="ask-root" data-room="{{ ask_room }}" data-mode="{{ ask_mode }}">
+  {% if ask_mode != 'desk' %}
   <button type="button" class="ask-fab" id="ask-open" aria-expanded="false" aria-controls="ask-panel">
-    Ask
+    Ask{% if ask_room != 'house' %} · {{ room_label }}{% endif %}
   </button>
-  <section class="ask-panel" id="ask-panel" hidden>
+  {% endif %}
+  <section class="ask-panel{% if ask_mode == 'desk' %} is-open{% endif %}" id="ask-panel"{% if ask_mode != 'desk' %} hidden{% endif %}>
     <header class="ask-head">
       <div class="ask-bar">
-        <strong>Ask</strong>
+        <strong>{% if ask_mode == 'desk' %}{{ room_label }}{% else %}Ask{% if ask_room != 'house' %} · {{ room_label }}{% endif %}{% endif %}</strong>
         <div class="ask-actions">
+          <a class="btn sm secondary" href="{{ url_for('ask.help_page') }}">Help</a>
           <button type="button" class="btn sm secondary" id="ask-clear">New</button>
+          {% if ask_mode != 'desk' %}
           <button type="button" class="btn sm secondary" id="ask-close">Close</button>
+          {% endif %}
         </div>
       </div>
-      <p class="ask-hint">Photo a tool, part, barcode, or ticket. Or ask to add someone, a bill, a note.</p>
+      <p class="ask-hint">{% if ask_mode == 'desk' %}Type /help, /vehicles, /inventory. This thread stays in {{ room_label }}.{% else %}Close keeps this chat. New wipes it. Type /help.{% endif %}</p>
     </header>
     <div class="ask-log" id="ask-log" aria-live="polite"></div>
     <form class="ask-form" id="ask-form" autocomplete="off">
@@ -23,9 +32,9 @@
       <label class="ask-cam" for="ask-file">Photo</label>
       <input class="sr-only" id="ask-file" type="file" accept="image/*">
       <label class="sr-only" for="ask-input">Ask</label>
-      <textarea id="ask-input" maxlength="2000" rows="2" placeholder="Photo a drill, a part, or a barcode. Or add Sam as a member…"></textarea>
+      <textarea id="ask-input" maxlength="2000" rows="2" placeholder="{{ meta.placeholder if meta and meta.placeholder else 'What oil does the gas gen need? What’s about to expire?' }}"></textarea>
       <button class="btn" type="submit" id="ask-send">Send</button>
     </form>
   </section>
 </div>
-<script src="{{ url_for('static', filename='js/ask.js') }}?v=os7" defer></script>
+<script src="{{ url_for('static', filename='js/ask.js') }}?v=os10" defer></script>

@@ -136,6 +136,60 @@ JOBS = (
         "how": "needs is the oil the vehicle or tool requires. in_it is what was poured. Last date plus an interval fills the next due date when next is left blank.",
     },
     {
+        "id": "inspect",
+        "perm": None,
+        "title": "Inspect a tool, vehicle, or grocery",
+        "tool": "item_inspect",
+        "need": ["q"],
+        "optional": [],
+        "how": "Name the tool, generator, vehicle, or food. Returns what is already saved on this site, including oil and dates.",
+    },
+    {
+        "id": "remove_item",
+        "perm": ("maintain", "edit_grocery", "edit_meta"),
+        "title": "Remove a tool, vehicle, or grocery",
+        "tool": "item_remove",
+        "need": ["q"],
+        "optional": [],
+        "how": "Name the tool, vehicle, or grocery to take out of the house. Same as delete on the page. Not the vault.",
+    },
+    {
+        "id": "expire",
+        "perm": ("edit_grocery", "scan"),
+        "title": "Set a use-by date",
+        "tool": "expire_save",
+        "need": ["q", "date"],
+        "optional": ["amount", "place"],
+        "how": "Name the food and a date (YYYY-MM-DD, today, tomorrow, or in 3 days).",
+    },
+    {
+        "id": "expire_list",
+        "perm": None,
+        "title": "What is going bad soon",
+        "tool": "expire_list",
+        "need": [],
+        "optional": ["days"],
+        "how": "Inventory with a use-by date in the next 21 days, plus how many rows have no date.",
+    },
+    {
+        "id": "expire_guess",
+        "perm": ("edit_grocery", "scan"),
+        "title": "Typical use-by dates on undated food",
+        "tool": "expire_guess",
+        "need": [],
+        "optional": [],
+        "how": "Writes generic shelf life on food that has no date. Does not overwrite a date someone typed.",
+    },
+    {
+        "id": "oil_lookup",
+        "perm": None,
+        "title": "Look up OEM oil",
+        "tool": "oil_lookup",
+        "need": ["q"],
+        "optional": [],
+        "how": "Finds the vehicle or tool on this site. If oil is empty, looks up the OEM spec from year/make/model/VIN.",
+    },
+    {
         "id": "log",
         "perm": ("scan", "maintain", "edit_meta", "photo"),
         "title": "Log miles, hours, a fill-up, a repair, or a code",
@@ -807,29 +861,16 @@ def tool_oil_save(args: dict | None = None) -> dict:
     args = args if isinstance(args, dict) else {}
     if not (can("maintain") or can("edit_meta")):
         return _denied("update the oil record")
-    from app.utils.ask import _find_items, _history, _last_assistant, _path
+    from app.utils.ask import _history, _last_assistant, _path, _pick_named_item
     from app.utils.oil import normalize_oil_payload, oil_payload_has_fields, save_item_oil
 
     q = _trim(args.get("item") or args.get("q") or args.get("name") or args.get("vehicle"), 200)
     if not q:
         return {"ok": False, "need": ["item"], "hint": "Which vehicle, tool, or piece of equipment?"}
-    item = None
-    if q.isdigit():
-        found = _find_items(q, None, limit=1)
-        item = found[0] if found else None
-    else:
-        for kind in ("vehicle", "tool", "house"):
-            found = _find_items(q, kind, limit=3)
-            if len(found) == 1:
-                item = found[0]
-                break
-            if len(found) > 1:
-                return {
-                    "ok": False,
-                    "need": ["item"],
-                    "choices": [r.name for r in found],
-                    "hint": "Which one? " + ", ".join(r.name for r in found),
-                }
+
+    item, err = _pick_named_item(q, ("vehicle", "tool", "house"))
+    if err:
+        return err
     if item is None:
         return {"ok": False, "error": f"Nothing saved matches {q}."}
     if item.vehicle is None and item.tool is None:

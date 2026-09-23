@@ -8,7 +8,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from app.utils.ask import _local_house_say, _parse_turn, _speak_house
+from app.utils.ask import (
+    _local_house_say,
+    _parse_turn,
+    _plain_say,
+    _speak_house,
+)
+from app.utils.ask_rooms import help_text, normalize_room, room_from_path, slash_reply
 from app.utils.household_ai import ask_available, chat_on, household_config
 
 
@@ -57,6 +63,19 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(turn["kind"], "say")
         self.assertIn("https://example.test/water", turn["text"])
 
+    def test_tool_result_json_is_spoken(self):
+        turn = _parse_turn('{"ok": true, "kind": "tools", "lines": ["DeWalt drill · /items/4"], "count": 1}')
+        self.assertEqual(turn["kind"], "say")
+        self.assertIn("DeWalt drill", turn["text"])
+        self.assertNotIn('{"ok"', turn["text"])
+
+    def test_plain_say_strips_wrapped_json(self):
+        text = _plain_say('{"say":"Milk is in the fridge. /items/3"}')
+        self.assertEqual(text, "Milk is in the fridge. /items/3")
+        dumped = _plain_say('{"ok": true, "items": ["Milk · grocery · /items/3"]}')
+        self.assertIn("Milk", dumped)
+        self.assertFalse(dumped.strip().startswith("{"))
+
     def test_lookup_and_tool_json(self):
         turn = _parse_turn('{"tool":"lookup","args":{"upc":"012345678905"}}')
         self.assertEqual(turn["tool"], "lookup")
@@ -77,6 +96,28 @@ class ParseTests(unittest.TestCase):
         turn = _parse_turn('{"tool":"member_add","args":{"name":"Sam"}}')
         self.assertEqual(turn["tool"], "member_add")
         self.assertEqual(turn["args"]["name"], "Sam")
+
+
+class RoomTests(unittest.TestCase):
+    def test_normalize_and_path(self):
+        self.assertEqual(normalize_room("cars"), "vehicles")
+        self.assertEqual(normalize_room("groceries"), "inventory")
+        self.assertEqual(normalize_room("help"), "house")
+        self.assertEqual(room_from_path("/vehicles/"), "vehicles")
+        self.assertEqual(room_from_path("/groceries/"), "inventory")
+        self.assertEqual(room_from_path("/groceries/list"), "basket")
+        self.assertEqual(room_from_path("/ask/tools"), "tools")
+        self.assertEqual(room_from_path("/ask/help"), "house")
+
+    def test_help_lists_rooms_and_slashes(self):
+        text = help_text("vehicles")
+        self.assertIn("/help", text)
+        self.assertIn("/ask/vehicles", text)
+        self.assertIn("/inventory", text)
+        self.assertIn("Vehicles", text)
+
+    def test_unknown_slash(self):
+        self.assertIn("/help", slash_reply("/nope", "house") or "")
 
 
 class LocalHouseTests(unittest.TestCase):
@@ -114,7 +155,12 @@ class AskHttpTests(unittest.TestCase):
         with cls.app.app_context():
             from app.utils.access import mint_service_pass
 
-            cls.service_key = mint_service_pass(max_uses=20, days=30, label="ask-tests").code
+            cls.service_key = mint_service_pass(max_uses=80, days=30, label="ask-tests").code
+
+    def setUp(self):
+        with self.client.session_transaction() as sess:
+            sess.pop("family_ask_hits", None)
+            sess.pop("family_ask_history", None)
 
     def _csrf(self, html):
         import re
@@ -632,19 +678,28 @@ class AskHttpTests(unittest.TestCase):
         self.assertIn("5TFBT54106X123456", say)
         self.assertNotIn("provide the VIN", say.lower())
         with patch("app.utils.ask.complete", side_effect=fail_if_called):
-            messy = self.client.post(
-                "/ask/message",
-                json={"message": "use the vin for the 2006 tundra to find the type of oil it needs"},
-                headers={"X-CSRF-Token": token},
-            )
-        self.assertIn("5TFBT54106X123456", (messy.get_json() or {}).get("say") or "")
-        with patch("app.utils.ask.complete", side_effect=fail_if_called):
             named = self.client.post(
                 "/ask/message",
                 json={"message": "the truck vin is named april are you looking in the right area"},
                 headers={"X-CSRF-Token": token},
             )
         self.assertIn("5TFBT54106X123456", (named.get_json() or {}).get("say") or "")
+        with self.app.app_context():
+            from app.builddb.builddb import db
+            from app.builddb.table_vehicles import Vehicle
+
+            row = Vehicle.query.filter_by(item_id=item_id).first()
+            row.oil_needs = "5W-30 full synthetic"
+            db.session.commit()
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            oil = self.client.post(
+                "/ask/message",
+                json={"message": "use the vin for the 2006 tundra to find the type of oil it needs"},
+                headers={"X-CSRF-Token": token},
+            )
+        oil_say = (oil.get_json() or {}).get("say") or ""
+        self.assertIn("5W-30", oil_say)
+        self.assertIn("Tundra", oil_say)
 
     def test_add_that_saves_the_last_reply_on_the_vehicle(self):
         self.admin = f"ask_oil_{self.suffix}"
@@ -686,6 +741,433 @@ class AskHttpTests(unittest.TestCase):
             self.assertTrue(any("5W-30" in (n.body or "") for n in notes))
             turns = AskTurn.query.filter_by(user_id=user.id).count()
             self.assertGreaterEqual(turns, 2)
+
+    def _tool(self, name, **fields):
+        with self.app.app_context():
+            from app.builddb.builddb import db
+            from app.builddb.table_items import Item
+            from app.builddb.table_tools import Tool
+            from app.builddb.table_users import User
+
+            user = User.query.filter_by(username=self.admin).first()
+            item = Item(
+                household_id=user.household_id,
+                name=name,
+                item_type="tool",
+                created_by=user.id,
+            )
+            db.session.add(item)
+            db.session.flush()
+            tool = Tool(item_id=item.id, household_id=user.household_id)
+            for key, val in fields.items():
+                setattr(tool, key, val)
+            db.session.add(tool)
+            db.session.commit()
+            return item.id
+
+    def _grocery(self, name):
+        with self.app.app_context():
+            from app.builddb.builddb import db
+            from app.builddb.table_grocery_items import GroceryItem
+            from app.builddb.table_items import Item
+            from app.builddb.table_users import User
+
+            user = User.query.filter_by(username=self.admin).first()
+            item = Item(
+                household_id=user.household_id,
+                name=name,
+                item_type="grocery",
+                created_by=user.id,
+            )
+            db.session.add(item)
+            db.session.flush()
+            db.session.add(
+                GroceryItem(item_id=item.id, household_id=user.household_id, quantity=2, is_in_stock=True)
+            )
+            db.session.commit()
+            return item.id
+
+    def test_gas_gen_oil_when_saved(self):
+        self.admin = f"ask_gen_{self.suffix}"
+        self._register(self.admin, household=f"AskGen {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        self._tool("Honda generator", type="generator", power_source="gas", oil_needs="SAE 10W-30")
+        token = self._csrf(self.client.get("/").data)
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("oil is already saved on the generator")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "find my gas gen and tell me what oil it needs"},
+                headers={"X-CSRF-Token": token},
+            )
+        say = (resp.get_json() or {}).get("say") or ""
+        self.assertIn("10W-30", say)
+        self.assertIn("Honda", say)
+
+    def test_gas_gen_without_oil_asks_to_add(self):
+        self.admin = f"ask_gen2_{self.suffix}"
+        self._register(self.admin, household=f"AskGen2 {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        self._tool("Honda generator", type="generator", power_source="gas", model="EU2200i")
+        token = self._csrf(self.client.get("/").data)
+        seen = []
+
+        def fake_complete(prompt, **kwargs):
+            seen.append(prompt)
+            return True, '{"say":"Honda generator EU2200i is on the site. No oil spec saved. These usually take SAE 10W-30. Want me to add that?"}'
+
+        with patch("app.utils.ask.complete", side_effect=fake_complete):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "what oil does my gas gen need"},
+                headers={"X-CSRF-Token": token},
+            )
+        say = (resp.get_json() or {}).get("say") or ""
+        self.assertTrue(seen)
+        self.assertIn("Honda", seen[0])
+        self.assertIn("no oil spec", seen[0].lower())
+        self.assertIn("10W-30", say)
+        self.assertIn("Want me to add", say)
+        self.assertFalse(say.strip().startswith("{"))
+
+    def test_what_oil_i_have_lists_specs(self):
+        self.admin = f"ask_oils_{self.suffix}"
+        self._register(self.admin, household=f"AskOils {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        item_id = self._vehicle("April Black")
+        with self.app.app_context():
+            from app.builddb.builddb import db
+            from app.builddb.table_vehicles import Vehicle
+
+            row = Vehicle.query.filter_by(item_id=item_id).first()
+            row.year = 2006
+            row.make = "Toyota"
+            row.model = "Tundra"
+            row.oil_needs = "5W-30"
+            db.session.commit()
+        self._vehicle("Civic")
+        token = self._csrf(self.client.get("/").data)
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("overview should list saved oil without the model")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "what kinda oil i have"},
+                headers={"X-CSRF-Token": token},
+            )
+        say = (resp.get_json() or {}).get("say") or ""
+        self.assertIn("5W-30", say)
+        self.assertIn("Tundra", say)
+        self.assertNotIn("Saved vehicles:", say)
+
+    def test_json_reply_is_not_shown(self):
+        self.admin = f"ask_json_{self.suffix}"
+        self._register(self.admin, household=f"AskJson {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        token = self._csrf(self.client.get("/").data)
+        with patch(
+            "app.utils.ask.complete",
+            return_value=(True, '{"ok": true, "kind": "tools", "lines": ["DeWalt drill · /items/4"], "count": 1}'),
+        ):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "remind me what that last lookup was"},
+                headers={"X-CSRF-Token": token},
+            )
+        say = (resp.get_json() or {}).get("say") or ""
+        self.assertIn("DeWalt drill", say)
+        self.assertFalse("{" in say)
+
+    def test_delete_tool(self):
+        self.admin = f"ask_del_{self.suffix}"
+        self._register(self.admin, household=f"AskDel {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        item_id = self._tool("Old drill", type="drill")
+        replies = [
+            (True, '{"tool":"item_remove","args":{"q":"old drill"}}'),
+            (True, '{"say":"Old drill is out of the house."}'),
+        ]
+
+        def fake_complete(*args, **kwargs):
+            return replies.pop(0)
+
+        token = self._csrf(self.client.get("/").data)
+        with patch("app.utils.ask.complete", side_effect=fake_complete):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "delete the old drill"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertEqual(resp.status_code, 200, resp.get_json())
+        self.assertIn("Old drill", (resp.get_json() or {}).get("say") or "")
+        with self.app.app_context():
+            from app.builddb.table_items import Item
+
+            item = Item.query.get(item_id)
+            self.assertIsNotNone(item.removed_at)
+
+    def test_expire_save_and_list(self):
+        from datetime import date, timedelta
+
+        self.admin = f"ask_exp_{self.suffix}"
+        self._register(self.admin, household=f"AskExp {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        item_id = self._grocery("Milk")
+        day = (date.today() + timedelta(days=7)).isoformat()
+        replies = [
+            (True, '{"tool":"expire_save","args":{"q":"milk","date":"%s"}}' % day),
+            (True, '{"say":"Milk is dated %s."}' % day),
+        ]
+
+        def fake_complete(*args, **kwargs):
+            return replies.pop(0)
+
+        token = self._csrf(self.client.get("/").data)
+        with patch("app.utils.ask.complete", side_effect=fake_complete):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "set milk to expire 2026-10-04"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertEqual(resp.status_code, 200, resp.get_json())
+        with self.app.app_context():
+            from app.builddb.table_grocery_items import GroceryItem
+            from app.utils.lots import soonest
+
+            g = GroceryItem.query.filter_by(item_id=item_id).first()
+            self.assertEqual(str(soonest(g)), day)
+        with patch("app.utils.ask.complete", side_effect=lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("list is local"))):
+            listed = self.client.post(
+                "/ask/message",
+                json={"message": "whats about to expire"},
+                headers={"X-CSRF-Token": token},
+            )
+        listed_say = (listed.get_json() or {}).get("say") or ""
+        self.assertIn("Milk", listed_say)
+        self.assertIn(day, listed_say)
+        self.assertNotIn('{"ok"', listed_say)
+
+    def test_history_roundtrip(self):
+        self.admin = f"ask_hist_{self.suffix}"
+        self._register(self.admin, household=f"AskHist {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        token = self._csrf(self.client.get("/").data)
+        with patch("app.utils.ask.complete", return_value=(True, '{"say":"The drill is in tools."}')):
+            self.client.post(
+                "/ask/message",
+                json={"message": "where is the drill"},
+                headers={"X-CSRF-Token": token},
+            )
+        hist = self.client.get("/ask/history")
+        self.assertEqual(hist.status_code, 200, hist.data)
+        turns = (hist.get_json() or {}).get("turns") or []
+        texts = " ".join(t.get("text") or "" for t in turns)
+        self.assertIn("where is the drill", texts)
+        self.assertIn("drill is in tools", texts)
+
+        again = self.client.get("/")
+        self.assertIn(b'data-room="house"', again.data)
+        still = self.client.get("/ask/history?room=house")
+        still_text = " ".join(t.get("text") or "" for t in (still.get_json() or {}).get("turns") or [])
+        self.assertIn("where is the drill", still_text)
+
+    def test_idle_chat_expires_after_two_weeks(self):
+        from datetime import datetime, timedelta
+
+        self.admin = f"ask_idle_{self.suffix}"
+        self._register(self.admin, household=f"AskIdle {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        token = self._csrf(self.client.get("/").data)
+        with patch("app.utils.ask.complete", return_value=(True, '{"say":"Old chat."}')):
+            self.client.post(
+                "/ask/message",
+                json={"message": "hello from last month"},
+                headers={"X-CSRF-Token": token},
+            )
+        with self.app.app_context():
+            from app.builddb.builddb import db
+            from app.builddb.table_ask_turns import AskTurn
+            from app.builddb.table_users import User
+
+            user = User.query.filter_by(username=self.admin).first()
+            old = datetime.utcnow() - timedelta(days=20)
+            for row in AskTurn.query.filter_by(user_id=user.id).all():
+                row.created_at = old
+            db.session.commit()
+        hist = self.client.get("/ask/history")
+        self.assertEqual((hist.get_json() or {}).get("turns") or [], [])
+
+    def test_slash_help_and_vehicles_skip_the_model(self):
+        self.admin = f"ask_sl_{self.suffix}"
+        self._register(self.admin, household=f"AskSl {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        self._vehicle("April Black")
+        token = self._csrf(self.client.get("/").data)
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("slash commands do not need the model")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            help_resp = self.client.post(
+                "/ask/message",
+                json={"message": "/help"},
+                headers={"X-CSRF-Token": token},
+            )
+            listed = self.client.post(
+                "/ask/message",
+                json={"message": "/vehicles"},
+                headers={"X-CSRF-Token": token},
+            )
+        help_say = (help_resp.get_json() or {}).get("say") or ""
+        self.assertIn("/ask/vehicles", help_say)
+        self.assertIn("/inventory", help_say)
+        say = (listed.get_json() or {}).get("say") or ""
+        self.assertIn("April Black", say)
+
+    def test_rooms_keep_threads_apart(self):
+        self.admin = f"ask_rm_{self.suffix}"
+        self._register(self.admin, household=f"AskRm {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        token = self._csrf(self.client.get("/").data)
+        with patch("app.utils.ask.complete", return_value=(True, '{"say":"Tundra takes 5W-30."}')):
+            self.client.post(
+                "/ask/message",
+                json={"message": "what oil does the tundra need", "room": "vehicles"},
+                headers={"X-CSRF-Token": token},
+            )
+        with patch("app.utils.ask.complete", return_value=(True, '{"say":"Milk is in the fridge."}')):
+            self.client.post(
+                "/ask/message",
+                json={"message": "where is the milk", "room": "inventory"},
+                headers={"X-CSRF-Token": token},
+            )
+        cars = self.client.get("/ask/history?room=vehicles")
+        food = self.client.get("/ask/history?room=inventory")
+        car_text = " ".join(t.get("text") or "" for t in (cars.get_json() or {}).get("turns") or [])
+        food_text = " ".join(t.get("text") or "" for t in (food.get_json() or {}).get("turns") or [])
+        self.assertIn("tundra", car_text.lower())
+        self.assertIn("5W-30", car_text)
+        self.assertNotIn("milk", car_text.lower())
+        self.assertIn("milk", food_text.lower())
+        self.assertNotIn("tundra", food_text.lower())
+
+    def test_ask_pages_render(self):
+        self.admin = f"ask_pg_{self.suffix}"
+        self._register(self.admin, household=f"AskPg {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        help_page = self.client.get("/ask/help")
+        self.assertEqual(help_page.status_code, 200, help_page.data)
+        self.assertIn(b"/vehicles", help_page.data)
+        self.assertIn(b"/inventory", help_page.data)
+        desk = self.client.get("/ask/vehicles")
+        self.assertEqual(desk.status_code, 200, desk.data)
+        self.assertIn(b'data-room="vehicles"', desk.data)
+        self.assertIn(b'data-mode="desk"', desk.data)
+        vehicles = self.client.get("/vehicles/")
+        self.assertEqual(vehicles.status_code, 200, vehicles.data)
+        self.assertIn(b"/ask/vehicles", vehicles.data)
+        self.assertIn(b'data-room="house"', vehicles.data)
+        self.assertIn(b"Close keeps this chat", vehicles.data)
+
+    def test_oem_oil_lookup_then_add(self):
+        self.admin = f"ask_oem_{self.suffix}"
+        self._register(self.admin, household=f"AskOem {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        item_id = self._vehicle("White Tundra")
+        with self.app.app_context():
+            from app.builddb.builddb import db
+            from app.builddb.table_vehicles import Vehicle
+
+            row = Vehicle.query.filter_by(item_id=item_id).first()
+            row.year = 2011
+            row.make = "Toyota"
+            row.model = "Tundra"
+            row.color = "White"
+            db.session.commit()
+        token = self._csrf(self.client.get("/").data)
+        seen = []
+
+        def fake_complete(prompt, **kwargs):
+            seen.append(prompt)
+            return True, '{"needs":"0W-20 API SN","capacity":"6.4 qt","interval_miles":"10000","interval_months":"12","note":"Toyota 2011 Tundra 5.7L"}'
+
+        with patch("app.utils.ask.complete", side_effect=fake_complete):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "look up the oil for the white tundra 2011"},
+                headers={"X-CSRF-Token": token},
+            )
+        say = (resp.get_json() or {}).get("say") or ""
+        self.assertTrue(seen)
+        self.assertIn("Tundra", seen[0])
+        self.assertIn("2011", seen[0])
+        self.assertIn("0W-20", say)
+        self.assertIn("OEM", say)
+        self.assertIn("Want me to add", say)
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("yes should save the pending OEM spec")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            yes = self.client.post(
+                "/ask/message",
+                json={"message": "yes add it"},
+                headers={"X-CSRF-Token": token},
+            )
+        yes_say = (yes.get_json() or {}).get("say") or ""
+        self.assertIn("0W-20", yes_say)
+        self.assertIn("White Tundra", yes_say)
+        with self.app.app_context():
+            from app.builddb.table_vehicles import Vehicle
+
+            row = Vehicle.query.filter_by(item_id=item_id).first()
+            self.assertIn("0W-20", row.oil_needs or "")
+
+    def test_generic_expirations_on_undated_food(self):
+        self.admin = f"ask_genx_{self.suffix}"
+        self._register(self.admin, household=f"AskGenx {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        self._grocery("Cereal")
+        self._grocery("Rice")
+        token = self._csrf(self.client.get("/").data)
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("expire list and generic dates are local")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            listed = self.client.post(
+                "/ask/message",
+                json={"message": "whats the expirations on my food"},
+                headers={"X-CSRF-Token": token},
+            )
+        listed_say = (listed.get_json() or {}).get("say") or ""
+        self.assertIn("2 have no use-by", listed_say)
+        self.assertIn("generic", listed_say.lower())
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            filled = self.client.post(
+                "/ask/message",
+                json={"message": "please add the generic expirations to it"},
+                headers={"X-CSRF-Token": token},
+            )
+        filled_say = (filled.get_json() or {}).get("say") or ""
+        self.assertIn("typical use-by", filled_say.lower())
+        self.assertIn("Cereal", filled_say)
+        with self.app.app_context():
+            from app.builddb.table_grocery_items import GroceryItem
+            from app.builddb.table_items import Item
+            from app.utils.lots import soonest
+
+            hid = Item.query.filter_by(name="Cereal").first().household_id
+            dated = 0
+            for item in Item.query.filter_by(household_id=hid, item_type="grocery").all():
+                if soonest(item.grocery):
+                    dated += 1
+            self.assertGreaterEqual(dated, 2)
 
 
 if __name__ == "__main__":

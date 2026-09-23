@@ -12,6 +12,7 @@ class AskTurn(db.Model):
     )
     user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     role = db.Column(db.String(20), nullable=False, default="user")
+    room = db.Column(db.String(20), nullable=False, default="house")
     body = db.Column(EncryptedText, nullable=False, default="")
     created_at = db.Column(db.DateTime, server_default=db.func.current_timestamp())
 
@@ -23,10 +24,12 @@ def create_table():
             ("household_id", "INT NOT NULL"),
             ("user_id", "INT NOT NULL"),
             ("role", "VARCHAR(20) NOT NULL DEFAULT 'user'"),
+            ("room", "VARCHAR(20) NOT NULL DEFAULT 'house'"),
             ("body", "TEXT NOT NULL"),
         ],
         indexes=[
             ("idx_ask_turns_household_id", "household_id"),
             ("idx_ask_turns_user_id", "user_id"),
+            ("idx_ask_turns_room", "household_id, user_id, room"),
         ],
     )

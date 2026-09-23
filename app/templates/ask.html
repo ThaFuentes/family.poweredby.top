@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ room.title }} · Ask · Family OS{% endblock %}
+{% block content %}
+<div class="ask-desk">
+  <div class="page-head">
+    <div>
+      <h1>Ask · {{ room.title }}</h1>
+      <p>{{ room.hint }}</p>
+    </div>
+    <a class="btn sm secondary" href="{{ help_href }}">Help</a>
+  </div>
+  <nav class="ask-rooms" aria-label="Ask rooms">
+    {% for r in rooms %}
+    <a href="{{ r.href }}" class="{% if r.id == ask_room %}active{% endif %}">{{ r.title }}</a>
+    {% endfor %}
+    <a href="{{ help_href }}">Help</a>
+  </nav>
+  {% set ask_mode = "desk" %}
+  {% set ask_room_meta = room %}
+  {% include "partials/ask.html" %}
+</div>
+{% endblock %}
