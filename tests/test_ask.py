@@ -601,6 +601,37 @@ class AskHttpTests(unittest.TestCase):
 
             self.assertIsNone(User.query.filter_by(username=f"riley{self.suffix}").first())
 
+    def test_saved_tundra_vin_is_answered_from_the_site(self):
+        self.admin = f"ask_vin_{self.suffix}"
+        self._register(self.admin, household=f"AskVin {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        item_id = self._vehicle("April Black")
+        with self.app.app_context():
+            from app.builddb.builddb import db
+            from app.builddb.table_vehicles import Vehicle
+
+            row = Vehicle.query.filter_by(item_id=item_id).first()
+            row.year = 2006
+            row.make = "Toyota"
+            row.model = "Tundra"
+            row.color = "Black"
+            row.vin = "5TFBT54106X123456"
+            db.session.commit()
+        token = self._csrf(self.client.get("/").data)
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("the VIN is already saved")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "whats the 2006 tundra vin from my site"},
+                headers={"X-CSRF-Token": token},
+            )
+        say = (resp.get_json() or {}).get("say") or ""
+        self.assertIn("5TFBT54106X123456", say)
+        self.assertNotIn("provide the VIN", say.lower())
+
     def test_add_that_saves_the_last_reply_on_the_vehicle(self):
         self.admin = f"ask_oil_{self.suffix}"
         self._register(self.admin, household=f"AskOil {self.suffix}", name="Pat")

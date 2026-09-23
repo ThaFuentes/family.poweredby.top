@@ -30,6 +30,7 @@ TOOLS = (
     "find",
     "house",
     "due",
+    "vehicle_card",
     "lookup",
     "vault_unlock",
     "vault_list",
@@ -78,6 +79,7 @@ Reply with ONLY JSON. To act:
 {"tool":"find","args":{"q":"batteries"}}
 {"tool":"house","args":{"kind":"tools"}}
 {"tool":"house","args":{"kind":"vehicles"}}
+{"tool":"vehicle_card","args":{"q":"2006 tundra"}}
 {"tool":"house","args":{"kind":"basket"}}
 {"tool":"due","args":{}}
 {"tool":"lookup","args":{"upc":"012345678905"}}
@@ -123,6 +125,7 @@ To talk: {"say":"short answer with /vault/12 /items/4 /find/?q=oil or https link
 If they name a store run (Sam's, Costco) put those names on the basket with store set — no barcode yet. When they later scan a product that fits (french vanilla creamer vs coffee creamer), call basket_match so it links and comes off the list.
 If vault is locked, call vault_unlock when they gave the password, else tell them to open /vault/ or paste the password.
 Look up a UPC/VIN before creating a tool, vehicle, or grocery when they gave a code.
+A saved vehicle already has its year, make, model, color, VIN, plate, and oil. Call vehicle_card before you ask them for any of those. Use the VIN on the card. Do not ask them to type a VIN, plate, or oil spec that is already stored. Words like April, Black, 2006, and Tundra are how that truck is saved.
 Do not invent counts, passwords, VINs, or bills. Keep answers short.
 """
 
@@ -308,6 +311,116 @@ def _find_items(q: str, item_type: str | None = None, limit: int = 8):
     elif needle:
         return []
     return qry.order_by(Item.name.asc()).limit(limit).all()
+
+
+_VEHICLE_STOP = {
+    "what", "whats", "what’s", "the", "vin", "vins", "from", "my", "our", "site",
+    "please", "provide", "your", "can", "you", "find", "look", "up", "lookup",
+    "correct", "oil", "specification", "spec", "section", "already", "saved",
+    "have", "has", "show", "tell", "which", "where", "does", "take", "need",
+    "needs", "for", "and", "its", "it's", "this", "that", "with", "about",
+}
+
+
+def _vehicle_tokens(text: str) -> list[str]:
+    out = []
+    for tok in re.findall(r"[a-z0-9]+", (text or "").lower()):
+        if tok in _VEHICLE_STOP:
+            continue
+        if len(tok) >= 3 or tok.isdigit():
+            out.append(tok)
+    return out
+
+
+def _vehicle_blob(item) -> str:
+    vehicle = getattr(item, "vehicle", None)
+    parts = [getattr(item, "name", None) or ""]
+    if vehicle is not None:
+        parts.extend(
+            str(getattr(vehicle, key) or "")
+            for key in ("year", "make", "model", "trim", "color", "vin", "plate", "oil_needs", "oil_type")
+        )
+    return " ".join(parts).lower()
+
+
+def _matching_vehicles(text: str) -> list:
+    tokens = _vehicle_tokens(text)
+    rows = _find_items("", "vehicle", limit=40)
+    if not tokens:
+        return rows
+    return [item for item in rows if all(tok in _vehicle_blob(item) for tok in tokens)]
+
+
+def _vehicle_facts(item) -> dict:
+    vehicle = getattr(item, "vehicle", None)
+    href = _path("items.detail", item_id=item.id) or f"/items/{item.id}"
+    return {
+        "id": item.id,
+        "name": item.name,
+        "year": getattr(vehicle, "year", None) or "",
+        "make": getattr(vehicle, "make", None) or "",
+        "model": getattr(vehicle, "model", None) or "",
+        "trim": getattr(vehicle, "trim", None) or "",
+        "color": getattr(vehicle, "color", None) or "",
+        "vin": getattr(vehicle, "vin", None) or "",
+        "plate": getattr(vehicle, "plate", None) or "",
+        "oil_needs": getattr(vehicle, "oil_needs", None) or "",
+        "oil_in_it": getattr(vehicle, "oil_type", None) or "",
+        "capacity": getattr(vehicle, "oil_capacity", None) or "",
+        "href": href,
+    }
+
+
+def _speak_vehicle_facts(rows: list, text: str) -> str:
+    if not rows:
+        return ""
+    want_vin = bool(re.search(r"\bvin\b", text or "", re.I))
+    lines = []
+    for item in rows:
+        card = _vehicle_facts(item)
+        who = " ".join(str(card[k]) for k in ("year", "make", "model", "color") if card[k]).strip()
+        head = card["name"] if not who else f"{card['name']} · {who}"
+        if want_vin:
+            vin = card["vin"] or "no VIN saved on it"
+            lines.append(f"{head} · VIN {vin} · {card['href']}")
+        else:
+            bits = [head]
+            if card["vin"]:
+                bits.append(f"VIN {card['vin']}")
+            if card["plate"]:
+                bits.append(card["plate"])
+            if card["oil_needs"]:
+                bits.append(f"needs {card['oil_needs']}")
+            elif card["oil_in_it"]:
+                bits.append(f"in it {card['oil_in_it']}")
+            bits.append(card["href"])
+            lines.append(" · ".join(bits))
+    return "\n".join(lines)
+
+
+def tool_vehicle_card(args: dict | None = None) -> dict:
+    args = args if isinstance(args, dict) else {}
+    q = _trim(args.get("q") or args.get("name") or args.get("item") or "", 200)
+    rows = _matching_vehicles(q)
+    if not rows:
+        return {"ok": True, "q": q, "vehicles": [], "hint": "No saved vehicle matches that."}
+    return {"ok": True, "q": q, "vehicles": [_vehicle_facts(item) for item in rows[:8]]}
+
+
+def _stored_vehicle_say(text: str) -> str | None:
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    if not re.search(r"\b(vin|plate|oil)\b", raw, re.I) and "my site" not in raw.lower() and "already" not in raw.lower():
+        return None
+    if not _vehicle_tokens(raw) and not re.search(r"\bvin\b", raw, re.I):
+        return None
+    rows = _matching_vehicles(raw)
+    if not rows:
+        if _vehicle_tokens(raw):
+            return "No saved vehicle matches that. I will not ask you to type a VIN that should already be on the truck."
+        return None
+    return _speak_vehicle_facts(rows, raw)
 
 
 def tool_house(args: dict | None = None) -> dict:
@@ -539,6 +652,20 @@ def _speak_tool_notes(notes: list) -> str:
         if n.get("tool") == "house":
             bits.append(_speak_house(r))
             continue
+        if r.get("vehicles"):
+            for card in r["vehicles"]:
+                bits.append(
+                    " · ".join(
+                        str(bit)
+                        for bit in (
+                            card.get("name"),
+                            card.get("vin") and f"VIN {card.get('vin')}",
+                            card.get("oil_needs") and f"needs {card.get('oil_needs')}",
+                            card.get("href"),
+                        )
+                        if bit
+                    )
+                )
         if r.get("items"):
             bits.extend(str(x) for x in r["items"])
         elif r.get("lines"):
@@ -570,6 +697,23 @@ def _item_line(item) -> str:
     bits = [name]
     if kind:
         bits.append(kind)
+    vehicle = getattr(item, "vehicle", None)
+    if vehicle is not None:
+        who = " ".join(
+            str(getattr(vehicle, key) or "")
+            for key in ("year", "make", "model", "color")
+            if getattr(vehicle, key, None)
+        ).strip()
+        if who:
+            bits.append(who)
+        if getattr(vehicle, "vin", None):
+            bits.append(f"VIN {vehicle.vin}")
+        if getattr(vehicle, "plate", None):
+            bits.append(vehicle.plate)
+        if getattr(vehicle, "oil_needs", None):
+            bits.append(f"needs {vehicle.oil_needs}")
+        elif getattr(vehicle, "oil_type", None):
+            bits.append(f"in it {vehicle.oil_type}")
     if loc:
         bits.append(loc)
     if qty:
@@ -1391,6 +1535,8 @@ def run_tool(name: str, args: dict | None) -> dict:
             return tool_find(args.get("q") or args.get("query") or "")
         if key == "house":
             return tool_house(args)
+        if key == "vehicle_card":
+            return tool_vehicle_card(args)
         if key == "due":
             return tool_due()
         if key == "lookup":
@@ -1559,6 +1705,13 @@ def run_ask(message: str, *, household, image_bytes: bytes | None = None, image_
         history.append({"role": "assistant", "text": remembered.get("say") or ""})
         _save_history(history)
         return remembered
+    stored = None if has_photo else _stored_vehicle_say(text)
+    if stored:
+        history = _history()
+        history.append({"role": "user", "text": text})
+        history.append({"role": "assistant", "text": stored})
+        _save_history(history)
+        return {"ok": True, "say": stored, "did": [], "vault_locked": False}
     local = None if has_photo else _local_house_say(text)
     if local:
         history = _history()
