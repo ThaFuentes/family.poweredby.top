@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>On it now · {{ item.name }}</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
+  {% include "partials/theme_head.html" %}
+</head>
+<body class="sheet-body">
+<p class="muted" style="margin:0">{{ item.name }}</p>
+<h1 style="margin:.15rem 0 .6rem;font-size:1.25rem">On it now</h1>
+{% if rows %}
+<div class="card list">
+  {% for row in rows %}
+  {% set s = row.system %}
+  {% set p = row.part %}
+  <a class="row" href="{{ url_for('items.parts_sheet', item_id=item.id, system=s.id, part=p.id) }}">
+    <div>
+      <strong>{{ p.name }}</strong>
+      <div class="muted">{{ s.label }}{% if p.installed_on %} · {{ p.installed_on.strftime('%b') }} {{ p.installed_on.day }}{% endif %}</div>
+    </div>
+    <span class="badge">Open</span>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted">Nothing logged yet.</p>
+{% endif %}
+</body>
+</html>

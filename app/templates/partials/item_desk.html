@@ -6,6 +6,12 @@
     <strong>{% if item_notes %}{{ item_notes|length }}{% else %}None yet{% endif %}</strong>
   </button>
   {% endif %}
+  {% if systems_host is defined and systems_host %}
+  <button type="button" class="home-chip" data-sheet="{{ url_for('items.on_it_sheet', item_id=item.id) }}" data-sheet-title="On it now">
+    <span class="kicker">On it now</span>
+    <strong>{% if on_it_total %}{{ on_it_total }}{% else %}None{% endif %}</strong>
+  </button>
+  {% endif %}
   {% if item.vehicle or item.tool %}
   {% set oil = item.vehicle or item.tool %}
   <button type="button" class="home-chip" data-sheet="{{ url_for('items.oil_sheet', item_id=item.id) }}" data-sheet-title="Oil">

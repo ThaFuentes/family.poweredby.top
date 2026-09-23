@@ -807,8 +807,8 @@ def tool_oil_save(args: dict | None = None) -> dict:
     args = args if isinstance(args, dict) else {}
     if not (can("maintain") or can("edit_meta")):
         return _denied("update the oil record")
-    from app.utils.ask import _find_items, _path
-    from app.utils.oil import save_item_oil
+    from app.utils.ask import _find_items, _history, _last_assistant, _path
+    from app.utils.oil import normalize_oil_payload, oil_payload_has_fields, save_item_oil
 
     q = _trim(args.get("item") or args.get("q") or args.get("name") or args.get("vehicle"), 200)
     if not q:
@@ -834,8 +834,15 @@ def tool_oil_save(args: dict | None = None) -> dict:
         return {"ok": False, "error": f"Nothing saved matches {q}."}
     if item.vehicle is None and item.tool is None:
         return {"ok": False, "error": f"{item.name} does not keep an oil record."}
+    payload = normalize_oil_payload(args, _last_assistant(_history()))
+    if not oil_payload_has_fields(payload):
+        return {
+            "ok": False,
+            "need": ["needs"],
+            "hint": "Say the oil it needs, such as 5W-30 full synthetic, 6 qt. That text is what gets written into the form.",
+        }
     try:
-        save_item_oil(item, args, clear=False)
+        save_item_oil(item, payload, clear=False)
     except ValueError:
         return {"ok": False, "error": f"{item.name} does not keep an oil record."}
     db.session.commit()

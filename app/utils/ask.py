@@ -110,7 +110,7 @@ Reply with ONLY JSON. To act:
 
 place what: tool, part, grocery, vehicle, house, note, legal.
 A photo with a barcode, VIN, or serial: read the code, then place or lookup. No code: identify the tool or part and place it. Do not invent codes.
-Oil: needs is the spec the vehicle or tool requires. in_it is what was poured. last_date plus interval_miles or interval_months fills next when next is left blank. Notes with item are pinned on that vehicle, tool, or equipment.
+Oil: needs is the exact text for the Oil it needs field. in_it is what was poured. capacity, last_date, last_miles, interval_miles, and interval_months fill those form fields. Do not say the oil was added unless oil_save returns a needs value. Notes with item are pinned on that vehicle, tool, or equipment.
 If they say add that, save that, or put that on a vehicle, tool, or the house, save your previous reply on that item with note_save. When the reply is an oil spec, also oil_save with needs set to that spec. Do not ask them to paste it again.
 Adding a person: call member_add only when you have a name and username. If either is missing, ask. Role member, admin, or child. Password may be blank.
 When member_add returns a password, say the username and password once so they can copy it.
@@ -465,8 +465,17 @@ def _remember_reply(text: str) -> dict | None:
     from app.utils.oil import save_item_oil
 
     hid = household_id()
-    oil = _oil_blurb(prior)
-    title = "Oil it needs" if oil else "From Ask"
+    from app.utils.oil import normalize_oil_payload, oil_payload_has_fields
+
+    asked = ""
+    for row in reversed(_history() or []):
+        if row.get("role") == "user" and (row.get("text") or "").strip() and row.get("text") != text:
+            asked = str(row.get("text"))
+            break
+    oil_data = {}
+    if re.search(r"\boil\b", f"{asked}\n{prior}", re.I):
+        oil_data = normalize_oil_payload({"text": prior})
+    title = "Oil it needs" if oil_payload_has_fields(oil_data) else "From Ask"
     note = Note(
         household_id=hid,
         user_id=current_user.id,
@@ -477,9 +486,9 @@ def _remember_reply(text: str) -> dict | None:
     )
     db.session.add(note)
     oil_saved = False
-    if oil and (target.vehicle is not None or target.tool is not None):
+    if oil_payload_has_fields(oil_data) and (target.vehicle is not None or target.tool is not None):
         if can("maintain") or can("edit_meta"):
-            save_item_oil(target, {"needs": oil}, clear=False)
+            save_item_oil(target, oil_data, clear=False)
             oil_saved = True
     db.session.commit()
     where = f"/items/{target.id}?tab=notes"

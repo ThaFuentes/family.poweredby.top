@@ -8,29 +8,6 @@
 </p>
 {% endif %}
 
-<div class="card list">
-  <h2 style="margin:.2rem 0 .45rem">On it now</h2>
-  {% if on_it_now %}
-    {% for row in on_it_now %}
-      {% set s = row.system %}
-      {% set p = row.part %}
-      <button type="button" class="row part-open-row" data-sheet="{{ url_for('items.parts_sheet', item_id=item.id, system=s.id, part=p.id) }}" data-sheet-title="{{ p.name }}">
-        {{ part_pic(p, part_photos.get(p.id) if part_photos else none) }}
-        <div>
-          <strong>{{ p.name }}</strong>
-          <div class="muted">{{ s.label }}{% if p.installed_on %} · Added {{ p.installed_on.strftime('%b') }} {{ p.installed_on.day }}{% endif %}</div>
-        </div>
-        <span class="badge">Open</span>
-      </button>
-    {% endfor %}
-    {% if on_it_total > on_it_now|length %}
-    <p class="muted" style="margin:.35rem 0 0">{{ on_it_total }} on it. Open a system for the rest.</p>
-    {% endif %}
-  {% else %}
-  <p class="muted" style="margin:0">Nothing logged yet.</p>
-  {% endif %}
-</div>
-
 <div class="grid sys-menu">
   {% for s in systems %}
   <button type="button" class="tile" data-sheet="{{ url_for('items.parts_sheet', item_id=item.id, system=s.id) }}" data-sheet-title="{{ s.label }}">

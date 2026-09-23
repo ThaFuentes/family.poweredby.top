@@ -8,7 +8,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from app.utils.oil import apply_tool_oil, apply_vehicle_oil
+from app.utils.oil import apply_tool_oil, apply_vehicle_oil, fields_from_text
 
 
 class OilTests(unittest.TestCase):
@@ -59,6 +59,12 @@ class OilTests(unittest.TestCase):
         self.assertEqual(v.oil_needs, "5W-30")
         self.assertEqual(v.oil_type, "Castrol 5W-30")
         self.assertEqual(v.next_oil_due_mileage, 6000)
+
+    def test_sentence_fills_the_form_fields(self):
+        parsed = fields_from_text("Use 5W-30 full synthetic, about 6 quarts, every 5000 miles.")
+        self.assertIn("5W-30", parsed["needs"])
+        self.assertEqual(parsed["capacity"], "6 qt")
+        self.assertEqual(parsed["interval_miles"], "5000")
 
     def test_tool_hours(self):
         t = SimpleNamespace(

@@ -1373,6 +1373,35 @@ def save_oil(item_id):
     return redirect(url_for("items.detail", item_id=item.id, tab=request.form.get("next") or "overview"))
 
 
+@items_bp.route("/<int:item_id>/on-it-sheet")
+@login_required
+def on_it_sheet(item_id):
+    item = _item_or_404(item_id)
+    if item.item_type not in ("vehicle", "house"):
+        abort(404)
+    from app.builddb.table_vehicle_parts import VehiclePart
+
+    hid = household_id()
+    vparts = (
+        VehiclePart.query.filter_by(household_id=hid, vehicle_item_id=item.id)
+        .order_by(VehiclePart.system.asc(), VehiclePart.slot.asc(), VehiclePart.created_at.desc())
+        .all()
+    )
+    if item.item_type == "house":
+        from app.utils.house_systems import group_house_parts
+
+        systems = group_house_parts(vparts)
+    else:
+        from app.utils.vehicle_systems import group_parts
+
+        systems = group_parts(vparts)
+    rows = []
+    for system in systems:
+        for part in system.get("on_it") or []:
+            rows.append({"system": system, "part": part})
+    return render_template("items/on_it_sheet.html", item=item, rows=rows)
+
+
 @items_bp.route("/<int:item_id>/oil-sheet")
 @login_required
 def oil_sheet(item_id):

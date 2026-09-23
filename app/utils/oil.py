@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import calendar
+import re
 from datetime import date, datetime
 
 
@@ -119,6 +120,96 @@ def apply_tool_oil(tool, data: dict, *, clear: bool = False) -> None:
         tool.next_oil_due_hours = int(tool.last_oil_hours) + int(tool.oil_interval_hours)
     elif clear and ("next_hours" in data or "next_oil_due_hours" in data):
         tool.next_oil_due_hours = None
+
+
+_CAP = re.compile(r"(\d+(?:\.\d+)?)\s*(quarts?|qts?|qt|ounces?|oz|liters?|litres?|l)\b", re.I)
+_EVERY_MI = re.compile(r"every\s+([\d,]+)\s*(?:miles|mi)\b", re.I)
+_EVERY_MO = re.compile(r"every\s+(\d{1,2})\s*months?\b", re.I)
+_EVERY_HR = re.compile(r"every\s+([\d,]+)\s*hours?\b", re.I)
+_AT_MI = re.compile(r"(?:at|@)\s+([\d,]{2,})\b|\b([\d,]{4,})\s*(?:miles|mi)\b", re.I)
+_DAY = re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
+
+
+def fields_from_text(text: str) -> dict:
+    """Pull oil form values out of a sentence Ask already said."""
+    raw = (text or "").strip()
+    if not raw:
+        return {}
+    out = {}
+    spec = _OIL_SPEC.search(raw) if "_OIL_SPEC" in globals() else None
+    # local pattern so this module does not depend on ask.py
+    spec = re.search(r"\b(\d{1,2}\s*W-\s*\d{2}|SAE\s*\d{2})\b", raw, re.I)
+    if spec:
+        start = max(0, spec.start() - 50)
+        end = min(len(raw), spec.end() + 70)
+        out["needs"] = " ".join(raw[start:end].split())[:200]
+    elif re.search(r"\boil\b", raw, re.I):
+        out["needs"] = " ".join(raw.split())[:200]
+    cap = _CAP.search(raw)
+    if cap:
+        unit = cap.group(2).lower()
+        short = {"quarts": "qt", "quart": "qt", "qts": "qt", "ounces": "oz", "ounce": "oz", "liters": "L", "liter": "L", "litres": "L", "litre": "L"}.get(unit, unit)
+        out["capacity"] = f"{cap.group(1)} {short}"
+    miles = _EVERY_MI.search(raw)
+    if miles:
+        out["interval_miles"] = miles.group(1).replace(",", "")
+    months = _EVERY_MO.search(raw)
+    if months:
+        out["interval_months"] = months.group(1)
+    hours = _EVERY_HR.search(raw)
+    if hours:
+        out["interval_hours"] = hours.group(1).replace(",", "")
+    day = _DAY.search(raw)
+    if day:
+        out["last_date"] = day.group(1)
+    at = _AT_MI.search(raw)
+    if at:
+        out["last_miles"] = (at.group(1) or at.group(2) or "").replace(",", "")
+    return out
+
+
+def normalize_oil_payload(data: dict | None, extra_text: str = "") -> dict:
+    src = dict(data or {})
+    needs = src.get("needs") or src.get("oil_needs") or src.get("oil") or src.get("spec") or ""
+    if _blank(needs):
+        for key in ("text", "body", "reply", "answer", "details", "kind"):
+            if not _blank(src.get(key)):
+                needs = src.get(key)
+                break
+    parsed = fields_from_text(str(needs or ""))
+    if not parsed and extra_text:
+        parsed = fields_from_text(extra_text)
+    if parsed.get("needs"):
+        src["needs"] = parsed["needs"]
+    elif not _blank(needs):
+        src["needs"] = _text(needs, 200)
+    for key in ("capacity", "interval_miles", "interval_months", "interval_hours", "last_date", "last_miles"):
+        if _blank(src.get(key)) and parsed.get(key):
+            src[key] = parsed[key]
+    return src
+
+
+def oil_payload_has_fields(data: dict) -> bool:
+    keys = (
+        "needs",
+        "oil_needs",
+        "capacity",
+        "oil_capacity",
+        "in_it",
+        "oil_type",
+        "filter",
+        "filter_type",
+        "last_date",
+        "last_miles",
+        "last_hours",
+        "interval_miles",
+        "interval_months",
+        "interval_hours",
+        "next_date",
+        "next_miles",
+        "next_hours",
+    )
+    return any(not _blank(data.get(k)) for k in keys)
 
 
 def save_item_oil(item, data: dict, *, clear: bool = False) -> str:
