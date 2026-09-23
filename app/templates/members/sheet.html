@@ -284,10 +284,29 @@
 <div class="card ai-key">
   <strong>{{ k.label }}</strong>
   {% if k.default and k.on %}<span class="badge">Main</span>{% elif not k.on %}<span class="badge">Off</span>{% endif %}
-  <div class="muted">{{ k.model }}{% if k.key_hint %} · {{ k.key_hint }}{% endif %}</div>
+  <div class="muted">{% if k.key_hint %}{{ k.key_hint }}{% endif %}</div>
   <form method="post" action="{{ url_for('members.ai_key') }}">
     {% include "members/_next.html" %}
     <input type="hidden" name="key_id" value="{{ k.id }}">
+    <label>Model</label>
+    <select name="model">
+      {% for m in k.models %}
+      <option value="{{ m }}" {% if k.model == m %}selected{% endif %}>{{ m }}</option>
+      {% endfor %}
+      {% if k.model and k.model not in k.models %}
+      <option value="{{ k.model }}" selected>{{ k.model }}</option>
+      {% endif %}
+    </select>
+    <input name="model_custom" value="" placeholder="Or type a different model id">
+    {% if k.needs_base %}
+    <label>Base URL</label>
+    <input name="base_url" value="{{ k.base_url }}" placeholder="https://…/v1">
+    {% endif %}
+    <label>Replace this key</label>
+    <input type="password" name="api_key" autocomplete="off" placeholder="Leave blank to keep {{ k.key_hint or 'the saved key' }}">
+    <div class="btn-row">
+      <button class="btn sm" type="submit" name="action" value="update">Save model</button>
+    </div>
     <div class="btn-row">
       {% if not (k.default and k.on) %}
       <button class="btn sm" type="submit" name="action" value="default">Make main</button>

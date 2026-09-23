@@ -675,7 +675,15 @@ def ai_key():
     from app.utils.household_ai import household_key_action
 
     h = Household.query.get(household_id())
-    household_key_action(h, request.form.get("key_id") or "", request.form.get("action") or "")
+    chosen = (request.form.get("model_custom") or request.form.get("model") or "").strip()
+    household_key_action(
+        h,
+        request.form.get("key_id") or "",
+        request.form.get("action") or "",
+        model=chosen,
+        api_key=(request.form.get("api_key") or "").strip(),
+        base_url=(request.form.get("base_url") or "").strip(),
+    )
     flash("AI keys updated.", "success")
     return _after()
 

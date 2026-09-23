@@ -94,6 +94,41 @@ class FailoverTests(unittest.TestCase):
         self.assertEqual(text, "from groq")
         gem.assert_not_called()
 
+    def test_rejected_groq_model_tries_gpt_oss(self):
+        h = SimpleNamespace(
+            settings_json={
+                "ai": {
+                    "chat": True,
+                    "enabled": True,
+                    "default_id": "g",
+                    "keys": [
+                        {
+                            "id": "g",
+                            "provider": "groq",
+                            "model": "llama-3.3-70b-versatile",
+                            "api_key": "gsk-test",
+                            "on": True,
+                            "order": 0,
+                        }
+                    ],
+                }
+            }
+        )
+        seen = []
+
+        def groq(cfg, *_a, **_k):
+            seen.append(cfg.get("model"))
+            if "llama" in (cfg.get("model") or ""):
+                raise RuntimeError("The model does not exist or you do not have access to it.")
+            return "from gpt-oss"
+
+        with patch("app.utils.ai._openai_compat", side_effect=groq):
+            ok, text = complete("hi", household=h, household_only=True)
+        self.assertTrue(ok, text)
+        self.assertEqual(text, "from gpt-oss")
+        self.assertEqual(seen[0], "llama-3.3-70b-versatile")
+        self.assertEqual(seen[1], "openai/gpt-oss-20b")
+
     def test_saved_keys_keep_their_own_provider(self):
         from app.utils.household_ai import household_config
 

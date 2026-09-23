@@ -86,12 +86,11 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "kind": "openai",
         "base_url": "https://api.groq.com/openai/v1",
         "models": (
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant",
             "openai/gpt-oss-20b",
+            "openai/gpt-oss-120b",
             "qwen/qwen3.8-27b",
         ),
-        "hint": "console.groq.com/keys — backup when Gemini is busy. Photos use Qwen.",
+        "hint": "console.groq.com/keys. Use gpt-oss-20b. The old Llama names are not on a normal key. Photos use qwen/qwen3.8-27b.",
         "env": "GROQ_API_KEY",
         "placeholder": "gsk_…",
         "vision": True,
@@ -400,6 +399,30 @@ def _capacity_err(err: str) -> bool:
 GROQ_VISION_MODEL = "qwen/qwen3.8-27b"
 
 
+def _model_rejected(err: str) -> bool:
+    t = (err or "").lower()
+    return any(
+        s in t
+        for s in (
+            "does not exist",
+            "model_not_found",
+            "decommissioned",
+            "no longer supported",
+            "invalid model",
+            "unknown model",
+            "do not have access",
+            "you do not have access",
+        )
+    )
+
+
+def _next_listed_model(provider: str | None, current: str | None) -> str | None:
+    models = list((PROVIDERS.get(provider or "") or {}).get("models") or ())
+    cur = (current or "").strip()
+    rest = [m for m in models if m != cur]
+    return rest[0] if rest else None
+
+
 def _for_image(cfg: dict, image_bytes) -> dict:
     """Groq text models cannot see a photo. Qwen on the same key can."""
     if not image_bytes or (cfg.get("provider") or "") != "groq":
@@ -459,6 +482,10 @@ def complete(
             try:
                 text = _call(local)
                 if text:
+                    if local.get("model") != use_cfg.get("model") and local.get("key_id"):
+                        from app.utils.household_ai import set_key_model
+
+                        set_key_model(household, local["key_id"], local["model"])
                     return True, text
                 last = "AI returned nothing. Check the key, model, and base URL."
             except requests.Timeout:
@@ -473,6 +500,12 @@ def complete(
                         persist_model(suggested, household=household)
                     local = nxt
                     continue
+                if _model_rejected(last):
+                    alt = _next_listed_model(local.get("provider"), local.get("model"))
+                    if alt:
+                        local = dict(local)
+                        local["model"] = alt
+                        continue
             busy = _capacity_err(last)
             if busy and attempt < 2:
                 time.sleep(0.6 * (attempt + 1))

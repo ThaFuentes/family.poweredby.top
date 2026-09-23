@@ -162,6 +162,9 @@ def household_config(household) -> dict:
                 "provider": row["provider"],
                 "label": spec["label"],
                 "model": row.get("model") or "",
+                "models": list(spec.get("models") or ()),
+                "base_url": row.get("base_url") or "",
+                "needs_base": row["provider"] == "custom",
                 "key_hint": mask_secret(plain),
                 "on": bool(row.get("on")),
                 "default": row["id"] == default_id,
@@ -337,13 +340,50 @@ def add_household_key(
     return _write_rows(household, rows, default_id, chat_on=chat_on, enabled=enabled_on)
 
 
-def household_key_action(household, key_id: str, action: str) -> dict:
+def set_key_model(household, key_id: str, model: str) -> None:
+    model = (model or "").strip()[:120]
+    key_id = (key_id or "").strip()
+    if not model or not key_id or household is None:
+        return
+    try:
+        blob = _ai_blob(household)
+        rows, default_id = _stored_rows(blob)
+        hit = False
+        for row in rows:
+            if row["id"] == key_id:
+                row["model"] = model
+                hit = True
+        if not hit:
+            return
+        chat_on, enabled_on = _chat_enabled(blob, None, None)
+        _write_rows(household, rows, default_id, chat_on=chat_on, enabled=enabled_on)
+    except Exception:
+        return
+
+
+def household_key_action(
+    household,
+    key_id: str,
+    action: str,
+    *,
+    model: str = "",
+    api_key: str = "",
+    base_url: str = "",
+) -> dict:
     blob = _ai_blob(household)
     rows, default_id = _stored_rows(blob)
     key_id = (key_id or "").strip()
     action = (action or "").strip().lower()
     row = next((r for r in rows if r["id"] == key_id), None)
-    if action == "remove" and row:
+    if action == "update" and row:
+        chosen = (model or "").strip()
+        if chosen:
+            row["model"] = chosen[:120]
+        if row["provider"] == "custom" or (base_url or "").strip():
+            row["base_url"] = (base_url or "").strip().rstrip("/")[:300]
+        if (api_key or "").strip():
+            row["api_key"] = encrypt_text(api_key.strip()) or row["api_key"]
+    elif action == "remove" and row:
         rows = [r for r in rows if r["id"] != key_id]
         if default_id == key_id:
             default_id = next((r["id"] for r in _try_rows(rows, "")), rows[0]["id"] if rows else "")
