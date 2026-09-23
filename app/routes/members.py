@@ -636,26 +636,47 @@ def set_member_calendar(user_id):
 @login_required
 @require_perm("settings")
 def save_ai():
-    from app.utils.ai import normalize_provider
-    from app.utils.household_ai import save_household_ai
+    from app.utils.household_ai import set_household_chat
 
     h = Household.query.get(household_id())
-    save_household_ai(
+    set_household_chat(h, chat=("1" in request.form.getlist("ai_chat")))
+    flash("Ask setting saved.", "success")
+    return _after()
+
+
+@members_bp.route("/ai/add", methods=["POST"])
+@login_required
+@require_perm("settings")
+def add_ai():
+    from app.utils.ai import normalize_provider
+    from app.utils.household_ai import add_household_key
+
+    key = (request.form.get("ai_api_key") or "").strip()
+    if not key:
+        flash("Paste the new key. That adds it. It does not replace the ones you already saved.", "danger")
+        return _after()
+    h = Household.query.get(household_id())
+    add_household_key(
         h,
         provider=normalize_provider(request.form.get("ai_provider")),
         model=(request.form.get("ai_model") or "").strip(),
-        api_key=(request.form.get("ai_api_key") or "").strip(),
+        api_key=key,
         base_url=(request.form.get("ai_base_url") or "").strip(),
-        enabled=(request.form.get("ai_enabled") or "1") != "0",
-        chat=("1" in request.form.getlist("ai_chat")),
-        clear_key=(request.form.get("ai_clear_key") or "") == "1",
-        backup_provider=(request.form.get("ai_backup_provider") or "groq").strip(),
-        backup_model=(request.form.get("ai_backup_model") or "").strip(),
-        backup_api_key=(request.form.get("ai_backup_key") or "").strip(),
-        clear_backup=(request.form.get("ai_clear_backup") or "") == "1",
-        try_order=(request.form.get("ai_try_order") or "").strip(),
+        use=(request.form.get("ai_use") or "") in ("1", "true", "on", "yes"),
     )
-    flash("Household AI key saved. Yours only — Family OS never uses the owner's key.", "success")
+    flash("Key added. Your other keys are still there.", "success")
+    return _after()
+
+
+@members_bp.route("/ai/key", methods=["POST"])
+@login_required
+@require_perm("settings")
+def ai_key():
+    from app.utils.household_ai import household_key_action
+
+    h = Household.query.get(household_id())
+    household_key_action(h, request.form.get("key_id") or "", request.form.get("action") or "")
+    flash("AI keys updated.", "success")
     return _after()
 
 

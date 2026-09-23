@@ -94,6 +94,29 @@ class FailoverTests(unittest.TestCase):
         self.assertEqual(text, "from groq")
         gem.assert_not_called()
 
+    def test_saved_keys_keep_their_own_provider(self):
+        from app.utils.household_ai import household_config
+
+        h = SimpleNamespace(
+            settings_json={
+                "ai": {
+                    "chat": True,
+                    "enabled": True,
+                    "default_id": "grok",
+                    "keys": [
+                        {"id": "gem", "provider": "gemini", "model": "gemini-3.6-flash", "api_key": "gem-key", "on": True, "order": 2},
+                        {"id": "grok", "provider": "xai", "model": "grok-4.5", "api_key": "xai-key", "on": True, "order": 0},
+                        {"id": "off", "provider": "openai", "model": "gpt-4o-mini", "api_key": "sk-key", "on": False, "order": 1},
+                    ],
+                }
+            }
+        )
+        cfg = household_config(h)
+        self.assertEqual([slot["provider"] for slot in cfg["chain"]], ["xai", "gemini"])
+        self.assertEqual([row["provider"] for row in cfg["saved_keys"]], ["xai", "gemini", "openai"])
+        self.assertTrue(cfg["saved_keys"][0]["default"])
+        self.assertFalse(cfg["saved_keys"][2]["on"])
+
 
 if __name__ == "__main__":
     unittest.main()

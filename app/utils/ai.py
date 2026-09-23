@@ -353,6 +353,7 @@ def get_ai_config(household=None, *, household_only: bool = False) -> dict:
 def public_ai_config(household=None, *, household_only: bool = False) -> dict:
     cfg = dict(get_ai_config(household, household_only=household_only))
     cfg.pop("api_key", None)
+    cfg["chain"] = []
     backup = cfg.get("backup")
     if isinstance(backup, dict):
         backup = dict(backup)
@@ -434,18 +435,10 @@ def complete(
     if household is not None and not _household_in_scope(household):
         return False, "AI stays in this household."
     cfg = get_ai_config(household, household_only=household_only)
-    key = (cfg.get("api_key") or "").strip()
-    backup = cfg.get("backup") if isinstance(cfg.get("backup"), dict) else None
-    backup_key = ((backup or {}).get("api_key") or "").strip()
-    if backup_key and backup_key == key:
-        backup = None
-        backup_key = ""
-    if not key and backup_key:
-        cfg = backup
-        key = backup_key
-        backup = None
-        backup_key = ""
-    if not key:
+    slots = [c for c in (cfg.get("chain") or []) if (c.get("api_key") or "").strip()]
+    if not slots and (cfg.get("api_key") or "").strip():
+        slots = [cfg]
+    if not slots:
         return False, "No AI key on this household. Paste your own Gemini (free) or other key in Household. Family OS does not share the owner's key."
 
     def _call(use_cfg):
@@ -476,7 +469,7 @@ def complete(
                 if suggested and suggested != local.get("model"):
                     nxt = dict(local)
                     nxt["model"] = suggested
-                    if local is cfg or local.get("provider") == cfg.get("provider"):
+                    if local.get("key_id") and local.get("key_id") == cfg.get("key_id"):
                         persist_model(suggested, household=household)
                     local = nxt
                     continue
@@ -492,7 +485,7 @@ def complete(
                     try:
                         text = _call(nxt)
                         if text:
-                            if local is cfg or local.get("provider") == cfg.get("provider"):
+                            if local.get("key_id") and local.get("key_id") == cfg.get("key_id"):
                                 persist_model(alt, household=household)
                             return True, text
                     except Exception as exc2:
@@ -500,12 +493,6 @@ def complete(
             break
         return False, last
 
-    slots = [cfg]
-    if backup_key and isinstance(backup, dict):
-        if cfg.get("try_order") == "backup":
-            slots = [backup, cfg]
-        else:
-            slots.append(backup)
     last_err = ""
     for i, slot in enumerate(slots):
         ok, text = _attempt(slot)

@@ -278,53 +278,108 @@
 </div>
 
 {% elif sheet_panel == 'ai' %}
-<h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">AI key</h1>
-<form class="card" method="post" action="{{ url_for('members.save_ai') }}" id="ai-form">
+<h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">AI keys</h1>
+<p class="muted">Add a key for Gemini, Groq, Grok, OpenAI, or any other provider. Turn on the ones Ask may use. Main goes first. If it is down, Ask tries the next one you left on.</p>
+{% for k in ai.saved_keys or [] %}
+<div class="card ai-key">
+  <strong>{{ k.label }}</strong>
+  {% if k.default and k.on %}<span class="badge">Main</span>{% elif not k.on %}<span class="badge">Off</span>{% endif %}
+  <div class="muted">{{ k.model }}{% if k.key_hint %} · {{ k.key_hint }}{% endif %}</div>
+  <form method="post" action="{{ url_for('members.ai_key') }}">
+    {% include "members/_next.html" %}
+    <input type="hidden" name="key_id" value="{{ k.id }}">
+    <div class="btn-row">
+      {% if not (k.default and k.on) %}
+      <button class="btn sm" type="submit" name="action" value="default">Make main</button>
+      {% endif %}
+      {% if k.on %}
+      <button class="btn sm secondary" type="submit" name="action" value="off">Turn off</button>
+      {% else %}
+      <button class="btn sm secondary" type="submit" name="action" value="on">Turn on</button>
+      {% endif %}
+      <button class="btn sm secondary" type="submit" name="action" value="up">Sooner</button>
+      <button class="btn sm secondary" type="submit" name="action" value="down">Later</button>
+      <button class="btn sm secondary" type="submit" name="action" value="remove">Remove</button>
+    </div>
+  </form>
+</div>
+{% else %}
+<p class="muted">No keys yet.</p>
+{% endfor %}
+<form class="card" method="post" action="{{ url_for('members.add_ai') }}" id="ai-form">
   {% include "members/_next.html" %}
-  <p class="muted">Yours. Family OS never uses the owner’s key. Gemini free key at aistudio.google.com/apikey. A Groq key can go first or second.</p>
+  <h2>Add a key</h2>
+  <p class="muted">This adds a new key. It does not replace one you already saved.</p>
   <label>Provider</label>
   <select name="ai_provider" id="ai-provider">
     {% for p in ai.providers %}
-      <option value="{{ p.id }}" {% if ai.provider==p.id %}selected{% endif %}>{{ p.label }}</option>
+      <option value="{{ p.id }}">{{ p.label }}</option>
     {% endfor %}
   </select>
-  <p class="muted" id="ai-hint">{{ ai.hint }}</p>
+  <p class="muted" id="ai-hint"></p>
   <label>Model</label>
-  <input name="ai_model" id="ai-model" list="ai-models" value="{{ ai.model or '' }}">
-  <datalist id="ai-models">{% for m in ai.models %}<option value="{{ m }}">{% endfor %}</datalist>
+  <input name="ai_model" id="ai-model" list="ai-models" placeholder="Leave blank for the usual model">
+  <datalist id="ai-models"></datalist>
+  <label id="ai-base-label" hidden>Base URL</label>
+  <input name="ai_base_url" id="ai-base-url" placeholder="https://…/v1" hidden>
   <label>API key</label>
-  <input type="password" name="ai_api_key" autocomplete="off" placeholder="{% if ai.has_key %}unchanged · {{ ai.key_hint }}{% else %}paste a key{% endif %}">
+  <input type="password" name="ai_api_key" autocomplete="off" required placeholder="Paste a new key">
+  <label class="cal-check">
+    <input type="checkbox" name="ai_use" value="1" checked>
+    Use this key
+  </label>
+  <div class="btn-row"><button class="btn" type="submit">Add key</button></div>
+</form>
+<form method="post" action="{{ url_for('members.save_ai') }}">
+  {% include "members/_next.html" %}
   <input type="hidden" name="ai_chat" value="0">
   <label class="cal-check">
     <input type="checkbox" name="ai_chat" value="1" {% if ai.chat != False %}checked{% endif %}>
-    Ask window — on whenever a key is saved. Uncheck to hide it.
+    Ask window
   </label>
-  <label>Backup key · Groq</label>
-  <p class="muted">Free key at console.groq.com/keys. Photos on Groq use Qwen.</p>
-  <input type="hidden" name="ai_backup_provider" value="groq">
-  <input type="password" name="ai_backup_key" autocomplete="off" placeholder="{% if ai.backup_has_key %}unchanged · {{ ai.backup_key_hint }}{% else %}gsk_…{% endif %}">
-  <label>Try first</label>
-  <select name="ai_try_order">
-    <option value="primary" {% if ai.try_order != 'backup' %}selected{% endif %}>{{ ai.label }}</option>
-    <option value="backup" {% if ai.try_order == 'backup' %}selected{% endif %}>Groq</option>
-  </select>
-  <p class="muted">If that one is busy or down, Ask uses the other key.</p>
-  <div class="btn-row">
-    <button class="btn" type="submit">Save key</button>
-    {% if ai.has_key %}
-    <button class="btn secondary" type="submit" name="ai_clear_key" value="1">Remove key</button>
-    {% endif %}
-    {% if ai.backup_has_key %}
-    <button class="btn secondary" type="submit" name="ai_clear_backup" value="1">Remove backup</button>
-    {% endif %}
-  </div>
+  <button class="btn secondary" type="submit">Save Ask</button>
 </form>
 {% if ai.has_key %}
 <form method="post" action="{{ url_for('members.test_ai') }}">
   {% include "members/_next.html" %}
-  <button class="btn secondary" type="submit">Test this key</button>
+  <button class="btn secondary" type="submit">Test the main key</button>
 </form>
 {% endif %}
+<script>
+(function () {
+  var providers = {{ ai.providers|tojson }};
+  var sel = document.getElementById("ai-provider");
+  var hint = document.getElementById("ai-hint");
+  var list = document.getElementById("ai-models");
+  var model = document.getElementById("ai-model");
+  var base = document.getElementById("ai-base-url");
+  var baseLabel = document.getElementById("ai-base-label");
+  if (!sel) return;
+  function sync() {
+    var p = providers.filter(function (x) { return x.id === sel.value; })[0] || providers[0];
+    if (!p) return;
+    if (hint) hint.textContent = p.hint || "";
+    if (list) {
+      list.innerHTML = "";
+      (p.models || []).forEach(function (m) {
+        var o = document.createElement("option");
+        o.value = m;
+        list.appendChild(o);
+      });
+    }
+    if (model && !model.value && p.models && p.models[0]) model.placeholder = p.models[0];
+    var showBase = !!p.needs_base;
+    if (base) base.hidden = !showBase;
+    if (baseLabel) baseLabel.hidden = !showBase;
+  }
+  sel.addEventListener("change", function () {
+    var p = providers.filter(function (x) { return x.id === sel.value; })[0];
+    if (model) model.value = (p && p.models && p.models[0]) || "";
+    sync();
+  });
+  sync();
+})();
+</script>
 
 {% elif sheet_panel == 'trusted' %}
 <h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">Trusted emails</h1>

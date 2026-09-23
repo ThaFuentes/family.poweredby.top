@@ -1,5 +1,11 @@
-"""Per-household BYOK. Encrypted at rest in households.settings_json."""
+"""Per-household BYOK. Encrypted at rest in households.settings_json.
+
+A house can keep several keys. One is main. The others that are turned on
+are tried, in order, when the one before them is down.
+"""
 from __future__ import annotations
+
+import secrets
 
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -30,48 +36,178 @@ def _decrypt_key(stored: str) -> str:
     return raw
 
 
-def household_config(household) -> dict:
-    blob = _ai_blob(household)
-    provider = normalize_provider(blob.get("provider") or DEFAULT_PROVIDER)
-    key = _decrypt_key(blob.get("api_key") or "")
-    model = (blob.get("model") or "").strip()
-    base = (blob.get("base_url") or "").strip()
-    enabled = blob.get("enabled")
-    chat = blob.get("chat")
-    cfg = _pack(
-        provider,
-        key,
-        model,
-        base,
+def _stored_rows(blob: dict) -> tuple[list[dict], str]:
+    """Key rows as stored. Old single-key houses become a list in memory."""
+    raw = blob.get("keys")
+    rows = []
+    if isinstance(raw, list):
+        for i, item in enumerate(raw):
+            if not isinstance(item, dict):
+                continue
+            kid = str(item.get("id") or "").strip() or f"k{i}"
+            provider = normalize_provider(item.get("provider") or DEFAULT_PROVIDER)
+            spec = PROVIDERS.get(provider) or PROVIDERS[DEFAULT_PROVIDER]
+            model = (item.get("model") or "").strip() or (spec["models"][0] if spec.get("models") else DEFAULT_MODEL)
+            rows.append(
+                {
+                    "id": kid[:40],
+                    "provider": provider,
+                    "model": model[:120],
+                    "api_key": item.get("api_key") or "",
+                    "base_url": (item.get("base_url") or "").strip()[:300],
+                    "on": item.get("on") is not False,
+                    "order": int(item.get("order") or i),
+                }
+            )
+    if rows:
+        default_id = str(blob.get("default_id") or "").strip()
+        if default_id not in {r["id"] for r in rows}:
+            default_id = rows[0]["id"]
+        return rows, default_id
+    if (blob.get("api_key") or "").strip():
+        provider = normalize_provider(blob.get("provider") or DEFAULT_PROVIDER)
+        spec = PROVIDERS.get(provider) or PROVIDERS[DEFAULT_PROVIDER]
+        model = (blob.get("model") or "").strip() or (spec["models"][0] if spec.get("models") else DEFAULT_MODEL)
+        rows.append(
+            {
+                "id": "main",
+                "provider": provider,
+                "model": model[:120],
+                "api_key": blob.get("api_key") or "",
+                "base_url": (blob.get("base_url") or "").strip()[:300],
+                "on": True,
+                "order": 0,
+            }
+        )
+    backup = blob.get("backup") if isinstance(blob.get("backup"), dict) else {}
+    if (backup.get("api_key") or "").strip():
+        provider = normalize_provider(backup.get("provider") or "groq")
+        spec = PROVIDERS.get(provider) or PROVIDERS["groq"]
+        model = (backup.get("model") or "").strip() or (spec["models"][0] if spec.get("models") else "")
+        rows.append(
+            {
+                "id": "backup",
+                "provider": provider,
+                "model": model[:120],
+                "api_key": backup.get("api_key") or "",
+                "base_url": (backup.get("base_url") or "").strip()[:300],
+                "on": True,
+                "order": 1,
+            }
+        )
+    default_id = ""
+    if rows:
+        default_id = "backup" if blob.get("try_order") == "backup" and any(r["id"] == "backup" for r in rows) else rows[0]["id"]
+    return rows, default_id
+
+
+def _try_rows(rows: list[dict], default_id: str) -> list[dict]:
+    on = [r for r in rows if r.get("on")]
+    main = next((r for r in on if r["id"] == default_id), None)
+    rest = sorted((r for r in on if r is not main), key=lambda r: (r.get("order", 0), r["id"]))
+    if main:
+        return [main] + rest
+    return rest
+
+
+def _pack_row(row: dict) -> dict:
+    return _pack(
+        row["provider"],
+        _decrypt_key(row.get("api_key") or ""),
+        row.get("model") or "",
+        row.get("base_url") or "",
         source="household",
         from_env=False,
     )
+
+
+def household_config(household) -> dict:
+    blob = _ai_blob(household)
+    rows, default_id = _stored_rows(blob)
+    chain_rows = _try_rows(rows, default_id)
+    chain = []
+    for row in chain_rows:
+        packed = _pack_row(row)
+        if not packed.get("api_key"):
+            continue
+        packed["key_id"] = row["id"]
+        chain.append(packed)
+    main_row = next((r for r in rows if r["id"] == default_id), rows[0] if rows else None)
+    if chain:
+        cfg = dict(chain[0])
+    elif main_row:
+        cfg = _pack_row(main_row)
+    else:
+        cfg = _pack(DEFAULT_PROVIDER, "", "", "", source="household", from_env=False)
+    enabled = blob.get("enabled")
+    chat = blob.get("chat")
     if enabled is False:
         cfg["ready"] = False
         cfg["enabled"] = False
     else:
         cfg["enabled"] = True
     cfg["chat"] = False if chat is False else True
-    cfg["key_hint"] = mask_secret(key)
-    cfg["try_order"] = "backup" if blob.get("try_order") == "backup" else "primary"
-    raw_backup = blob.get("backup") if isinstance(blob.get("backup"), dict) else {}
-    bkey = _decrypt_key(raw_backup.get("api_key") or "")
-    cfg["backup_has_key"] = bool(bkey)
-    cfg["backup_key_hint"] = mask_secret(bkey) if bkey else ""
-    cfg["backup"] = None
-    if bkey:
-        bprov = normalize_provider(raw_backup.get("provider") or "groq")
-        cfg["backup"] = _pack(
-            bprov,
-            bkey,
-            (raw_backup.get("model") or "").strip(),
-            (raw_backup.get("base_url") or "").strip(),
-            source="household",
-            from_env=False,
+    cfg["has_key"] = bool(chain)
+    cfg["key_hint"] = mask_secret(cfg.get("api_key") or "")
+    cfg["chain"] = chain
+    cfg["vision"] = any(slot.get("vision") for slot in chain) if chain else bool(cfg.get("vision"))
+    saved = []
+    try_ids = [r["id"] for r in chain_rows]
+    for row in sorted(rows, key=lambda r: (0 if r["id"] in try_ids else 1, try_ids.index(r["id"]) if r["id"] in try_ids else r.get("order", 0))):
+        plain = _decrypt_key(row.get("api_key") or "")
+        spec = PROVIDERS.get(row["provider"]) or PROVIDERS[DEFAULT_PROVIDER]
+        saved.append(
+            {
+                "id": row["id"],
+                "provider": row["provider"],
+                "label": spec["label"],
+                "model": row.get("model") or "",
+                "key_hint": mask_secret(plain),
+                "on": bool(row.get("on")),
+                "default": row["id"] == default_id,
+                "order": row.get("order", 0),
+            }
         )
-        if cfg["backup"].get("vision"):
-            cfg["vision"] = True
+    cfg["saved_keys"] = saved
+    cfg["backup"] = chain[1] if len(chain) > 1 else None
+    cfg["backup_has_key"] = len(rows) > 1
+    cfg["backup_key_hint"] = ""
+    cfg["try_order"] = "primary"
     return cfg
+
+
+def _write_rows(household, rows: list[dict], default_id: str, *, chat_on: bool, enabled: bool) -> dict:
+    blob = _ai_blob(household)
+    if default_id not in {r["id"] for r in rows}:
+        default_id = next((r["id"] for r in rows if r.get("on")), rows[0]["id"] if rows else "")
+    main = next((r for r in rows if r["id"] == default_id), None)
+    settings = dict(household.settings_json or {})
+    settings["ai"] = {
+        "provider": main["provider"] if main else blob.get("provider") or DEFAULT_PROVIDER,
+        "model": (main.get("model") if main else "") or "",
+        "api_key": (main.get("api_key") if main else "") or "",
+        "base_url": (main.get("base_url") if main else "") or "",
+        "enabled": bool(enabled),
+        "chat": bool(chat_on),
+        "keys": rows,
+        "default_id": default_id,
+    }
+    household.settings_json = settings
+    flag_modified(household, "settings_json")
+    db.session.commit()
+    return household_config(household)
+
+
+def _chat_enabled(blob: dict, chat, enabled: bool | None) -> tuple[bool, bool]:
+    if chat is None:
+        chat_on = False if blob.get("chat") is False else True
+    else:
+        chat_on = bool(chat)
+    if enabled is None:
+        enabled_on = blob.get("enabled") is not False
+    else:
+        enabled_on = bool(enabled)
+    return chat_on, enabled_on
 
 
 def save_household_ai(
@@ -90,63 +226,161 @@ def save_household_ai(
     clear_backup: bool = False,
     try_order: str | None = None,
 ) -> dict:
-    settings = dict(household.settings_json or {})
-    prev = dict(settings.get("ai") or {}) if isinstance(settings.get("ai"), dict) else {}
+    """Update the main key. Used by older callers. Adding a different provider goes through add_household_key."""
+    blob = _ai_blob(household)
+    rows, default_id = _stored_rows(blob)
     provider = normalize_provider(provider)
     spec = PROVIDERS.get(provider) or PROVIDERS[DEFAULT_PROVIDER]
-    model = (model or "").strip() or (spec["models"][0] if spec["models"] else DEFAULT_MODEL)
+    model = (model or "").strip() or (spec["models"][0] if spec.get("models") else DEFAULT_MODEL)
     base_url = (base_url or "").strip().rstrip("/")
-    stored_key = prev.get("api_key") or ""
+    chat_on, enabled_on = _chat_enabled(blob, chat, enabled)
+    if clear_backup:
+        rows = [r for r in rows if r["id"] != "backup"]
+        if default_id == "backup":
+            default_id = rows[0]["id"] if rows else ""
     if clear_key:
-        stored_key = ""
+        rows = [r for r in rows if r["id"] != default_id]
+        default_id = next((r["id"] for r in rows if r.get("on")), rows[0]["id"] if rows else "")
     elif (api_key or "").strip():
-        stored_key = encrypt_text((api_key or "").strip()) or ""
-    if chat is None:
-        chat_on = False if prev.get("chat") is False else True
-    else:
-        chat_on = bool(chat)
-    prev_backup = prev.get("backup") if isinstance(prev.get("backup"), dict) else {}
-    if clear_backup:
-        backup = {}
-    else:
-        stored_backup = prev_backup.get("api_key") or ""
-        if (backup_api_key or "").strip():
-            stored_backup = encrypt_text((backup_api_key or "").strip()) or ""
-        if stored_backup:
-            bprov = normalize_provider(backup_provider or prev_backup.get("provider") or "groq")
-            bspec = PROVIDERS.get(bprov) or PROVIDERS["groq"]
-            bmodel = (backup_model or prev_backup.get("model") or "").strip()
-            if not bmodel:
-                bmodel = bspec["models"][0] if bspec.get("models") else ""
-            backup = {
-                "provider": bprov,
-                "model": bmodel[:120],
-                "api_key": stored_backup,
-            }
+        enc = encrypt_text((api_key or "").strip()) or ""
+        found = next((r for r in rows if r["id"] == default_id and r["provider"] == provider), None)
+        if found is None:
+            found = next((r for r in rows if r["provider"] == provider), None)
+        if found:
+            found["api_key"] = enc
+            found["model"] = model[:120]
+            found["base_url"] = base_url[:300]
+            found["provider"] = provider
+            found["on"] = True
+            default_id = found["id"]
         else:
-            backup = {}
-    if clear_backup:
-        order = "primary"
-    elif try_order in ("primary", "backup"):
-        order = try_order
-    elif prev.get("try_order") in ("primary", "backup"):
-        order = prev.get("try_order")
-    else:
-        order = "primary"
-    settings["ai"] = {
-        "provider": provider,
-        "model": model[:120],
-        "api_key": stored_key,
-        "base_url": base_url[:300],
-        "enabled": bool(enabled),
-        "chat": chat_on,
-        "backup": backup,
-        "try_order": order,
-    }
-    household.settings_json = settings
-    flag_modified(household, "settings_json")
-    db.session.commit()
-    return household_config(household)
+            kid = secrets.token_hex(4)
+            rows.append(
+                {
+                    "id": kid,
+                    "provider": provider,
+                    "model": model[:120],
+                    "api_key": enc,
+                    "base_url": base_url[:300],
+                    "on": True,
+                    "order": len(rows),
+                }
+            )
+            if not default_id:
+                default_id = kid
+    elif default_id and model:
+        for row in rows:
+            if row["id"] == default_id:
+                row["model"] = model[:120]
+                if base_url:
+                    row["base_url"] = base_url[:300]
+                break
+    if (backup_api_key or "").strip() and not clear_backup:
+        bprov = normalize_provider(backup_provider or "groq")
+        bspec = PROVIDERS.get(bprov) or PROVIDERS["groq"]
+        bmodel = (backup_model or "").strip() or (bspec["models"][0] if bspec.get("models") else "")
+        enc = encrypt_text(backup_api_key.strip()) or ""
+        found = next((r for r in rows if r["provider"] == bprov and r["id"] != default_id), None)
+        if found:
+            found["api_key"] = enc
+            found["model"] = bmodel[:120]
+            found["on"] = True
+        else:
+            rows.append(
+                {
+                    "id": secrets.token_hex(4),
+                    "provider": bprov,
+                    "model": bmodel[:120],
+                    "api_key": enc,
+                    "base_url": "",
+                    "on": True,
+                    "order": len(rows),
+                }
+            )
+        if try_order == "backup":
+            backup_row = next((r for r in rows if r["provider"] == bprov), None)
+            if backup_row:
+                default_id = backup_row["id"]
+    return _write_rows(household, rows, default_id, chat_on=chat_on, enabled=enabled_on)
+
+
+def add_household_key(
+    household,
+    *,
+    provider: str,
+    model: str = "",
+    api_key: str,
+    base_url: str = "",
+    use: bool = True,
+) -> dict:
+    """Append a key. Does not replace a key that is already saved."""
+    blob = _ai_blob(household)
+    rows, default_id = _stored_rows(blob)
+    provider = normalize_provider(provider)
+    spec = PROVIDERS.get(provider) or PROVIDERS[DEFAULT_PROVIDER]
+    model = (model or "").strip() or (spec["models"][0] if spec.get("models") else DEFAULT_MODEL)
+    kid = secrets.token_hex(4)
+    rows.append(
+        {
+            "id": kid,
+            "provider": provider,
+            "model": model[:120],
+            "api_key": encrypt_text((api_key or "").strip()) or "",
+            "base_url": (base_url or "").strip().rstrip("/")[:300],
+            "on": bool(use),
+            "order": len(rows),
+        }
+    )
+    if not default_id:
+        default_id = kid
+    chat_on, enabled_on = _chat_enabled(blob, None, None)
+    return _write_rows(household, rows, default_id, chat_on=chat_on, enabled=enabled_on)
+
+
+def household_key_action(household, key_id: str, action: str) -> dict:
+    blob = _ai_blob(household)
+    rows, default_id = _stored_rows(blob)
+    key_id = (key_id or "").strip()
+    action = (action or "").strip().lower()
+    row = next((r for r in rows if r["id"] == key_id), None)
+    if action == "remove" and row:
+        rows = [r for r in rows if r["id"] != key_id]
+        if default_id == key_id:
+            default_id = next((r["id"] for r in _try_rows(rows, "")), rows[0]["id"] if rows else "")
+    elif action == "default" and row:
+        row["on"] = True
+        default_id = row["id"]
+    elif action == "on" and row:
+        row["on"] = True
+        if not default_id:
+            default_id = row["id"]
+    elif action == "off" and row:
+        row["on"] = False
+        if default_id == row["id"]:
+            nxt = next((r["id"] for r in rows if r["id"] != row["id"] and r.get("on")), "")
+            default_id = nxt or row["id"]
+    elif action in ("up", "down") and row:
+        seq = _try_rows(rows, default_id)
+        ids = [r["id"] for r in seq]
+        if key_id in ids:
+            i = ids.index(key_id)
+            j = i - 1 if action == "up" else i + 1
+            if 0 <= j < len(ids):
+                ids[i], ids[j] = ids[j], ids[i]
+                rank = {kid: n for n, kid in enumerate(ids)}
+                for item in rows:
+                    if item["id"] in rank:
+                        item["order"] = rank[item["id"]]
+                default_id = ids[0]
+    chat_on, enabled_on = _chat_enabled(blob, None, None)
+    return _write_rows(household, rows, default_id, chat_on=chat_on, enabled=enabled_on)
+
+
+def set_household_chat(household, *, chat: bool) -> dict:
+    blob = _ai_blob(household)
+    rows, default_id = _stored_rows(blob)
+    chat_on, enabled_on = _chat_enabled(blob, chat, None)
+    return _write_rows(household, rows, default_id, chat_on=chat_on, enabled=enabled_on)
 
 
 def chat_on(household) -> bool:

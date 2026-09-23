@@ -353,6 +353,10 @@ h2 { font-size: 1.02rem; margin: 1.15rem 0 .55rem; letter-spacing: -0.02em; }
   color: var(--ink);
   border-color: #e2c98a;
 }
+.ai-key { margin: 0 0 .65rem; }
+.ai-key .badge { margin-left: .35rem; }
+.ai-key .btn-row { margin-top: .45rem; }
+.ai-key .btn-row .btn { flex: 1 1 5.5rem; }
 .sheet-overlay {
   position: fixed;
   inset: 0;
