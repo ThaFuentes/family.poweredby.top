@@ -316,9 +316,12 @@ def _find_items(q: str, item_type: str | None = None, limit: int = 8):
 _VEHICLE_STOP = {
     "what", "whats", "what’s", "the", "vin", "vins", "from", "my", "our", "site",
     "please", "provide", "your", "can", "you", "find", "look", "up", "lookup",
-    "correct", "oil", "specification", "spec", "section", "already", "saved",
-    "have", "has", "show", "tell", "which", "where", "does", "take", "need",
-    "needs", "for", "and", "its", "it's", "this", "that", "with", "about",
+    "looking", "correct", "oil", "specification", "spec", "section", "already",
+    "saved", "have", "has", "show", "tell", "which", "where", "does", "take",
+    "need", "needs", "for", "and", "its", "it's", "this", "that", "with", "about",
+    "use", "type", "named", "name", "right", "area", "truck", "trucks", "car",
+    "cars", "vehicle", "vehicles", "are", "was", "were", "there", "still", "not",
+    "finding", "kinda", "kind", "into", "onto",
 }
 
 
@@ -334,21 +337,45 @@ def _vehicle_tokens(text: str) -> list[str]:
 
 def _vehicle_blob(item) -> str:
     vehicle = getattr(item, "vehicle", None)
-    parts = [getattr(item, "name", None) or ""]
+    parts = [getattr(item, "name", None) or "", getattr(item, "notes", None) or "", getattr(item, "category", None) or ""]
     if vehicle is not None:
         parts.extend(
             str(getattr(vehicle, key) or "")
             for key in ("year", "make", "model", "trim", "color", "vin", "plate", "oil_needs", "oil_type")
         )
+        year = str(getattr(vehicle, "year", None) or "")
+        if len(year) == 4 and year.isdigit():
+            parts.append(year[-2:])
     return " ".join(parts).lower()
 
 
+def _token_hits(item, tokens: list[str]) -> int:
+    blob = _vehicle_blob(item)
+    hits = 0
+    for tok in tokens:
+        if tok in blob:
+            hits += 1
+            continue
+        if tok.isdigit() and len(tok) == 4 and tok[-2:] in blob:
+            hits += 1
+    return hits
+
+
 def _matching_vehicles(text: str) -> list:
+    """Best saved trucks for this question. Extra words like 'use' and 'type' do not knock a truck out."""
     tokens = _vehicle_tokens(text)
     rows = _find_items("", "vehicle", limit=40)
+    if not rows:
+        return []
     if not tokens:
         return rows
-    return [item for item in rows if all(tok in _vehicle_blob(item) for tok in tokens)]
+    scored = [( _token_hits(item, tokens), item) for item in rows]
+    scored = [(hits, item) for hits, item in scored if hits]
+    if not scored:
+        return []
+    scored.sort(key=lambda pair: (-pair[0], (pair[1].name or "").lower()))
+    best = scored[0][0]
+    return [item for hits, item in scored if hits == best]
 
 
 def _vehicle_facts(item) -> dict:
@@ -416,11 +443,13 @@ def _stored_vehicle_say(text: str) -> str | None:
     if not _vehicle_tokens(raw) and not re.search(r"\bvin\b", raw, re.I):
         return None
     rows = _matching_vehicles(raw)
-    if not rows:
-        if _vehicle_tokens(raw):
-            return "No saved vehicle matches that. I will not ask you to type a VIN that should already be on the truck."
-        return None
-    return _speak_vehicle_facts(rows, raw)
+    if rows:
+        return _speak_vehicle_facts(rows, raw)
+    if re.search(r"\b(vin|oil|truck|where|looking|april|tundra)\b", raw, re.I):
+        saved = _find_items("", "vehicle", limit=12)
+        if saved:
+            return "Saved vehicles:\n" + _speak_vehicle_facts(saved, raw)
+    return None
 
 
 def tool_house(args: dict | None = None) -> dict:
@@ -1638,10 +1667,27 @@ PHOTO_ASK = (
 )
 
 
+def _saved_vehicle_brief() -> str:
+    try:
+        rows = _find_items("", "vehicle", limit=20)
+    except Exception:
+        return ""
+    if not rows:
+        return ""
+    lines = [_speak_vehicle_facts([item], "vin") for item in rows]
+    return (
+        "Vehicles already saved on this site. Use this list. Do not ask for a VIN, year, or name that is already here.\n"
+        + "\n".join(lines)
+    )
+
+
 def _system_now(has_photo: bool) -> str:
     from app.utils.ask_do import PHOTO_RULES, actor_lines
 
     extra = actor_lines()
+    brief = _saved_vehicle_brief()
+    if brief:
+        extra += "\n\n" + brief
     if has_photo:
         extra += "\n\n" + PHOTO_RULES
     return SYSTEM + "\n\n" + extra

@@ -631,6 +631,20 @@ class AskHttpTests(unittest.TestCase):
         say = (resp.get_json() or {}).get("say") or ""
         self.assertIn("5TFBT54106X123456", say)
         self.assertNotIn("provide the VIN", say.lower())
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            messy = self.client.post(
+                "/ask/message",
+                json={"message": "use the vin for the 2006 tundra to find the type of oil it needs"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertIn("5TFBT54106X123456", (messy.get_json() or {}).get("say") or "")
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            named = self.client.post(
+                "/ask/message",
+                json={"message": "the truck vin is named april are you looking in the right area"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertIn("5TFBT54106X123456", (named.get_json() or {}).get("say") or "")
 
     def test_add_that_saves_the_last_reply_on_the_vehicle(self):
         self.admin = f"ask_oil_{self.suffix}"
