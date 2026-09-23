@@ -459,48 +459,62 @@ def complete(
             return _anthropic(use_cfg, prompt, system, max_tokens, timeout, image_bytes, image_mime)
         return _openai_compat(use_cfg, prompt, system, max_tokens, timeout, image_bytes, image_mime)
 
-    last_err = ""
-    for attempt in range(3):
-        try:
-            text = _call(cfg)
-            if text:
-                return True, text
-            last_err = "AI returned nothing. Check the key, model, and base URL."
-        except requests.Timeout:
-            last_err = "AI timed out."
-        except Exception as exc:
-            last_err = str(exc)
-            suggested = _suggested_model(last_err)
-            if suggested and suggested != cfg.get("model"):
-                nxt = dict(cfg)
-                nxt["model"] = suggested
-                persist_model(suggested, household=household)
-                cfg = nxt
+    def _attempt(use_cfg) -> tuple[bool, str]:
+        last = ""
+        local = use_cfg
+        for attempt in range(3):
+            try:
+                text = _call(local)
+                if text:
+                    return True, text
+                last = "AI returned nothing. Check the key, model, and base URL."
+            except requests.Timeout:
+                last = "AI timed out."
+            except Exception as exc:
+                last = str(exc)
+                suggested = _suggested_model(last)
+                if suggested and suggested != local.get("model"):
+                    nxt = dict(local)
+                    nxt["model"] = suggested
+                    if local is cfg or local.get("provider") == cfg.get("provider"):
+                        persist_model(suggested, household=household)
+                    local = nxt
+                    continue
+            busy = _capacity_err(last)
+            if busy and attempt < 2:
+                time.sleep(0.6 * (attempt + 1))
                 continue
-        busy = _capacity_err(last_err)
-        if busy and attempt < 2:
-            time.sleep(0.6 * (attempt + 1))
+            if busy and (local.get("kind") or "") == "gemini":
+                alt = _next_gemini_model(local.get("model"))
+                if alt:
+                    nxt = dict(local)
+                    nxt["model"] = alt
+                    try:
+                        text = _call(nxt)
+                        if text:
+                            if local is cfg or local.get("provider") == cfg.get("provider"):
+                                persist_model(alt, household=household)
+                            return True, text
+                    except Exception as exc2:
+                        last = str(exc2)
+            break
+        return False, last
+
+    slots = [cfg]
+    if backup_key and isinstance(backup, dict):
+        if cfg.get("try_order") == "backup":
+            slots = [backup, cfg]
+        else:
+            slots.append(backup)
+    last_err = ""
+    for i, slot in enumerate(slots):
+        ok, text = _attempt(slot)
+        if ok:
+            return True, text
+        last_err = text
+        if i < len(slots) - 1 and _capacity_err(last_err):
             continue
-        if busy and (cfg.get("kind") or "") == "gemini":
-            alt = _next_gemini_model(cfg.get("model"))
-            if alt:
-                nxt = dict(cfg)
-                nxt["model"] = alt
-                try:
-                    text = _call(nxt)
-                    if text:
-                        persist_model(alt, household=household)
-                        return True, text
-                except Exception as exc2:
-                    last_err = str(exc2)
         break
-    if backup_key and _capacity_err(last_err):
-        try:
-            text = _call(backup)
-            if text:
-                return True, text
-        except Exception as exc:
-            last_err = str(exc)
     if _capacity_err(last_err):
         return False, "The model is busy right now. I can still look up this house — tools, vehicles, basket, what’s due."
     if last_err:

@@ -653,6 +653,7 @@ def save_ai():
         backup_model=(request.form.get("ai_backup_model") or "").strip(),
         backup_api_key=(request.form.get("ai_backup_key") or "").strip(),
         clear_backup=(request.form.get("ai_clear_backup") or "") == "1",
+        try_order=(request.form.get("ai_try_order") or "").strip(),
     )
     flash("Household AI key saved. Yours only — Family OS never uses the owner's key.", "success")
     return _after()

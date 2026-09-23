@@ -53,6 +53,7 @@ def household_config(household) -> dict:
         cfg["enabled"] = True
     cfg["chat"] = False if chat is False else True
     cfg["key_hint"] = mask_secret(key)
+    cfg["try_order"] = "backup" if blob.get("try_order") == "backup" else "primary"
     raw_backup = blob.get("backup") if isinstance(blob.get("backup"), dict) else {}
     bkey = _decrypt_key(raw_backup.get("api_key") or "")
     cfg["backup_has_key"] = bool(bkey)
@@ -68,6 +69,8 @@ def household_config(household) -> dict:
             source="household",
             from_env=False,
         )
+        if cfg["backup"].get("vision"):
+            cfg["vision"] = True
     return cfg
 
 
@@ -85,6 +88,7 @@ def save_household_ai(
     backup_model: str = "",
     backup_api_key: str = "",
     clear_backup: bool = False,
+    try_order: str | None = None,
 ) -> dict:
     settings = dict(household.settings_json or {})
     prev = dict(settings.get("ai") or {}) if isinstance(settings.get("ai"), dict) else {}
@@ -121,6 +125,14 @@ def save_household_ai(
             }
         else:
             backup = {}
+    if clear_backup:
+        order = "primary"
+    elif try_order in ("primary", "backup"):
+        order = try_order
+    elif prev.get("try_order") in ("primary", "backup"):
+        order = prev.get("try_order")
+    else:
+        order = "primary"
     settings["ai"] = {
         "provider": provider,
         "model": model[:120],
@@ -129,6 +141,7 @@ def save_household_ai(
         "enabled": bool(enabled),
         "chat": chat_on,
         "backup": backup,
+        "try_order": order,
     }
     household.settings_json = settings
     flag_modified(household, "settings_json")
@@ -150,6 +163,6 @@ def ask_available(household, user=None) -> bool:
     if user is not None and role_of(user) == "child":
         return False
     cfg = household_config(household)
-    if not cfg.get("has_key") or not cfg.get("enabled"):
+    if not (cfg.get("has_key") or cfg.get("backup_has_key")) or not cfg.get("enabled"):
         return False
     return chat_on(household)

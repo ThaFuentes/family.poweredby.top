@@ -84,6 +84,16 @@ class FailoverTests(unittest.TestCase):
         self.assertIn("busy", text.lower())
         groq.assert_not_called()
 
+    def test_groq_can_go_first(self):
+        h = _house()
+        h.settings_json["ai"]["try_order"] = "backup"
+        gemini = patch("app.utils.ai._gemini", return_value="from gemini")
+        with gemini as gem, patch("app.utils.ai._openai_compat", return_value="from groq"):
+            ok, text = complete("hi", household=h, household_only=True)
+        self.assertTrue(ok)
+        self.assertEqual(text, "from groq")
+        gem.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
