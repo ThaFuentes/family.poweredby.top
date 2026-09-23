@@ -54,6 +54,8 @@ TOOLS = (
     "member_add",
     "member_list",
     "member_role",
+    "member_password",
+    "member_remove",
     "part_save",
     "log_save",
     "legal_save",
@@ -77,6 +79,8 @@ WRITE_TOOLS = (
     "place",
     "member_add",
     "member_role",
+    "member_password",
+    "member_remove",
     "part_save",
     "log_save",
     "legal_save",
@@ -127,6 +131,8 @@ The say field is spoken English only. Never put JSON, tool names, or raw tool re
 {"tool":"member_list","args":{}}
 {"tool":"member_add","args":{"name":"Sam","username":"sam","role":"member","email":"","password":""}}
 {"tool":"member_role","args":{"username":"sam","role":"member"}}
+{"tool":"member_password","args":{"username":"sam","password":""}}
+{"tool":"member_remove","args":{"username":"sam"}}
 {"tool":"log_save","args":{"item":"Silverado","kind":"miles","reading":"81200","notes":""}}
 {"tool":"oil_save","args":{"item":"Honda generator","needs":"SAE 10W-30","capacity":"20 oz","in_it":"","last_date":"","interval_hours":"50","interval_months":"6"}}
 {"tool":"oil_lookup","args":{"q":"white tundra 2011"}}
@@ -2679,6 +2685,14 @@ def run_tool(name: str, args: dict | None) -> dict:
             from app.utils.ask_do import tool_member_role
 
             return tool_member_role(args)
+        if key == "member_password":
+            from app.utils.ask_do import tool_member_password
+
+            return tool_member_password(args)
+        if key == "member_remove":
+            from app.utils.ask_do import tool_member_remove
+
+            return tool_member_remove(args)
         if key == "part_save":
             from app.utils.ask_do import tool_part_save
 
@@ -2847,7 +2861,7 @@ def _system_now(has_photo: bool) -> str:
 def _with_issued_login(say: str, tool_notes: list) -> str:
     text = say or ""
     for note in tool_notes:
-        if note.get("tool") != "member_add":
+        if note.get("tool") not in ("member_add", "member_password"):
             continue
         result = note.get("result") or {}
         password = result.get("password") or ""

@@ -81,6 +81,19 @@
     </form>
     {% endif %}
   </div>
+  {% if can('members') or is_leader %}
+  <form method="post" action="{{ url_for('members.set_member_password', user_id=m.id) }}" class="btn-row" style="margin:.35rem 0 0">
+    {% include "members/_next.html" %}
+    <input name="password" autocomplete="new-password" placeholder="New password (blank = we make one)">
+    <button class="btn sm secondary" type="submit">Set password</button>
+  </form>
+  {% endif %}
+  {% if (can('members') or is_leader) and m.id != current_user.id %}
+  <form method="post" action="{{ url_for('members.remove_person', user_id=m.id) }}" style="margin:.35rem 0 0" onsubmit="return confirm('Remove {{ m.name }} from this household?');">
+    {% include "members/_next.html" %}
+    <button class="btn sm secondary" type="submit">Remove from household</button>
+  </form>
+  {% endif %}
 </div>
 {% endfor %}
 

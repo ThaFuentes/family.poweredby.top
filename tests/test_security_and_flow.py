@@ -620,6 +620,92 @@ class FamilySecurityTests(unittest.TestCase):
         sneak = self.client.get(f"/legal/{rec_id}")
         self.assertEqual(sneak.status_code, 403)
 
+    def test_set_password_and_remove_person(self):
+        admin = f"ppl_a_{self.suffix}"
+        sam = f"ppl_s_{self.suffix}"
+        self._register(admin, household=f"Ppl {self.suffix}", name="Pat")
+        sheet = self.client.get("/members/sheet/people")
+        self.assertEqual(sheet.status_code, 200, sheet.data[-400:])
+        token = self._csrf(sheet.data)
+        added = self.client.post(
+            "/members/add",
+            data={
+                "person_name": "Sam",
+                "username": sam,
+                "role": "member",
+                "password": "OldPass12",
+                "csrf_token": token,
+                "next": "sheet",
+                "panel": "people",
+            },
+            headers={"X-CSRF-Token": token},
+            follow_redirects=True,
+        )
+        self.assertEqual(added.status_code, 200, added.data[-400:])
+        token = self._csrf(added.data)
+        with self.app.app_context():
+            row = User.query.filter_by(username=sam).first()
+            self.assertIsNotNone(row)
+            sid = row.id
+            aid = User.query.filter_by(username=admin).first().id
+        changed = self.client.post(
+            f"/members/{sid}/password",
+            data={
+                "password": "NewPass99",
+                "csrf_token": token,
+                "next": "sheet",
+                "panel": "people",
+            },
+            headers={"X-CSRF-Token": token},
+            follow_redirects=True,
+        )
+        self.assertEqual(changed.status_code, 200, changed.data[-400:])
+        self.assertIn(b"NewPass99", changed.data)
+        self._logout()
+        old = self.client.post(
+            "/auth/login",
+            data={"username": sam, "password": "OldPass12"},
+            follow_redirects=True,
+        )
+        self.assertNotIn(b"Home", old.data.split(b"<h1>")[1] if b"<h1>" in old.data else b"")
+        fresh = self._login(sam, "NewPass99")
+        self.assertEqual(fresh.status_code, 200)
+        self.assertIn(b"Home", fresh.data)
+        blocked = self.client.post(
+            f"/members/{aid}/remove",
+            data={"csrf_token": token, "next": "sheet", "panel": "people"},
+            headers={"X-CSRF-Token": token},
+            follow_redirects=True,
+        )
+        self.assertIn(blocked.status_code, (200, 403))
+        self._logout()
+        self._login(admin)
+        token = self._csrf(self.client.get("/members/sheet/people").data)
+        gone = self.client.post(
+            f"/members/{sid}/remove",
+            data={"csrf_token": token, "next": "sheet", "panel": "people"},
+            headers={"X-CSRF-Token": token},
+            follow_redirects=True,
+        )
+        self.assertEqual(gone.status_code, 200, gone.data[-400:])
+        self.assertIn(b"out of the house", gone.data)
+        self._logout()
+        denied = self.client.post(
+            "/auth/login",
+            data={"username": sam, "password": "NewPass99"},
+            follow_redirects=True,
+        )
+        self.assertNotIn(b"Home", denied.data.split(b"<h1>")[1] if b"<h1>" in denied.data else b"")
+        self._login(admin)
+        token = self._csrf(self.client.get("/members/sheet/people").data)
+        self_rm = self.client.post(
+            f"/members/{aid}/remove",
+            data={"csrf_token": token, "next": "sheet", "panel": "people"},
+            headers={"X-CSRF-Token": token},
+            follow_redirects=True,
+        )
+        self.assertIn(b"cannot remove yourself", self_rm.data)
+
 
 if __name__ == "__main__":
     unittest.main()

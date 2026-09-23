@@ -67,7 +67,7 @@ Do **not** overwrite host-only files: `passenger_wsgi.py`, `.htaccess`, `.env`, 
 - Household = tenant. Every query is filtered by `household_id`. Sign-in is household handle + username (unique inside that house). Email is optional contact, not identity.
 - Roles: `admin` (full), `member` (scan + groceries + maintenance), `child` (scan only).
 - Leaders (`users.is_leader`): **the household** picks them (People page). Platform does not. Name + email is the only tenant PII the owner console may show. At least one leader. Child cannot be a leader. Founder of a new household is the first leader (email required).
-- Password reset is in-household only: Forgot password, Look → your password, or a leader sending a reset to someone in **that** household. No platform reset of tenant passwords. No cross-tenant.
+- Password reset is in-household only: Forgot password, Look → your password, a leader setting a password on People (copy window), or a leader sending a reset to someone in **that** household. Leaders/admins can remove a person from People (not themselves, not the last leader). No platform reset of tenant passwords. No cross-tenant.
 - Reminders: household chooses email / calendar / both. Calendar is a secret ICS feed (`/reminders/calendar/<token>.ics`) scoped to that household. Email From: is the platform SMTP identity.
 - Owner console: `/platform/` — first person there becomes the owner (no .env token). Later owners need an `OWN-` key the first owner mints on Access. Separate `platform_owners` table. SMTP From + SpaceXAI. Fleet is household name, people count, leader name/email.
 - `SITE_MODE` is `family`. Wrapper cookie: `pbt_family_session`. Camera is on for scan.

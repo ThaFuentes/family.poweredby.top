@@ -148,6 +148,8 @@ def reverse_row(row, *, by_id: int | None) -> tuple[bool, str]:
             ok, msg = _undo_part_add(row)
         elif action == "scan.host_attach":
             ok, msg = _undo_host_attach(row)
+        elif action == "user.remove":
+            ok, msg = _undo_user_remove(row)
         else:
             return False, "Don't know how to undo that."
         if not ok:
@@ -178,6 +180,15 @@ def _undo_grocery(row) -> tuple[bool, str]:
         g.needs_restock = bool(old.get("needs_restock"))
     _sync_grocery_list(g, item, row.user_id)
     return True, f"{item.name} is back to {qty_label(prev)}."
+
+
+def _undo_user_remove(row) -> tuple[bool, str]:
+    from app.builddb.table_users import User
+    from app.utils.people import undo_remove
+
+    user = User.query.get(row.target_id)
+    old = row.old_json if isinstance(row.old_json, dict) else {}
+    return undo_remove(user, old)
 
 
 def _undo_item_remove(row) -> tuple[bool, str]:

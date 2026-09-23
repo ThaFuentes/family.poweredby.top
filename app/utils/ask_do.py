@@ -55,6 +55,24 @@ JOBS = (
         "how": "Who is in this household, their username and role.",
     },
     {
+        "id": "set_password",
+        "perm": "people",
+        "title": "Set someone's password",
+        "tool": "member_password",
+        "need": ["username"],
+        "optional": ["password"],
+        "how": "Username of someone in this house. Leave password blank and one is made and shown once.",
+    },
+    {
+        "id": "remove_person",
+        "perm": "people",
+        "title": "Remove a person",
+        "tool": "member_remove",
+        "need": ["username"],
+        "optional": [],
+        "how": "Username of someone else. You cannot remove yourself or the last leader.",
+    },
+    {
         "id": "save_tool",
         "perm": "maintain",
         "title": "Save a tool",
@@ -243,8 +261,12 @@ def _trim(value, cap: int) -> str:
 def _allowed(perm) -> bool:
     if perm is None:
         return True
+    if perm == "people":
+        from app.utils.people import can_manage_people
+
+        return can_manage_people()
     if isinstance(perm, (tuple, list, set)):
-        return any(can(p) for p in perm)
+        return any(_allowed(p) for p in perm)
     return can(perm)
 
 
@@ -270,7 +292,7 @@ def actor_lines() -> str:
         "Yes: " + "; ".join(yes) + ".\n"
         "No: " + ("; ".join(no) or "none") + ".\n"
         "When a tool result has need, ask for those fields in plain language. Never invent usernames, passwords, serials, barcodes, or VINs.\n"
-        "Chat cannot delete the household, change the AI key, send a password reset, or make a leader. Point them at /members/ for those.\n"
+        "Chat cannot delete the household, change the AI key, or make a leader. Point them at /members/ for those.\n"
         "Call guide with an action id (add_person, save_part, legal, …) when you are unsure what to ask next."
     )
 
@@ -479,6 +501,77 @@ def tool_member_role(args: dict | None = None) -> dict:
         "role": role,
         "href": "/members/",
         "did": "role",
+    }
+
+
+def _find_person(args: dict):
+    from app.builddb.table_users import User
+    from app.utils.household import household_id
+    from app.utils.identity import norm_username
+
+    hid = household_id()
+    raw_id = args.get("id") or args.get("user_id")
+    if raw_id and str(raw_id).isdigit():
+        user = User.query.filter_by(id=int(raw_id), household_id=hid, is_active=True).first()
+        if user:
+            return user, None
+    username = norm_username(args.get("username") or args.get("name") or args.get("q") or "")
+    if username:
+        user = User.query.filter_by(household_id=hid, username=username, is_active=True).first()
+        if user:
+            return user, None
+    return None, {
+        "ok": False,
+        "need": ["username"],
+        "hint": "Who? Use their username from member_list.",
+    }
+
+
+def tool_member_password(args: dict | None = None) -> dict:
+    args = args if isinstance(args, dict) else {}
+    from app.utils.people import can_manage_people, set_login_password
+
+    if not can_manage_people():
+        return _denied("set someone's password")
+    user, err = _find_person(args)
+    if err:
+        return err
+    ok, password, msg = set_login_password(user, args.get("password"))
+    if not ok:
+        return {"ok": False, "error": msg, "need": ["password"] if "8" in msg else []}
+    return {
+        "ok": True,
+        "id": user.id,
+        "name": user.name,
+        "username": user.username,
+        "password": password,
+        "href": "/members/",
+        "did": "password",
+        "hint": msg,
+    }
+
+
+def tool_member_remove(args: dict | None = None) -> dict:
+    args = args if isinstance(args, dict) else {}
+    from app.utils.people import can_manage_people, remove_member
+
+    if not can_manage_people():
+        return _denied("remove a person")
+    user, err = _find_person(args)
+    if err:
+        return err
+    name = user.name
+    username = user.username
+    ok, msg = remove_member(user, by=current_user)
+    if not ok:
+        return {"ok": False, "error": msg}
+    return {
+        "ok": True,
+        "name": name,
+        "username": username,
+        "href": "/members/",
+        "did": "removed",
+        "hint": msg,
     }
 
 

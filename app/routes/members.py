@@ -30,12 +30,14 @@ def _after(panel=None):
     p = (panel or request.form.get("panel") or request.args.get("panel") or "").strip()
     if nxt == "sheet" and p in SHEETS:
         return redirect(url_for("members.sheet", panel=p))
-    return _after()
+    return redirect(url_for("members.index"))
 
 
 def _page_ctx():
     hid = household_id()
-    members = User.query.filter_by(household_id=hid).order_by(User.name.asc()).all()
+    members = (
+        User.query.filter_by(household_id=hid, is_active=True).order_by(User.name.asc()).all()
+    )
     invites = (
         Invite.query.filter_by(household_id=hid)
         .filter(Invite.used_at.is_(None))
@@ -553,6 +555,58 @@ def send_member_reset(user_id):
         return _after()
     ok, msg = send_reset_email(user, token)
     flash(msg if not ok else f"Reset link handed to the mail server for {user.email}. {msg}", "success" if ok else "danger")
+    return _after()
+
+
+def _people_guard():
+    from app.utils.people import _actor_can
+
+    if not _actor_can(current_user):
+        flash("You cannot change logins for this household.", "warning")
+        return False
+    return True
+
+
+@members_bp.route("/<int:user_id>/password", methods=["POST"])
+@login_required
+def set_member_password(user_id):
+    if not _people_guard():
+        return _after()
+    hid = household_id()
+    user = User.query.filter_by(id=user_id, household_id=hid, is_active=True).first_or_404()
+    from app.utils.keys_ui import stash_issued_key
+    from app.utils.people import set_login_password
+
+    ok, password, msg = set_login_password(user, request.form.get("password"))
+    if not ok:
+        flash(msg, "danger")
+        return _after()
+    household = Household.query.get(hid)
+    stash_issued_key(
+        user.username,
+        f"{user.name}'s password",
+        "They sign in with the household handle plus this username. Copy it now — it is not shown again.",
+        extra={
+            "username": user.username,
+            "password": password,
+            "handle": (household.handle if household else "") or "",
+        },
+    )
+    flash(msg, "success")
+    return _after()
+
+
+@members_bp.route("/<int:user_id>/remove", methods=["POST"])
+@login_required
+def remove_person(user_id):
+    if not _people_guard():
+        return _after()
+    hid = household_id()
+    user = User.query.filter_by(id=user_id, household_id=hid, is_active=True).first_or_404()
+    from app.utils.people import remove_member
+
+    ok, msg = remove_member(user, by=current_user)
+    flash(msg, "success" if ok else "warning")
     return _after()
 
 
