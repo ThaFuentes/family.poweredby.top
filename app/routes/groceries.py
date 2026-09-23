@@ -335,6 +335,16 @@ def _basket_payload(rows):
 @groceries_bp.route("/list")
 @login_required
 def grocery_list():
+    return render_template("grocery_list.html", **_basket_page())
+
+
+def _basket_back():
+    if (request.form.get("next") or "") == "sheet":
+        return redirect(url_for("groceries.basket_sheet"))
+    return redirect(url_for("groceries.grocery_list"))
+
+
+def _basket_page():
     rows = (
         scoped(GroceryListEntry)
         .filter_by(status="open")
@@ -346,14 +356,19 @@ def grocery_list():
     packed = {p["id"]: p for p in _basket_payload(rows)}
     for r in rows:
         r.image_url = (packed.get(r.id) or {}).get("image_url") or ""
-    return render_template(
-        "grocery_list.html",
-        rows=rows,
-        want_rows=want_rows,
-        need_rows=need_rows,
-        can_add=can("scan") or can("edit_grocery"),
-        can_check=can("scan") or can("edit_grocery"),
-    )
+    return {
+        "rows": rows,
+        "want_rows": want_rows,
+        "need_rows": need_rows,
+        "can_add": can("scan") or can("edit_grocery"),
+        "can_check": can("scan") or can("edit_grocery"),
+    }
+
+
+@groceries_bp.route("/list/sheet")
+@login_required
+def basket_sheet():
+    return render_template("groceries/basket_sheet.html", **_basket_page())
 
 
 @groceries_bp.route("/list.json")
@@ -373,16 +388,16 @@ def grocery_list_json():
 def list_add():
     if not (can("scan") or can("edit_grocery")):
         flash("You cannot add to the basket.", "warning")
-        return redirect(url_for("groceries.grocery_list"))
+        return _basket_back()
     raw = (request.form.get("name") or "").strip()
     if not raw:
         flash("Name required.", "danger")
-        return redirect(url_for("groceries.grocery_list"))
+        return _basket_back()
     note = (request.form.get("note") or request.form.get("store") or "").strip()[:120] or None
     names = [p.strip()[:200] for p in raw.replace("\n", ",").split(",") if p.strip()]
     if not names:
         flash("Name required.", "danger")
-        return redirect(url_for("groceries.grocery_list"))
+        return _basket_back()
     hid = household_id()
     for name in names[:40]:
         db.session.add(
@@ -396,7 +411,7 @@ def list_add():
             )
         )
     db.session.commit()
-    return redirect(url_for("groceries.grocery_list"))
+    return _basket_back()
 
 
 def _check_off(row, *, restock=True):

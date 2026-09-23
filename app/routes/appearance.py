@@ -31,6 +31,21 @@ def picker():
     )
 
 
+@appearance_bp.route("/home-sheet")
+@login_required
+def home_sheet():
+    from app.utils.dashboard import dashboard_prefs
+    from app.utils.permissions import role_of
+
+    return render_template(
+        "appearance/home_sheet.html",
+        dash=dashboard_prefs(current_user),
+        is_child=role_of() == "child",
+        dash_next="sheet",
+        dash_compact=False,
+    )
+
+
 @appearance_bp.route("/calendar-sheet")
 @login_required
 def calendar_sheet():
@@ -64,6 +79,8 @@ def set_dashboard():
     )
     flash("Your home is saved. That's what opens for you.", "success")
     nxt = (request.form.get("next") or "").strip()
+    if nxt == "sheet":
+        return redirect(url_for("appearance.home_sheet"))
     if nxt == "home":
         return redirect(url_for("home.home"))
     return redirect(url_for("appearance.picker") + "#home")

@@ -8,11 +8,25 @@
   </div>
 </div>
 
-{% set dash_next = "home" %}
-{% set dash_compact = true %}
-{% include "partials/dashboard_edit.html" %}
+<div class="home-strip">
+  <button type="button" class="home-chip" data-sheet="{{ url_for('appearance.home_sheet') }}" data-sheet-title="When I open Family OS">
+    <span class="kicker">Start</span>
+    <strong>When I open</strong>
+  </button>
+  {% if dash.show_needs and needs.low %}
+  <button type="button" class="home-chip is-low" data-sheet="{{ url_for('groceries.basket_sheet') }}" data-sheet-title="On the basket">
+    <span class="kicker">Need more</span>
+    <strong>{{ needs.low }} low</strong>
+    <span class="muted">On the basket</span>
+  </button>
+  {% endif %}
+  <button type="button" class="home-chip" data-sheet="{{ url_for('appearance.calendar_sheet') }}" data-sheet-title="Your calendar">
+    <span class="kicker">Calendar</span>
+    <strong>{% if cal_links.cal_ready %}{{ cal_links.cal_provider_label }}{% else %}Set up{% endif %}</strong>
+  </button>
+</div>
 
-{% if dash.show_needs and (needs.due or needs.out or needs.low) %}
+{% if dash.show_needs and (needs.due or needs.out) %}
 <section class="needs-stack" aria-label="Needs you">
   {% for row in needs.due %}
   <a class="need-card {% if row.overdue %}is-out{% endif %}" href="{% if row.item_id %}{{ url_for('items.detail', item_id=row.item_id) }}{% else %}{{ url_for('reminders.index') }}{% endif %}">
@@ -28,19 +42,8 @@
     <span class="muted">Tap to see what ran out</span>
   </a>
   {% endif %}
-  {% if needs.low %}
-  <a class="need-card is-low" href="{{ url_for('groceries.grocery_list') }}">
-    <span class="kicker">Need more</span>
-    <strong>{{ needs.low }} running low</strong>
-    <span class="muted">On the basket</span>
-  </a>
-  {% endif %}
 </section>
 {% endif %}
-
-<button type="button" class="btn secondary home-cal-btn" data-sheet="{{ url_for('appearance.calendar_sheet') }}">
-  {% if cal_links.cal_ready %}Calendar · {{ cal_links.cal_provider_label }}{% else %}Your calendar{% endif %}
-</button>
 <div class="grid">
   {% if 'scan' in dash.tile_set %}
   <a class="tile tile-scan" href="{{ url_for('scan.scan_page') }}">

@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>When I open Family OS</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
+  {% include "partials/theme_head.html" %}
+</head>
+<body class="sheet-body">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+      <script>try { window.parent.postMessage({ family: "sheet-saved" }, "*"); } catch (e) {}</script>
+    {% endif %}
+  {% endwith %}
+  {% include "partials/dashboard_edit.html" %}
+</body>
+</html>

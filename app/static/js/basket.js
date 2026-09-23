@@ -120,6 +120,9 @@
         body: JSON.stringify({ action: action, ids: ids }),
       });
       await refresh();
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ family: "sheet-saved" }, "*");
+      }
     } catch (e) {
       await refresh();
     }

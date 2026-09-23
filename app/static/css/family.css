@@ -306,6 +306,53 @@ h2 { font-size: 1.02rem; margin: 1.15rem 0 .55rem; letter-spacing: -0.02em; }
   border: 1.5px solid var(--btn-edge);
   font-weight: 800;
 }
+.home-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr));
+  gap: .45rem;
+  margin: 0 0 1rem;
+}
+.home-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: .08rem;
+  min-width: 0;
+  min-height: 4.4rem;
+  margin: 0;
+  padding: .6rem .65rem;
+  border-radius: 1rem;
+  border: 1.5px solid var(--btn-edge);
+  background: var(--btn-2);
+  color: var(--btn-2-ink);
+  font: inherit;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+.home-chip .kicker {
+  font-size: .62rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 800;
+}
+.home-chip strong {
+  font-size: .92rem;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+.home-chip .muted {
+  font-size: .72rem;
+  font-weight: 650;
+  line-height: 1.2;
+}
+.home-chip.is-low {
+  background: #fff4e0;
+  color: var(--ink);
+  border-color: #e2c98a;
+}
 .sheet-overlay {
   position: fixed;
   inset: 0;

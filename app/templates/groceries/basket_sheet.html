@@ -1,7 +1,14 @@
-{% extends "base.html" %}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Basket</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
+  {% include "partials/theme_head.html" %}
+</head>
+<body class="sheet-body">
 {% from "partials/row_pic.html" import row_pic with context %}
-{% block title %}Basket · Family OS{% endblock %}
-
 {% macro basket_row(row) %}
   <div class="basket-row" data-entry-id="{{ row.id }}">
     {% if can_check %}
@@ -19,38 +26,14 @@
         {% elif row.added_reason == 'manual' %}Want
         {% else %}{{ row.added_reason or 'Added' }}{% endif %}
         {% if row.note %} · {{ row.note }}{% endif %}
-        {% if row.quantity_needed %} · get {{ row.quantity_needed|qty_label }}{% endif %}
       </span>
     </span>
     {% if can_check %}
     <button type="button" class="btn sm secondary basket-drop" data-drop="{{ row.id }}" aria-label="Take {{ row.name }} off the basket">Drop</button>
     {% endif %}
-    <noscript>
-      {% if can_check %}
-      <form method="post" action="{{ url_for('groceries.list_done', entry_id=row.id) }}">
-        <button class="btn sm secondary" type="submit">Got it</button>
-      </form>
-      <form method="post" action="{{ url_for('groceries.list_remove', entry_id=row.id) }}">
-        <button class="btn sm secondary" type="submit">Drop</button>
-      </form>
-      {% endif %}
-    </noscript>
   </div>
 {% endmacro %}
-
-{% block content %}
-<div class="page-head">
-  <div>
-    <h1>Basket</h1>
-    <p>Select rows, then <strong>Got it</strong> (bought, add stock) or <strong>Drop</strong> (not buying). Camera is Needed.</p>
-  </div>
-  {% if can_add %}
-  <a class="btn sm" href="#add-want" data-open-fold="add-want">Add</a>
-  {% endif %}
-</div>
-{% set compact = true %}
-<p class="muted">Use the camera button to scan. Set it to <strong>Buy</strong> or <strong>In</strong> once.</p>
-<script>window.FAMILY_SCAN_KIND = "basket";</script>
+<h1 style="margin:.2rem 0 .45rem;font-size:1.2rem">On the basket</h1>
 {% if can_check %}
 <div class="btn-row basket-bulk no-print" id="basket-bulk">
   <button type="button" class="btn sm secondary" data-basket-all>Select all</button>
@@ -79,6 +62,7 @@
 <details class="card add-fold" id="add-want" {% if not rows %}open{% endif %}>
 <summary>Want something — no barcode</summary>
 <form method="post" action="{{ url_for('groceries.list_add') }}">
+  <input type="hidden" name="next" value="sheet">
   <label>Name</label>
   <input name="name" placeholder="coffee creamer, paper towels" required>
   <label>Store (optional)</label>
@@ -87,7 +71,6 @@
 </form>
 </details>
 {% endif %}
-{% endblock %}
-{% block scripts %}
 <script src="{{ url_for('static', filename='js/basket.js') }}?v=os4"></script>
-{% endblock %}
+</body>
+</html>
