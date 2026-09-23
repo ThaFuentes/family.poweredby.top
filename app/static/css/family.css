@@ -353,6 +353,13 @@ h2 { font-size: 1.02rem; margin: 1.15rem 0 .55rem; letter-spacing: -0.02em; }
   color: var(--ink);
   border-color: #e2c98a;
 }
+.item-desk-row { margin: 0 0 .75rem; }
+.item-desk-row .home-chip strong {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .ai-key { margin: 0 0 .65rem; }
 .ai-key .badge { margin-left: .35rem; }
 .ai-key .btn-row { margin-top: .45rem; }

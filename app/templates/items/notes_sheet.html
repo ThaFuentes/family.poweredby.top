@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Notes · {{ item.name }}</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
+  {% include "partials/theme_head.html" %}
+</head>
+<body class="sheet-body">
+{% if saved %}
+<script>try { window.parent.postMessage({ family: "sheet-saved" }, "*"); } catch (e) {}</script>
+{% endif %}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+<p class="muted" style="margin:0">{{ item.name }}</p>
+<h1 style="margin:.15rem 0 .6rem;font-size:1.25rem">Notes</h1>
+{% if item.notes %}
+<p style="white-space:pre-wrap">{{ item.notes }}</p>
+{% endif %}
+{% for n in item_notes %}
+<div class="card" id="note-{{ n.id }}">
+  <strong>{{ n.title }}</strong>
+  {% if n.body %}<p style="white-space:pre-wrap">{{ n.body }}</p>{% endif %}
+  <form method="post" action="{{ url_for('notes.delete', note_id=n.id) }}">
+    <input type="hidden" name="from_item" value="1">
+    <input type="hidden" name="next" value="sheet">
+    <button class="btn sm secondary" type="submit">Remove</button>
+  </form>
+</div>
+{% else %}
+{% if not item.notes %}
+<p class="muted">No notes on this yet.</p>
+{% endif %}
+{% endfor %}
+<details class="card add-fold">
+<summary>Add a note</summary>
+<form method="post" action="{{ url_for('notes.add') }}" enctype="multipart/form-data">
+  <input type="hidden" name="item_id" value="{{ item.id }}">
+  <input type="hidden" name="from_item" value="1">
+  <input type="hidden" name="next" value="sheet">
+  <label>Name</label>
+  <input name="title" placeholder="Oil spec, tire brand, that rattle" required>
+  <label>Note</label>
+  <textarea name="body"></textarea>
+  <label>Who can see it</label>
+  <select name="visibility">
+    <option value="household">Whole household</option>
+    <option value="personal">Only me</option>
+  </select>
+  <button class="btn" type="submit">Save note</button>
+</form>
+</details>
+</body>
+</html>

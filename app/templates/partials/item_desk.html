@@ -1,90 +1,17 @@
-{% if item.item_type in ('vehicle', 'tool', 'house') %}
-<section class="card item-desk" aria-label="Notes on this">
-  <div class="room-split">
-    <h2 style="margin:0">Notes</h2>
-    <a href="{{ url_for('items.detail', item_id=item.id, tab='notes') }}">All notes</a>
-  </div>
-  {% if item.notes %}
-  <p style="white-space:pre-wrap">{{ item.notes }}</p>
+{% if item.item_type in ('vehicle', 'tool', 'house') or item.vehicle or item.tool %}
+<div class="home-strip item-desk-row">
+  {% if item.item_type in ('vehicle', 'tool', 'house') %}
+  <button type="button" class="home-chip" data-sheet="{{ url_for('items.notes_sheet', item_id=item.id) }}" data-sheet-title="Notes">
+    <span class="kicker">Notes</span>
+    <strong>{% if item_notes %}{{ item_notes|length }}{% else %}None yet{% endif %}</strong>
+  </button>
   {% endif %}
-  {% if item.tool and item.tool.usage_notes %}
-  <p class="muted" style="white-space:pre-wrap">{{ item.tool.usage_notes }}</p>
+  {% if item.vehicle or item.tool %}
+  {% set oil = item.vehicle or item.tool %}
+  <button type="button" class="home-chip" data-sheet="{{ url_for('items.oil_sheet', item_id=item.id) }}" data-sheet-title="Oil">
+    <span class="kicker">Oil</span>
+    <strong>{{ oil.oil_needs or oil.oil_type or 'Not set' }}</strong>
+  </button>
   {% endif %}
-  {% for n in (item_notes or [])[:3] %}
-  <p><a href="{{ url_for('items.detail', item_id=item.id, tab='notes') }}#note-{{ n.id }}"><strong>{{ n.title }}</strong></a>
-    {% if n.body %}<span class="muted"> — {{ n.body[:140] }}</span>{% endif %}</p>
-  {% else %}
-  {% if not item.notes and not (item.tool and item.tool.usage_notes) %}
-  <p class="muted">No notes on this yet.</p>
-  {% endif %}
-  {% endfor %}
-</section>
-{% endif %}
-
-{% if item.vehicle or item.tool %}
-<section class="card item-desk" aria-label="Oil">
-  <h2 style="margin-top:0">Oil</h2>
-  {% if item.vehicle %}
-  <p>Needs: <strong>{{ item.vehicle.oil_needs or '—' }}</strong>{% if item.vehicle.oil_capacity %} · {{ item.vehicle.oil_capacity }}{% endif %}</p>
-  <p>In it now: <strong>{{ item.vehicle.oil_type or '—' }}</strong>{% if item.vehicle.filter_type %} · Filter {{ item.vehicle.filter_type }}{% endif %}</p>
-  <p>Last: {{ item.vehicle.last_oil_change_date or '—' }}{% if item.vehicle.last_oil_change_mileage %} at {{ '{:,}'.format(item.vehicle.last_oil_change_mileage) }}{% endif %}
-    · Next: {{ item.vehicle.next_oil_due_date or '—' }}{% if item.vehicle.next_oil_due_mileage %} or {{ '{:,}'.format(item.vehicle.next_oil_due_mileage) }} miles{% endif %}</p>
-  {% if can_maintain or can_edit %}
-  <form method="post" action="{{ url_for('items.save_oil', item_id=item.id) }}">
-    <input type="hidden" name="next" value="{{ tab or 'overview' }}">
-    <label>Oil it needs</label>
-    <input name="oil_needs" value="{{ item.vehicle.oil_needs or '' }}" placeholder="5W-30 full synthetic, API SP">
-    <label>How much</label>
-    <input name="oil_capacity" value="{{ item.vehicle.oil_capacity or '' }}" placeholder="6 qt">
-    <label>What’s in it now</label>
-    <input name="oil_type" value="{{ item.vehicle.oil_type or '' }}" placeholder="Mobil 1 5W-30">
-    <label>Filter it needs</label>
-    <input name="filter_type" value="{{ item.vehicle.filter_type or '' }}">
-    <div class="btn-row">
-      <label>Last date<input type="date" name="last_oil_change_date" value="{{ item.vehicle.last_oil_change_date or '' }}"></label>
-      <label>Last miles<input name="last_oil_change_mileage" inputmode="numeric" value="{{ item.vehicle.last_oil_change_mileage or '' }}"></label>
-    </div>
-    <div class="btn-row">
-      <label>Every miles<input name="oil_interval_miles" inputmode="numeric" value="{{ item.vehicle.oil_interval_miles or '' }}" placeholder="5000"></label>
-      <label>Every months<input name="oil_interval_months" inputmode="numeric" value="{{ item.vehicle.oil_interval_months or '' }}" placeholder="6"></label>
-    </div>
-    <div class="btn-row">
-      <label>Next date<input type="date" name="next_oil_due_date" value="{{ item.vehicle.next_oil_due_date or '' }}"></label>
-      <label>Next miles<input name="next_oil_due_mileage" inputmode="numeric" value="{{ item.vehicle.next_oil_due_mileage or '' }}"></label>
-    </div>
-    <p class="muted">Leave next blank and it is filled from the last change plus the interval.</p>
-    <button class="btn" type="submit">Save oil</button>
-  </form>
-  {% endif %}
-  {% elif item.tool %}
-  <p>Needs: <strong>{{ item.tool.oil_needs or '—' }}</strong>{% if item.tool.oil_capacity %} · {{ item.tool.oil_capacity }}{% endif %}</p>
-  <p>In it now: <strong>{{ item.tool.oil_type or '—' }}</strong></p>
-  <p>Last: {{ item.tool.last_oil_date or '—' }}{% if item.tool.last_oil_hours %} at {{ item.tool.last_oil_hours }} hours{% endif %}
-    · Next: {{ item.tool.next_oil_due_date or '—' }}{% if item.tool.next_oil_due_hours %} or {{ item.tool.next_oil_due_hours }} hours{% endif %}</p>
-  {% if can_maintain or can_edit %}
-  <form method="post" action="{{ url_for('items.save_oil', item_id=item.id) }}">
-    <input type="hidden" name="next" value="{{ tab or 'overview' }}">
-    <label>Oil it needs</label>
-    <input name="oil_needs" value="{{ item.tool.oil_needs or '' }}" placeholder="SAE 30, or 10W-30">
-    <label>How much</label>
-    <input name="oil_capacity" value="{{ item.tool.oil_capacity or '' }}" placeholder="20 oz">
-    <label>What’s in it now</label>
-    <input name="oil_type" value="{{ item.tool.oil_type or '' }}">
-    <div class="btn-row">
-      <label>Last date<input type="date" name="last_oil_date" value="{{ item.tool.last_oil_date or '' }}"></label>
-      <label>Last hours<input name="last_oil_hours" inputmode="numeric" value="{{ item.tool.last_oil_hours or '' }}"></label>
-    </div>
-    <div class="btn-row">
-      <label>Every hours<input name="oil_interval_hours" inputmode="numeric" value="{{ item.tool.oil_interval_hours or '' }}"></label>
-      <label>Every months<input name="oil_interval_months" inputmode="numeric" value="{{ item.tool.oil_interval_months or '' }}"></label>
-    </div>
-    <div class="btn-row">
-      <label>Next date<input type="date" name="next_oil_due_date" value="{{ item.tool.next_oil_due_date or '' }}"></label>
-      <label>Next hours<input name="next_oil_due_hours" inputmode="numeric" value="{{ item.tool.next_oil_due_hours or '' }}"></label>
-    </div>
-    <button class="btn" type="submit">Save oil</button>
-  </form>
-  {% endif %}
-  {% endif %}
-</section>
+</div>
 {% endif %}

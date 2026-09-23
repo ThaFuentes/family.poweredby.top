@@ -1368,7 +1368,48 @@ def save_oil(item_id):
         return redirect(url_for("items.detail", item_id=item.id))
     db.session.commit()
     flash("Oil record saved.", "success")
+    if (request.form.get("next") or "") == "sheet":
+        return redirect(url_for("items.oil_sheet", item_id=item.id, saved=1))
     return redirect(url_for("items.detail", item_id=item.id, tab=request.form.get("next") or "overview"))
+
+
+@items_bp.route("/<int:item_id>/oil-sheet")
+@login_required
+def oil_sheet(item_id):
+    item = _item_or_404(item_id)
+    if item.vehicle is None and item.tool is None:
+        abort(404)
+    return render_template(
+        "items/oil_sheet.html",
+        item=item,
+        can_edit=can("edit_meta") or can("maintain"),
+        saved=request.args.get("saved") == "1",
+    )
+
+
+@items_bp.route("/<int:item_id>/notes-sheet")
+@login_required
+def notes_sheet(item_id):
+    from sqlalchemy import or_
+    from sqlalchemy.orm import selectinload
+
+    from app.builddb.table_notes import Note
+
+    item = _item_or_404(item_id)
+    hid = household_id()
+    item_notes = (
+        Note.query.options(selectinload(Note.files))
+        .filter_by(household_id=hid, item_id=item.id)
+        .filter(or_(Note.visibility == "household", Note.user_id == current_user.id))
+        .order_by(Note.updated_at.desc())
+        .all()
+    )
+    return render_template(
+        "items/notes_sheet.html",
+        item=item,
+        item_notes=item_notes,
+        saved=request.args.get("saved") == "1",
+    )
 
 
 @items_bp.route("/<int:item_id>/mileage", methods=["POST"])

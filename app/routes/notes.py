@@ -81,6 +81,10 @@ def _authors(hid):
 
 
 def _after_note(note=None, item_id=None):
+    if (request.form.get("next") or "") == "sheet":
+        target = item_id or (note.item_id if note is not None else None)
+        if target:
+            return url_for("items.notes_sheet", item_id=target, saved=1)
     if request.form.get("from_item"):
         target = item_id or (note.item_id if note is not None else None)
         if target:
@@ -322,6 +326,8 @@ def delete(note_id):
     db.session.delete(note)
     db.session.commit()
     flash("Note removed.", "info")
+    if item_id and (request.form.get("next") or "") == "sheet":
+        return redirect(url_for("items.notes_sheet", item_id=item_id, saved=1))
     if item_id and request.form.get("from_item"):
         return redirect(url_for("items.detail", item_id=item_id, tab="notes"))
     return redirect(url_for("notes.index"))

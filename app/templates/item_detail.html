@@ -508,7 +508,7 @@
     {% endfor %}
   </div>
   {% if can_photo %}
-  <details class="card add-fold" id="add-photo" {% if not photos %}open{% endif %}>
+  <details class="card add-fold" id="add-photo">
   <summary>Add a photo</summary>
   <form method="post" action="{{ url_for('items.add_photo', item_id=item.id) }}" enctype="multipart/form-data">
     <label>This photo is</label>
@@ -535,7 +535,7 @@
     {% if item.tool and item.tool.usage_notes %}<p class="muted" style="white-space:pre-wrap">{{ item.tool.usage_notes }}</p>{% endif %}
   </div>
   {% endif %}
-  <details class="card add-fold" id="add-item-note" {% if not item_notes %}open{% endif %}>
+  <details class="card add-fold" id="add-item-note">
   <summary>Add a note on {{ item.name }}</summary>
   <form method="post" action="{{ url_for('notes.add') }}" enctype="multipart/form-data">
     <input type="hidden" name="item_id" value="{{ item.id }}">
