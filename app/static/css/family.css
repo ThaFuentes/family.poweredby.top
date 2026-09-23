@@ -1929,12 +1929,55 @@ html.family-intro-out #family-intro{opacity:0;transition:opacity .4s ease}
 .ask-bubble a { font-weight: 800; color: inherit; }
 .ask-form {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: auto 1fr auto;
   gap: .45rem;
   padding: .65rem .75rem calc(.75rem + var(--safe-b));
   border-top: 1px solid #2c332e;
   align-items: end;
   background: #171b18;
+}
+.ask-cam {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.6rem;
+  padding: 0 .7rem;
+  border-radius: .7rem;
+  background: #f3efe4;
+  color: #141814;
+  font-weight: 800;
+  cursor: pointer;
+}
+.ask-preview {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  color: #f4f1e8;
+}
+.ask-preview img,
+.ask-shot-img {
+  width: 3rem;
+  height: 3rem;
+  object-fit: cover;
+  border-radius: .45rem;
+  background: #0e110f;
+}
+.ask-shot-img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 9rem;
+  margin-top: .4rem;
+}
+.ask-preview span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
 }
 .ask-form textarea {
   margin: 0;
@@ -1946,6 +1989,7 @@ html.family-intro-out #family-intro{opacity:0;transition:opacity .4s ease}
   border: 1px solid #2a2f2c;
 }
 .ask-form .btn { margin: 0; background: #2d6a45; color: #fff; }
+.ask-form .btn.secondary { background: #f3efe4; color: #141814; }
 @media (min-width: 960px) {
   .ask-fab {
     right: 1.25rem;

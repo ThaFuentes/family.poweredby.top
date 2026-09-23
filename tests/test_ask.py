@@ -72,6 +72,11 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(turn["tool"], "vehicle_save")
         turn = _parse_turn('{"tool":"house","args":{"kind":"tools"}}')
         self.assertEqual(turn["tool"], "house")
+        turn = _parse_turn('{"tool":"place","args":{"what":"part","name":"brake pads"}}')
+        self.assertEqual(turn["tool"], "place")
+        turn = _parse_turn('{"tool":"member_add","args":{"name":"Sam"}}')
+        self.assertEqual(turn["tool"], "member_add")
+        self.assertEqual(turn["args"]["name"], "Sam")
 
 
 class LocalHouseTests(unittest.TestCase):
@@ -165,6 +170,7 @@ class AskHttpTests(unittest.TestCase):
         self._put_key(chat=True)
         home = self.client.get("/")
         self.assertIn(b'id="ask-root"', home.data)
+        self.assertIn(b'id="ask-file"', home.data)
         self.assertIn(b"Ask", home.data)
         self._put_key(chat=False)
         home = self.client.get("/")
@@ -307,6 +313,290 @@ class AskHttpTests(unittest.TestCase):
             row = VaultEntry.query.filter_by(created_by=uid).order_by(VaultEntry.id.desc()).first()
             self.assertIsNotNone(row)
             self.assertEqual(open_fields(row)["title"], "Wifi")
+
+    def _jpeg_b64(self):
+        import base64
+        from io import BytesIO
+
+        from PIL import Image
+
+        buf = BytesIO()
+        Image.new("RGB", (12, 8), (20, 40, 60)).save(buf, format="JPEG")
+        return base64.b64encode(buf.getvalue()).decode()
+
+    def _vehicle(self, name):
+        with self.app.app_context():
+            from app.builddb.builddb import db
+            from app.builddb.table_items import Item
+            from app.builddb.table_users import User
+            from app.builddb.table_vehicles import Vehicle
+
+            user = User.query.filter_by(username=self.admin).first()
+            item = Item(
+                household_id=user.household_id,
+                name=name,
+                item_type="vehicle",
+                created_by=user.id,
+            )
+            db.session.add(item)
+            db.session.flush()
+            db.session.add(Vehicle(item_id=item.id, household_id=user.household_id))
+            db.session.commit()
+            return item.id
+
+    def test_photo_reaches_the_model(self):
+        self.admin = f"ask_p_{self.suffix}"
+        self._register(self.admin, household=f"AskP {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        seen = {}
+
+        def fake_complete(*args, **kwargs):
+            seen["image"] = kwargs.get("image_bytes")
+            return True, '{"say":"That looks like a cordless drill."}'
+
+        token = self._csrf(self.client.get("/").data)
+        with patch("app.utils.ask.complete", side_effect=fake_complete):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "what tools do I have", "image": self._jpeg_b64(), "image_mime": "image/jpeg"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertIn("drill", (resp.get_json() or {}).get("say") or "")
+        self.assertTrue(seen.get("image"))
+        self.assertGreater(len(seen["image"]), 20)
+
+    def test_bad_photo_is_refused(self):
+        import base64
+
+        self.admin = f"ask_b_{self.suffix}"
+        self._register(self.admin, household=f"AskB {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        token = self._csrf(self.client.get("/").data)
+        resp = self.client.post(
+            "/ask/message",
+            json={
+                "message": "file this",
+                "image": base64.b64encode(b"not a photo").decode(),
+                "image_mime": "image/jpeg",
+            },
+            headers={"X-CSRF-Token": token},
+        )
+        self.assertEqual(resp.status_code, 400, resp.data)
+        self.assertIn("photo", (resp.get_json() or {}).get("error") or "")
+
+    def test_place_tool_and_keep_the_photo(self):
+        self.admin = f"ask_t_{self.suffix}"
+        self._register(self.admin, household=f"AskT {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        replies = [
+            (True, '{"tool":"place","args":{"what":"tool","name":"DeWalt drill","brand":"DeWalt","model":"DCD771"}}'),
+            (True, '{"say":"Saved the DeWalt drill in tools."}'),
+        ]
+
+        def fake_complete(*args, **kwargs):
+            return replies.pop(0)
+
+        token = self._csrf(self.client.get("/").data)
+        with patch("app.utils.ask.complete", side_effect=fake_complete):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "", "image": self._jpeg_b64(), "image_mime": "image/jpeg"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertTrue(resp.get_json().get("ok"), resp.get_json())
+        with self.app.app_context():
+            from app.builddb.table_items import Item
+            from app.builddb.table_photo_notes import PhotoNote
+
+            item = Item.query.filter_by(name="DeWalt drill", item_type="tool").order_by(Item.id.desc()).first()
+            self.assertIsNotNone(item)
+            self.assertEqual(item.tool.model, "DCD771")
+            self.assertIsNotNone(PhotoNote.query.filter_by(item_id=item.id).first())
+
+    def test_part_asks_which_vehicle(self):
+        self.admin = f"ask_v2_{self.suffix}"
+        self._register(self.admin, household=f"AskV2 {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        self._vehicle("Silverado")
+        self._vehicle("Civic")
+        seen = []
+
+        def fake_complete(prompt, **kwargs):
+            seen.append(prompt)
+            if len(seen) == 1:
+                return True, '{"tool":"place","args":{"what":"part","name":"front brake pads"}}'
+            return True, '{"say":"Which vehicle should the pads go on?"}'
+
+        token = self._csrf(self.client.get("/").data)
+        with patch("app.utils.ask.complete", side_effect=fake_complete):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "These are front brake pads"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertIn("Which vehicle", seen[1])
+        with self.app.app_context():
+            from app.builddb.table_users import User
+            from app.builddb.table_vehicle_parts import VehiclePart
+
+            hid = User.query.filter_by(username=self.admin).first().household_id
+            self.assertIsNone(
+                VehiclePart.query.filter_by(household_id=hid, name="front brake pads").first()
+            )
+
+    def test_part_lands_on_the_only_vehicle(self):
+        self.admin = f"ask_v1_{self.suffix}"
+        self._register(self.admin, household=f"AskV1 {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        self._vehicle("Silverado")
+        replies = [
+            (True, '{"tool":"place","args":{"what":"part","name":"front brake pads","brand":"Wagner"}}'),
+            (True, '{"say":"Pads are on the Silverado."}'),
+        ]
+
+        def fake_complete(*args, **kwargs):
+            return replies.pop(0)
+
+        token = self._csrf(self.client.get("/").data)
+        with patch("app.utils.ask.complete", side_effect=fake_complete):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "front brake pads, no barcode"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertTrue(resp.get_json().get("ok"), resp.get_json())
+        with self.app.app_context():
+            from app.builddb.table_users import User
+            from app.builddb.table_vehicle_parts import VehiclePart
+
+            hid = User.query.filter_by(username=self.admin).first().household_id
+            row = (
+                VehiclePart.query.filter_by(household_id=hid, name="front brake pads")
+                .order_by(VehiclePart.id.desc())
+                .first()
+            )
+            self.assertIsNotNone(row)
+            self.assertEqual(row.system, "brakes")
+            self.assertEqual(row.slot, "pads_front")
+            self.assertEqual(row.brand, "Wagner")
+
+    def test_barcode_photo_becomes_inventory(self):
+        self.admin = f"ask_g_{self.suffix}"
+        self._register(self.admin, household=f"AskG {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        replies = [
+            (True, '{"tool":"place","args":{"what":"","barcode":"012345678905"}}'),
+            (True, '{"say":"Milk is in inventory."}'),
+        ]
+
+        def fake_complete(*args, **kwargs):
+            return replies.pop(0)
+
+        catalog = {
+            "ok": True,
+            "kind": "food",
+            "kind_label": "Food",
+            "suggested_type": "grocery",
+            "name": "Whole milk",
+            "brand": "Store",
+            "barcode": "012345678905",
+        }
+        token = self._csrf(self.client.get("/").data)
+        with patch("app.utils.ask.complete", side_effect=fake_complete):
+            with patch("app.utils.barcode_lookup.lookup_product", return_value=catalog):
+                resp = self.client.post(
+                    "/ask/message",
+                    json={"message": "scan this", "image": self._jpeg_b64(), "image_mime": "image/jpeg"},
+                    headers={"X-CSRF-Token": token},
+                )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertTrue(resp.get_json().get("ok"), resp.get_json())
+        with self.app.app_context():
+            from app.builddb.table_items import Item
+            from app.builddb.table_users import User
+
+            hid = User.query.filter_by(username=self.admin).first().household_id
+            item = Item.query.filter_by(household_id=hid, barcode="012345678905").first()
+            self.assertIsNotNone(item)
+            self.assertEqual(item.item_type, "grocery")
+            self.assertIn("milk", item.name.lower())
+
+    def test_add_person_asks_then_creates_and_member_cannot(self):
+        self.admin = f"ask_m_{self.suffix}"
+        self._register(self.admin, household=f"AskM {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        seen = []
+
+        def fake_need(prompt, **kwargs):
+            seen.append(prompt)
+            if len(seen) == 1:
+                return True, '{"tool":"member_add","args":{"name":"Sam"}}'
+            return True, '{"say":"Need a username that starts with a letter."}'
+
+        token = self._csrf(self.client.get("/").data)
+        with patch("app.utils.ask.complete", side_effect=fake_need):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "add a person named Sam"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertIn("username", seen[1].lower())
+        username = f"sam{self.suffix}"
+        replies = [
+            (True, '{"tool":"member_add","args":{"name":"Sam","username":"%s","role":"member"}}' % username),
+            (True, '{"say":"Sam is in."}'),
+        ]
+
+        def fake_add(*args, **kwargs):
+            return replies.pop(0)
+
+        with patch("app.utils.ask.complete", side_effect=fake_add):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "username " + username},
+                headers={"X-CSRF-Token": token},
+            )
+        data = resp.get_json()
+        self.assertEqual(resp.status_code, 200, data)
+        self.assertIn("Password ", data.get("say") or "")
+        self.assertIn(username, data.get("say") or "")
+        with self.app.app_context():
+            from app.builddb.builddb import db
+            from app.builddb.table_users import User
+
+            created = User.query.filter_by(username=username).first()
+            self.assertIsNotNone(created)
+            self.assertEqual(created.role, "member")
+            self.assertFalse(created.is_leader)
+            admin = User.query.filter_by(username=self.admin).first()
+            admin.role = "member"
+            admin.is_leader = False
+            db.session.commit()
+        blocked = []
+
+        def fake_block(prompt, **kwargs):
+            blocked.append(prompt)
+            if len(blocked) == 1:
+                return True, '{"tool":"member_add","args":{"name":"Riley","username":"riley%s"}}' % self.suffix
+            return True, '{"say":"You cannot add people."}'
+
+        with patch("app.utils.ask.complete", side_effect=fake_block):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "add Riley"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertIn("cannot add a person", blocked[1].lower())
+        with self.app.app_context():
+            from app.builddb.table_users import User
+
+            self.assertIsNone(User.query.filter_by(username=f"riley{self.suffix}").first())
 
 
 if __name__ == "__main__":

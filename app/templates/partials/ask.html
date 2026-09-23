@@ -6,7 +6,7 @@
     <header class="ask-head">
       <div>
         <strong>Ask</strong>
-        <p class="muted">Bills, logins, tools, vehicles, notes, inventory, scan codes.</p>
+        <p class="muted">Photo a tool, part, barcode, or ticket. Or ask to add someone, a bill, a note.</p>
       </div>
       <div class="btn-row" style="margin:0">
         <button type="button" class="btn sm secondary" id="ask-clear">New</button>
@@ -15,10 +15,17 @@
     </header>
     <div class="ask-log" id="ask-log" aria-live="polite"></div>
     <form class="ask-form" id="ask-form" autocomplete="off">
+      <div class="ask-preview" id="ask-preview" hidden>
+        <img id="ask-preview-img" alt="">
+        <span id="ask-preview-name"></span>
+        <button type="button" class="btn sm secondary" id="ask-preview-clear">Remove</button>
+      </div>
+      <label class="ask-cam" for="ask-file">Photo</label>
+      <input class="sr-only" id="ask-file" type="file" accept="image/*">
       <label class="sr-only" for="ask-input">Ask</label>
-      <textarea id="ask-input" maxlength="2000" rows="2" placeholder="Add the water bill monthly. Look up this UPC. Save a drill…" required></textarea>
+      <textarea id="ask-input" maxlength="2000" rows="2" placeholder="Photo a drill, a part, or a barcode. Or add Sam as a member…"></textarea>
       <button class="btn" type="submit" id="ask-send">Send</button>
     </form>
   </section>
 </div>
-<script src="{{ url_for('static', filename='js/ask.js') }}?v=os4" defer></script>
+<script src="{{ url_for('static', filename='js/ask.js') }}?v=os5" defer></script>

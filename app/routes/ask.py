@@ -3,6 +3,7 @@ from flask_login import current_user, login_required
 
 from app.builddb.table_households import Household
 from app.utils.ask import ask_ready, clear_history, run_ask
+from app.utils.ask_photo import image_from_payload
 from app.utils.household import household_id
 from app.utils.permissions import role_of
 
@@ -23,7 +24,10 @@ def message():
         return jsonify({"ok": False, "error": "Ask is off. Add an AI key in Household."}), 403
     payload = request.get_json(silent=True) or {}
     text = payload.get("message") or request.form.get("message") or ""
-    result = run_ask(text, household=h)
+    image_bytes, image_mime, image_err = image_from_payload(payload, request.files.get("image"))
+    if image_err:
+        return jsonify({"ok": False, "error": image_err}), 400
+    result = run_ask(text, household=h, image_bytes=image_bytes, image_mime=image_mime)
     status = 200 if result.get("ok") else 400
     return jsonify(result), status
 

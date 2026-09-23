@@ -42,6 +42,14 @@ TOOLS = (
     "inventory",
     "tool_save",
     "vehicle_save",
+    "place",
+    "guide",
+    "member_add",
+    "member_list",
+    "member_role",
+    "part_save",
+    "log_save",
+    "legal_save",
 )
 
 WRITE_TOOLS = (
@@ -54,9 +62,15 @@ WRITE_TOOLS = (
     "tool_save",
     "vehicle_save",
     "vault_unlock",
+    "place",
+    "member_add",
+    "member_role",
+    "part_save",
+    "log_save",
+    "legal_save",
 )
 
-SYSTEM = """You are Ask in Family OS. Do house work for the signed-in adult: vault, bills, tools, vehicles, notes, inventory, basket, scan lookups.
+SYSTEM = """You are Ask in Family OS. Do the house work this person is already allowed to do: people, vault, bills, tools, parts, vehicles, the house, notes, inventory, basket, logs, legal paper, and photos.
 
 Reply with ONLY JSON. To act:
 {"tool":"find","args":{"q":"batteries"}}
@@ -81,7 +95,19 @@ Reply with ONLY JSON. To act:
 {"tool":"inventory","args":{"q":"Frosted Flakes","action":"create","upc":"016000275273","amount":1,"place":"pantry"}}
 {"tool":"tool_save","args":{"name":"DeWalt drill","type":"drill","model":"DCD771","serial":"","barcode":"","notes":""}}
 {"tool":"vehicle_save","args":{"vin":"","plate":"","name":"","make":"","model":"","year":""}}
+{"tool":"place","args":{"what":"tool","name":"DeWalt 20V drill","brand":"DeWalt","model":"DCD771","serial":"","barcode":"","part_number":"","vehicle":"","notes":""}}
+{"tool":"part_save","args":{"name":"front brake pads","vehicle":"Silverado","brand":"","model":"","serial":"","part_number":"","spec":""}}
+{"tool":"member_list","args":{}}
+{"tool":"member_add","args":{"name":"Sam","username":"sam","role":"member","email":"","password":""}}
+{"tool":"member_role","args":{"username":"sam","role":"member"}}
+{"tool":"log_save","args":{"item":"Silverado","kind":"miles","reading":"81200","notes":""}}
+{"tool":"legal_save","args":{"title":"Parking ticket","kind":"ticket","agency":"","due":"","amount":"","body":""}}
+{"tool":"guide","args":{"action":"add_person"}}
 
+place what: tool, part, grocery, vehicle, house, note, legal.
+A photo with a barcode, VIN, or serial: read the code, then place or lookup. No code: identify the tool or part and place it. Do not invent codes.
+Adding a person: call member_add only when you have a name and username. If either is missing, ask. Role member, admin, or child. Password may be blank.
+When member_add returns a password, say the username and password once so they can copy it.
 inventory action: restock, used, set, need, create.
 vault kind: password, billing, info. share: personal or household.
 two_factor: none, sms, app, email, hardware, other.
@@ -133,6 +159,12 @@ def _save_history(rows: list) -> None:
 def clear_history() -> None:
     if has_request_context():
         session.pop(SESSION_HISTORY, None)
+    try:
+        from app.utils.ask_photo import clear_ask_photo
+
+        clear_ask_photo()
+    except Exception:
+        pass
 
 
 def _rate_ok() -> bool:
@@ -286,6 +318,8 @@ def _speak_tool_notes(notes: list) -> str:
             bits.extend(str(x) for x in r["items"])
         elif r.get("lines"):
             bits.append(_speak_house(r))
+        elif r.get("need"):
+            bits.append(str(r.get("hint") or ("Need: " + ", ".join(str(x) for x in r["need"]))))
         elif r.get("error"):
             bits.append(str(r["error"]))
         elif r.get("ok") and (r.get("href") or r.get("title") or r.get("name")):
@@ -1120,6 +1154,38 @@ def run_tool(name: str, args: dict | None) -> dict:
             return tool_tool_save(args)
         if key == "vehicle_save":
             return tool_vehicle_save(args)
+        if key == "place":
+            from app.utils.ask_do import tool_place
+
+            return tool_place(args)
+        if key == "guide":
+            from app.utils.ask_do import tool_guide
+
+            return tool_guide(args)
+        if key == "member_add":
+            from app.utils.ask_do import tool_member_add
+
+            return tool_member_add(args)
+        if key == "member_list":
+            from app.utils.ask_do import tool_member_list
+
+            return tool_member_list(args)
+        if key == "member_role":
+            from app.utils.ask_do import tool_member_role
+
+            return tool_member_role(args)
+        if key == "part_save":
+            from app.utils.ask_do import tool_part_save
+
+            return tool_part_save(args)
+        if key == "log_save":
+            from app.utils.ask_do import tool_log_save
+
+            return tool_log_save(args)
+        if key == "legal_save":
+            from app.utils.ask_do import tool_legal_save
+
+            return tool_legal_save(args)
     except Exception as exc:
         return {"ok": False, "error": f"Could not do that: {exc}"}
     return {"ok": False, "error": f"Unknown tool {name}."}
@@ -1152,17 +1218,74 @@ def _prompt_for(history: list, message: str, tool_notes: list) -> str:
     return "\n\n".join(bits)
 
 
-def run_ask(message: str, *, household) -> dict:
+PHOTO_TOOLS = ("place", "part_save", "tool_save", "vehicle_save", "inventory", "note_save", "legal_save")
+PHOTO_ASK = (
+    "Look at this photo. Read any barcode, serial, VIN, model, or part number. "
+    "If there is no code, identify the tool, part, or item and put it in the right place."
+)
+
+
+def _system_now(has_photo: bool) -> str:
+    from app.utils.ask_do import PHOTO_RULES, actor_lines
+
+    extra = actor_lines()
+    if has_photo:
+        extra += "\n\n" + PHOTO_RULES
+    return SYSTEM + "\n\n" + extra
+
+
+def _with_issued_login(say: str, tool_notes: list) -> str:
+    text = say or ""
+    for note in tool_notes:
+        if note.get("tool") != "member_add":
+            continue
+        result = note.get("result") or {}
+        password = result.get("password") or ""
+        username = result.get("username") or ""
+        if not result.get("ok") or not password or password in text:
+            continue
+        text = text.rstrip() + f"\nUsername {username}. Password {password}. They sign in with the household handle."
+    return text
+
+
+def run_ask(message: str, *, household, image_bytes: bytes | None = None, image_mime: str | None = None) -> dict:
+    from app.utils.ask_photo import (
+        attach_pending,
+        clear_ask_photo,
+        load_ask_photo,
+        photo_was_attached,
+        stash_ask_photo,
+    )
+
     text = _trim(message, MSG_CAP)
+    photo = None
+    if image_bytes:
+        stash_ask_photo(int(getattr(household, "id", 0) or 0), image_bytes, image_mime or "image/jpeg")
+        loaded = load_ask_photo()
+        photo = loaded if loaded and loaded[0] else (image_bytes, image_mime or "image/jpeg")
+    else:
+        photo = load_ask_photo()
+    has_photo = bool(photo and photo[0])
+    if not text and has_photo:
+        text = PHOTO_ASK
     if not text:
         return {"ok": False, "error": "Say something first."}
     if household is None or int(getattr(household, "id", 0) or 0) != int(getattr(current_user, "household_id", 0) or 0):
         return {"ok": False, "error": "AI stays in this household."}
     if not ask_ready(household, current_user):
         return {"ok": False, "error": "Ask is off. Add an AI key in Household, or turn Ask back on."}
+    if has_photo:
+        from app.utils.ai import get_ai_config
+
+        if not get_ai_config(household, household_only=True).get("vision"):
+            clear_ask_photo()
+            return {
+                "ok": False,
+                "error": "This AI key cannot read photos. Use Gemini or Grok in Household, or type the code.",
+            }
     if not _rate_ok():
         return {"ok": False, "error": "Give Ask a minute. Too many questions just now."}
-    local = _local_house_say(text)
+    local = None if has_photo else _local_house_say(text)
     if local:
         history = _history()
         history.append({"role": "user", "text": text})
@@ -1173,14 +1296,17 @@ def run_ask(message: str, *, household) -> dict:
     tool_notes = []
     did = []
     last_say = ""
+    system = _system_now(has_photo)
     for _ in range(MAX_TOOL_ROUNDS + 1):
         ok, raw = complete(
             _prompt_for(history, text, tool_notes),
-            system=SYSTEM,
-            max_tokens=900,
-            timeout=40,
+            system=system,
+            max_tokens=1200 if has_photo else 900,
+            timeout=55 if has_photo else 40,
             household=household,
             household_only=True,
+            image_bytes=photo[0] if has_photo else None,
+            image_mime=(photo[1] if has_photo else None) or "image/jpeg",
         )
         if not ok:
             spoken = _speak_tool_notes(tool_notes) or _local_house_say(text)
@@ -1194,6 +1320,12 @@ def run_ask(message: str, *, household) -> dict:
         turn = _parse_turn(raw)
         if turn["kind"] == "tool":
             result = run_tool(turn["tool"], turn.get("args"))
+            if has_photo and turn["tool"] in PHOTO_TOOLS:
+                try:
+                    if attach_pending(turn["tool"], result):
+                        result["photo"] = "attached"
+                except Exception:
+                    pass
             tool_notes.append({"tool": turn["tool"], "result": result})
             if result.get("ok") and turn["tool"] in WRITE_TOOLS:
                 did.append(
@@ -1215,6 +1347,9 @@ def run_ask(message: str, *, household) -> dict:
             "ok": False,
             "error": "I didn’t catch that. Try “what tools do I have” or “what’s due.”",
         }
+    last_say = _with_issued_login(last_say, tool_notes)
+    if photo_was_attached():
+        clear_ask_photo()
     history.append({"role": "user", "text": text})
     history.append({"role": "assistant", "text": last_say})
     _save_history(history)
