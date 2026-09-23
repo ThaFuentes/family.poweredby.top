@@ -649,6 +649,10 @@ def save_ai():
         enabled=(request.form.get("ai_enabled") or "1") != "0",
         chat=("1" in request.form.getlist("ai_chat")),
         clear_key=(request.form.get("ai_clear_key") or "") == "1",
+        backup_provider=(request.form.get("ai_backup_provider") or "groq").strip(),
+        backup_model=(request.form.get("ai_backup_model") or "").strip(),
+        backup_api_key=(request.form.get("ai_backup_key") or "").strip(),
+        clear_backup=(request.form.get("ai_clear_backup") or "") == "1",
     )
     flash("Household AI key saved. Yours only — Family OS never uses the owner's key.", "success")
     return _after()

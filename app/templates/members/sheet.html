@@ -281,7 +281,7 @@
 <h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">AI key</h1>
 <form class="card" method="post" action="{{ url_for('members.save_ai') }}" id="ai-form">
   {% include "members/_next.html" %}
-  <p class="muted">Yours. Family OS never uses the owner’s key. Gemini free key at aistudio.google.com/apikey.</p>
+  <p class="muted">Yours. Family OS never uses the owner’s key. Gemini free key at aistudio.google.com/apikey. If Gemini is down, a Groq key takes the next turn.</p>
   <label>Provider</label>
   <select name="ai_provider" id="ai-provider">
     {% for p in ai.providers %}
@@ -299,10 +299,17 @@
     <input type="checkbox" name="ai_chat" value="1" {% if ai.chat != False %}checked{% endif %}>
     Ask window — on whenever a key is saved. Uncheck to hide it.
   </label>
+  <label>Backup key · Groq</label>
+  <p class="muted">Used when the key above is busy or down. Free key at console.groq.com/keys. Photos go to Groq’s Qwen model.</p>
+  <input type="hidden" name="ai_backup_provider" value="groq">
+  <input type="password" name="ai_backup_key" autocomplete="off" placeholder="{% if ai.backup_has_key %}unchanged · {{ ai.backup_key_hint }}{% else %}gsk_…{% endif %}">
   <div class="btn-row">
     <button class="btn" type="submit">Save key</button>
     {% if ai.has_key %}
     <button class="btn secondary" type="submit" name="ai_clear_key" value="1">Remove key</button>
+    {% endif %}
+    {% if ai.backup_has_key %}
+    <button class="btn secondary" type="submit" name="ai_clear_backup" value="1">Remove backup</button>
     {% endif %}
   </div>
 </form>

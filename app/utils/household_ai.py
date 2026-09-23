@@ -53,6 +53,21 @@ def household_config(household) -> dict:
         cfg["enabled"] = True
     cfg["chat"] = False if chat is False else True
     cfg["key_hint"] = mask_secret(key)
+    raw_backup = blob.get("backup") if isinstance(blob.get("backup"), dict) else {}
+    bkey = _decrypt_key(raw_backup.get("api_key") or "")
+    cfg["backup_has_key"] = bool(bkey)
+    cfg["backup_key_hint"] = mask_secret(bkey) if bkey else ""
+    cfg["backup"] = None
+    if bkey:
+        bprov = normalize_provider(raw_backup.get("provider") or "groq")
+        cfg["backup"] = _pack(
+            bprov,
+            bkey,
+            (raw_backup.get("model") or "").strip(),
+            (raw_backup.get("base_url") or "").strip(),
+            source="household",
+            from_env=False,
+        )
     return cfg
 
 
@@ -66,6 +81,10 @@ def save_household_ai(
     enabled: bool = True,
     chat=None,
     clear_key: bool = False,
+    backup_provider: str = "",
+    backup_model: str = "",
+    backup_api_key: str = "",
+    clear_backup: bool = False,
 ) -> dict:
     settings = dict(household.settings_json or {})
     prev = dict(settings.get("ai") or {}) if isinstance(settings.get("ai"), dict) else {}
@@ -82,6 +101,26 @@ def save_household_ai(
         chat_on = False if prev.get("chat") is False else True
     else:
         chat_on = bool(chat)
+    prev_backup = prev.get("backup") if isinstance(prev.get("backup"), dict) else {}
+    if clear_backup:
+        backup = {}
+    else:
+        stored_backup = prev_backup.get("api_key") or ""
+        if (backup_api_key or "").strip():
+            stored_backup = encrypt_text((backup_api_key or "").strip()) or ""
+        if stored_backup:
+            bprov = normalize_provider(backup_provider or prev_backup.get("provider") or "groq")
+            bspec = PROVIDERS.get(bprov) or PROVIDERS["groq"]
+            bmodel = (backup_model or prev_backup.get("model") or "").strip()
+            if not bmodel:
+                bmodel = bspec["models"][0] if bspec.get("models") else ""
+            backup = {
+                "provider": bprov,
+                "model": bmodel[:120],
+                "api_key": stored_backup,
+            }
+        else:
+            backup = {}
     settings["ai"] = {
         "provider": provider,
         "model": model[:120],
@@ -89,6 +128,7 @@ def save_household_ai(
         "base_url": base_url[:300],
         "enabled": bool(enabled),
         "chat": chat_on,
+        "backup": backup,
     }
     household.settings_json = settings
     flag_modified(household, "settings_json")

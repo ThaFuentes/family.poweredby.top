@@ -85,11 +85,16 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "label": "Groq",
         "kind": "openai",
         "base_url": "https://api.groq.com/openai/v1",
-        "models": ("llama-3.3-70b-versatile", "llama-3.1-8b-instant"),
-        "hint": "console.groq.com — free-tier key.",
+        "models": (
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant",
+            "openai/gpt-oss-20b",
+            "qwen/qwen3.8-27b",
+        ),
+        "hint": "console.groq.com/keys — backup when Gemini is busy. Photos use Qwen.",
         "env": "GROQ_API_KEY",
         "placeholder": "gsk_…",
-        "vision": False,
+        "vision": True,
     },
     "mistral": {
         "label": "Mistral",
@@ -348,6 +353,11 @@ def get_ai_config(household=None, *, household_only: bool = False) -> dict:
 def public_ai_config(household=None, *, household_only: bool = False) -> dict:
     cfg = dict(get_ai_config(household, household_only=household_only))
     cfg.pop("api_key", None)
+    backup = cfg.get("backup")
+    if isinstance(backup, dict):
+        backup = dict(backup)
+        backup.pop("api_key", None)
+        cfg["backup"] = backup
     cfg["providers"] = [
         {
             "id": pid,
@@ -370,13 +380,35 @@ def _capacity_err(err: str) -> bool:
         for s in (
             "503",
             "429",
+            "500",
+            "502",
+            "504",
             "high demand",
             "overloaded",
             "unavailable",
             "resource exhausted",
             "try again later",
+            "bad gateway",
+            "timed out",
+            "timeout",
+            "connection",
         )
     )
+
+
+GROQ_VISION_MODEL = "qwen/qwen3.8-27b"
+
+
+def _for_image(cfg: dict, image_bytes) -> dict:
+    """Groq text models cannot see a photo. Qwen on the same key can."""
+    if not image_bytes or (cfg.get("provider") or "") != "groq":
+        return cfg
+    if (cfg.get("model") or "") == GROQ_VISION_MODEL and cfg.get("vision"):
+        return cfg
+    nxt = dict(cfg)
+    nxt["model"] = GROQ_VISION_MODEL
+    nxt["vision"] = True
+    return nxt
 
 
 def _next_gemini_model(current: str | None) -> str | None:
@@ -403,11 +435,22 @@ def complete(
         return False, "AI stays in this household."
     cfg = get_ai_config(household, household_only=household_only)
     key = (cfg.get("api_key") or "").strip()
+    backup = cfg.get("backup") if isinstance(cfg.get("backup"), dict) else None
+    backup_key = ((backup or {}).get("api_key") or "").strip()
+    if backup_key and backup_key == key:
+        backup = None
+        backup_key = ""
+    if not key and backup_key:
+        cfg = backup
+        key = backup_key
+        backup = None
+        backup_key = ""
     if not key:
         return False, "No AI key on this household. Paste your own Gemini (free) or other key in Household. Family OS does not share the owner's key."
-    kind = cfg.get("kind") or "openai"
 
     def _call(use_cfg):
+        use_cfg = _for_image(use_cfg, image_bytes)
+        kind = use_cfg.get("kind") or "openai"
         if kind == "gemini":
             return _gemini(
                 use_cfg, prompt, system, max_tokens, timeout, image_bytes, image_mime, household=household
@@ -438,7 +481,7 @@ def complete(
         if busy and attempt < 2:
             time.sleep(0.6 * (attempt + 1))
             continue
-        if busy and kind == "gemini":
+        if busy and (cfg.get("kind") or "") == "gemini":
             alt = _next_gemini_model(cfg.get("model"))
             if alt:
                 nxt = dict(cfg)
@@ -451,6 +494,13 @@ def complete(
                 except Exception as exc2:
                     last_err = str(exc2)
         break
+    if backup_key and _capacity_err(last_err):
+        try:
+            text = _call(backup)
+            if text:
+                return True, text
+        except Exception as exc:
+            last_err = str(exc)
     if _capacity_err(last_err):
         return False, "The model is busy right now. I can still look up this house — tools, vehicles, basket, what’s due."
     if last_err:
