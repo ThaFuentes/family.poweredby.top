@@ -5,6 +5,7 @@ blank or weird. Heuristics first; household AI refines when a key is present.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 KIND_LABELS = {
@@ -648,6 +649,122 @@ def place_new_grocery(item, g, lookup, household) -> dict:
     except Exception:
         pass
     return report
+
+
+# Longer phrases first so "peanut butter" is pantry, not fridge (butter).
+_USUAL_PLACES = (
+    (
+        "Pantry",
+        (
+            "peanut butter",
+            "cereal",
+            "pasta",
+            "rice",
+            "beans",
+            "chips",
+            "cookie",
+            "bread",
+            "sauce",
+            "soup",
+            "flour",
+            "sugar",
+            "spice",
+            "oatmeal",
+            "cracker",
+            "tuna",
+            "ramen",
+            "oil",
+            "vinegar",
+            "honey",
+            "jam",
+            "jelly",
+        ),
+    ),
+    (
+        "Fridge",
+        (
+            "milk",
+            "half and half",
+            "creamer",
+            "cheese",
+            "yogurt",
+            "butter",
+            "eggs",
+            "egg",
+            "leftover",
+            "deli",
+            "bacon",
+            "juice",
+            "soda",
+            "beer",
+            "wine",
+            "mayo",
+            "ketchup",
+            "mustard",
+        ),
+    ),
+    (
+        "Freezer",
+        ("frozen", "ice cream", "popsicle", "popsicle", "ice cube"),
+    ),
+    (
+        "Bathroom",
+        ("shampoo", "conditioner", "toothpaste", "deodorant", "lotion", "soap", "body wash", "mouthwash"),
+    ),
+    (
+        "Laundry",
+        ("detergent", "softener", "bleach", "dryer sheet"),
+    ),
+    (
+        "Garage",
+        ("motor oil", "wd-40", "antifreeze", "coolant", "brake fluid"),
+    ),
+)
+
+
+def usual_store_place(name: str, household=None) -> str | None:
+    hay = (name or "").lower()
+    if not hay.strip():
+        return None
+    for room, words in _USUAL_PLACES:
+        for word in words:
+            if re.search(rf"\b{re.escape(word)}\b", hay):
+                try:
+                    from app.utils.places import snap_location
+
+                    return snap_location(room, household) or room
+                except Exception:
+                    return room
+    return None
+
+
+def guess_item_home(name: str, household=None, extra: str = "", upc: str = "") -> dict:
+    """Where this usually lives: grocery/tool and a room name."""
+    from app.utils.places import snap_location
+
+    blob = " ".join(x for x in (name, extra) if x)
+    usual = usual_store_place(blob, household)
+    guess = classify(
+        {"name": name, "barcode": upc},
+        household=household,
+        extra=blob,
+        use_ai=usual is None,
+    )
+    item_type = guess.get("item_type") or "grocery"
+    kind = "grocery"
+    if item_type == "tool":
+        kind = "tool"
+    elif item_type == "vehicle":
+        kind = "vehicle"
+    loc = usual or snap_location(guess.get("location_hint"), household) or ""
+    if kind == "grocery" and not loc:
+        loc = snap_location("Pantry", household) or "Pantry"
+    return {
+        "kind": kind,
+        "place": loc or "",
+        "why": guess.get("why") or guess.get("message") or "",
+        "item_type": item_type,
+    }
 
 
 def classify(lookup: dict | None, household=None, extra: str = "", use_ai: bool = True) -> dict:

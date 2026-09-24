@@ -158,7 +158,7 @@ needs is the Oil it needs field. in_it is what was poured. Do not say the oil wa
 If they say add that, save that, yes, or put that on a vehicle, tool, or the house, save your previous reply on that item with note_save. When the reply is an oil spec, also oil_save with needs set to that spec.
 Adding a person: call member_add only when you have a name and username. If either is missing, ask. Role member, admin, or child. Password may be blank.
 When member_add returns a password, say the username and password once so they can copy it.
-inventory action: restock, used, set, need, create. If the item is not on the site, do not create it yet — inventory returns a where/confirm need. Ask which place: inventory (pantry/fridge), tools, a named vehicle, or the house. After they say yes and where, call the matching save tool.
+inventory action: restock, used, set, need, create. If the item is not on the site, inventory guesses the room (Fridge, Pantry, …) from the name. Do not ask pantry vs fridge. Confirm the add. Only ask where if grocery vs tools vs a vehicle is actually unclear.
 expire_save writes a use-by date on food. expire_list says what is going bad soon and how many food rows have no date. expire_guess writes typical shelf life on those undated rows when they say add generic expirations.
 If they say sort / organize / put inventory in rooms, call inventory_sort. That files groceries into Fridge, Pantry, and the other rooms. Do not dump the inventory list. only_empty 1 (default) fills items with no room yet. only_empty 0 re-files everything.
 item_remove takes a tool, vehicle, or grocery out of the house. Call it with the exact name. Prefer a grocery when they named food (protein bars, milk). Never remove a vehicle unless they named that truck or said truck/car. The tool asks for a yes before it deletes. Do not remove vault cards this way.
@@ -1101,15 +1101,16 @@ def _parse_add_where(text: str) -> dict:
         kind = "tool"
     elif re.search(r"\bhouse\b", t):
         kind = "house"
-    vehicles = _matching_machines(text, ("vehicle",))
-    if vehicles:
-        item = vehicles[0]
-        return {
-            "kind": "vehicle",
-            "place": place or item.name,
-            "vehicle": item.name,
-            "vehicle_id": item.id,
-        }
+    if re.search(r"\b(truck|trucks|vehicle|vehicles|car|cars|tundra|silverado|civic)\b", t):
+        vehicles = _matching_machines(text, ("vehicle",))
+        if vehicles:
+            item = vehicles[0]
+            return {
+                "kind": "vehicle",
+                "place": place or item.name,
+                "vehicle": item.name,
+                "vehicle_id": item.id,
+            }
     if kind is None and place:
         kind = "grocery"
     return {"kind": kind, "place": place, "vehicle": "", "vehicle_id": None}
@@ -1144,6 +1145,36 @@ def _ask_where_to_add(name: str, *, upc: str = "", amount=1, place: str = "", wh
     guess = _parse_add_where(" ".join(x for x in (name, place, where_text, extra) if x))
     if not guess.get("kind") and place:
         guess = {"kind": "grocery", "place": place, "vehicle": "", "vehicle_id": None}
+    if guess.get("kind") != "vehicle":
+        brain = {}
+        try:
+            from app.utils.classify import guess_item_home, usual_store_place
+
+            household = None
+            try:
+                if current_user and getattr(current_user, "is_authenticated", False):
+                    household = getattr(current_user, "household", None)
+            except Exception:
+                household = None
+            brain = guess_item_home(name, household=household, extra=extra, upc=upc) or {}
+            if not brain.get("place"):
+                brain["place"] = usual_store_place(name) or usual_store_place(extra) or ""
+        except Exception:
+            from app.utils.classify import usual_store_place as _usual
+
+            brain = {"kind": "grocery", "place": _usual(name) or _usual(extra) or ""}
+        if not guess.get("kind"):
+            guess["kind"] = brain.get("kind") or "grocery"
+        if guess.get("kind") == "grocery" and not (guess.get("place") or "").strip():
+            guess["place"] = (brain.get("place") or place or "").strip()
+    if guess.get("kind") == "grocery" and guess.get("place"):
+        try:
+            from app.utils.places import snap_location
+
+            household = getattr(current_user, "household", None) if current_user else None
+            guess["place"] = snap_location(guess["place"], household) or guess["place"]
+        except Exception:
+            pass
     _stash_pending_item(
         {
             "name": name,
@@ -1155,6 +1186,21 @@ def _ask_where_to_add(name: str, *, upc: str = "", amount=1, place: str = "", wh
             "vehicle_id": guess.get("vehicle_id"),
         }
     )
+    if guess.get("kind") == "grocery" and guess.get("place"):
+        from app.utils.ask_confirm import confirm_mode
+
+        if confirm_mode() == "allow":
+            created = _create_from_pending(guess)
+            if created.get("ok"):
+                return created
+        return {
+            "ok": False,
+            "need": ["confirm"],
+            "name": name,
+            "guess": "grocery",
+            "place": guess.get("place") or "",
+            "hint": f"{name} isn’t on the site yet. I’ll put it in {guess['place']}.",
+        }
     if guess.get("kind"):
         hint = (
             f"{name} isn’t on the site yet. Add it to {_where_label(guess)}? "
@@ -3004,6 +3050,14 @@ def tool_inventory(args: dict) -> dict:
     g = item.grocery
     if g is None:
         return {"ok": False, "error": f"{item.name} is not an inventory row."}
+    if not place and not (g.default_location or "").strip():
+        try:
+            from app.utils.classify import guess_item_home
+
+            household = getattr(current_user, "household", None) if current_user else None
+            place = guess_item_home(item.name, household=household).get("place") or ""
+        except Exception:
+            place = ""
     if action == "need":
         flag_need_more(g, item, current_user.id)
         db.session.commit()
@@ -3626,6 +3680,10 @@ def run_ask(
                         "title": result.get("title") or result.get("name") or "",
                     }
                 )
+            need = result.get("need") or []
+            if need == ["confirm"] and result.get("hint"):
+                last_say = str(result.get("hint"))
+                break
             continue
         last_say = _plain_say(turn.get("text") or "", tool_notes)
         if not last_say and tool_notes:

@@ -6,56 +6,56 @@
   {% set g = item.grocery %}
   {% set show_qty = room_qty if room_qty is not none else (g.quantity if g else 0) %}
   {% set nameless = (item.name or '').startswith('Scanned ') or (item.name or '').startswith('Needs a name') or (item.name or '').startswith('Unknown') %}
-  <div class="row {% if onhand %}onhand-row{% endif %}" data-item-id="{{ item.id }}">
-    <a class="row-main" href="{{ url_for('items.detail', item_id=item.id, next=request.full_path) }}">
-      {{ row_pic(item) }}
-      <div>
+  {% set shown_room = none if (place or room_name) else (g.default_location if g and g.default_location else none) %}
+  {% set exp_line = g|lots_line if g else none %}
+  <article class="inv-item" data-item-id="{{ item.id }}">
+    <a class="inv-pic" href="{{ url_for('items.detail', item_id=item.id, next=request.full_path) }}">{{ row_pic(item) }}</a>
+    <div class="inv-body">
+      <a class="inv-top" href="{{ url_for('items.detail', item_id=item.id, next=request.full_path) }}">
         {% if nameless %}
         <strong>Needs a name</strong>
-        <div class="muted">Code {{ item.barcode or '—' }}{% if g and g.brand %} · {{ g.brand }}{% endif %} · tap to name it</div>
+        <p>Code {{ item.barcode or '—' }}{% if g and g.brand %} · {{ g.brand }}{% endif %} · tap to name it</p>
         {% else %}
         <strong>{{ item.name }}</strong>
-        <div class="muted">
-          {% if g %}
-            {% if g.unit %}{{ g.unit }}{% endif %}
-            {% if g.brand %} · {{ g.brand }}{% endif %}
-            {% if room_name %} · {{ room_name }}{% elif g.default_location and not place %} · {{ g.default_location }}{% endif %}
-            {% set exp_line = g|lots_line %}
-            {% if exp_line %} · {{ exp_line }}{% endif %}
-          {% else %}
-            {{ item.category or '' }}
-          {% endif %}
+        <p>
+          {% if g and g.brand %}{{ g.brand }}{% endif %}
+          {% if shown_room %}{% if g and g.brand %} · {% endif %}{{ shown_room }}{% endif %}
+          {% if g and g.unit %}{% if g.brand or shown_room %} · {% endif %}{{ g.unit }}{% endif %}
+          {% if exp_line %}{% if g and (g.brand or shown_room or g.unit) %} · {% endif %}{{ exp_line }}{% endif %}
+          {% if not g and item.category %}{{ item.category }}{% endif %}
+        </p>
+        {% endif %}
+      </a>
+      <div class="inv-bottom">
+        {% if g and (can('scan') or can('edit_grocery')) %}
+        <button type="button" class="inv-link" data-sheet="{{ url_for('items.expires_sheet', item_id=item.id) }}" data-sheet-title="On the shelf">Dates</button>
+        <button type="button" class="inv-link" data-list-item="{{ item.id }}">List</button>
+        <div class="qty-stepper" data-qty-item="{{ item.id }}" {% if room_name %}data-qty-place="{{ room_name }}"{% endif %}>
+          <button type="button" class="qty-btn" data-qty-delta="-1" aria-label="One less">−</button>
+          <span class="onhand-qty" data-qty-label>{{ show_qty|qty_label }}</span>
+          <button type="button" class="qty-btn" data-qty-delta="1" aria-label="One more">+</button>
         </div>
+        {% elif g %}
+        <span class="onhand-qty" data-qty-label>{{ show_qty|qty_label }}</span>
+        {% endif %}
+        {% if onhand and g and g.needs_restock %}
+        <span class="badge low" data-stock-badge>Low</span>
+        {% elif not onhand %}
+          {% if g and g.quantity and g.quantity > 0 and g.needs_restock %}
+          <span class="badge low" data-stock-badge>Need more</span>
+          {% elif g and g.quantity and g.quantity > 0 %}
+          <span class="badge" data-stock-badge>Have</span>
+          {% elif g and (g.last_restocked_at or g.last_consumed_at or g.consume_count) %}
+          <span class="badge out" data-stock-badge>Had</span>
+          {% else %}
+          <span class="badge want" data-stock-badge>Want</span>
+          {% endif %}
+        {% elif g and g.needs_restock %}
+        <span class="badge low" data-stock-badge>Low</span>
         {% endif %}
       </div>
-    </a>
-    {% if g and (can('scan') or can('edit_grocery')) %}
-    <button type="button" class="btn sm secondary" data-sheet="{{ url_for('items.expires_sheet', item_id=item.id) }}" data-sheet-title="On the shelf">Dates</button>
-    <button type="button" class="btn sm secondary" data-list-item="{{ item.id }}">List</button>
-    <div class="qty-stepper" data-qty-item="{{ item.id }}" {% if room_name %}data-qty-place="{{ room_name }}"{% endif %}>
-      <button type="button" class="qty-btn" data-qty-delta="-1" aria-label="One less">−</button>
-      <span class="onhand-qty" data-qty-label>{{ show_qty|qty_label }}</span>
-      <button type="button" class="qty-btn" data-qty-delta="1" aria-label="One more">+</button>
     </div>
-    {% elif g %}
-    <span class="onhand-qty" data-qty-label>{{ show_qty|qty_label }}</span>
-    {% endif %}
-    {% if onhand and g and g.needs_restock %}
-      <span class="badge low" data-stock-badge>Low</span>
-    {% elif not onhand %}
-      {% if g and g.quantity and g.quantity > 0 and g.needs_restock %}
-        <span class="badge low" data-stock-badge>Need more</span>
-      {% elif g and g.quantity and g.quantity > 0 %}
-        <span class="badge" data-stock-badge>Have</span>
-      {% elif g and (g.last_restocked_at or g.last_consumed_at or g.consume_count) %}
-        <span class="badge out" data-stock-badge>Had</span>
-      {% else %}
-        <span class="badge want" data-stock-badge>Want</span>
-      {% endif %}
-    {% elif g %}
-      <span class="badge{% if g.needs_restock %} low{% endif %}" data-stock-badge>{% if g.needs_restock %}Low{% else %}Have{% endif %}</span>
-    {% endif %}
-  </div>
+  </article>
 {% endmacro %}
 
 {% macro room_href(room) -%}
@@ -64,10 +64,11 @@
 
 {% block content %}
 <script>window.FAMILY_SCAN_KIND = "inventory";</script>
+<div class="inv-page">
 <div class="page-head">
   <div>
     <h1>{% if place %}{{ place }}{% else %}Inventory{% endif %}</h1>
-    <p>{% if place %}What’s in this room.{% else %}On hand, out, and never-had. List puts it on the basket without adding stock.{% endif %}</p>
+    <p>{% if place %}What’s in this room.{% else %}What’s on hand. List puts it on the basket.{% endif %}</p>
   </div>
   <div class="btn-row" style="margin:0">
     {% if can('edit_grocery') %}
@@ -83,16 +84,13 @@
     {% endif %}
   </div>
 </div>
-<form class="card" method="get" action="{{ url_for('groceries.index') }}" style="margin-bottom:1rem">
+<form class="inv-search" method="get" action="{{ url_for('groceries.index') }}">
   <input type="hidden" name="view" value="{{ view }}">
   {% if place %}<input type="hidden" name="place" value="{{ place }}">{% endif %}
   {% if kind_filter %}<input type="hidden" name="kind" value="{{ kind_filter }}">{% endif %}
-  <label>Search groceries and supplies</label>
-  <div class="btn-row" style="margin:.35rem 0 0">
-    <input name="q" value="{{ q or '' }}" placeholder="A.1., tp, soap…" autofocus>
-    <button class="btn" type="submit">Find</button>
-    {% if q %}<a class="btn secondary" href="{{ url_for('groceries.index', view=view, place=place or none) }}">Clear</a>{% endif %}
-  </div>
+  <input name="q" value="{{ q or '' }}" placeholder="Find milk, soap, oil…" aria-label="Search inventory">
+  <button class="btn" type="submit">Find</button>
+  {% if q %}<a class="btn secondary" href="{{ url_for('groceries.index', view=view, place=place or none) }}">Clear</a>{% endif %}
 </form>
 {% if pantry_ai_report and pantry_ai_report.lines %}
 <div class="card">
@@ -137,10 +135,10 @@
     {% endif %}
   {% elif rooms %}
     {% for room, rows in rooms.items() %}
-    <section class="card list" style="margin-bottom:1rem">
-      <a href="{{ url_for('groceries.index', view='hand', place=room, q=q or none) }}" class="room-head">
+    <section class="card inv-room">
+      <a href="{{ url_for('groceries.index', view='hand', place=room, q=q or none) }}" class="inv-room-head">
         <h2>{{ room }}</h2>
-        <span class="muted">{{ rows|length }} · open</span>
+        <span>{{ rows|length }}</span>
       </a>
       {% for row in rows %}
         {% if row is sequence and row is not string %}
@@ -186,23 +184,25 @@
     {% for row in date_rows %}
       {% set item = row.item %}
       {% set g = item.grocery %}
-      <div class="row {% if row.gone %}onhand-row{% endif %}" data-item-id="{{ item.id }}">
-        <a class="row-main" href="{{ url_for('items.detail', item_id=item.id, next=request.full_path) }}">
-          {{ row_pic(item) }}
-          <div>
+      <article class="inv-item" data-item-id="{{ item.id }}">
+        <a class="inv-pic" href="{{ url_for('items.detail', item_id=item.id, next=request.full_path) }}">{{ row_pic(item) }}</a>
+        <div class="inv-body">
+          <a class="inv-top" href="{{ url_for('items.detail', item_id=item.id, next=request.full_path) }}">
             <strong>{{ item.name }}</strong>
-            <div class="muted">
+            <p>
               {{ row.qty|qty_label }}{% if g and g.unit %} {{ g.unit }}{% endif %}
               {% if row.place %} · {{ row.place }}{% endif %}
               · {{ row.expires_on }}
-            </div>
+            </p>
+          </a>
+          <div class="inv-bottom">
+            {% if can('scan') or can('edit_grocery') %}
+            <button type="button" class="inv-link" data-sheet="{{ url_for('items.expires_sheet', item_id=item.id) }}" data-sheet-title="On the shelf">Dates</button>
+            {% endif %}
+            <span class="badge {% if row.gone %}out{% elif row.soon %}low{% endif %}">{% if row.gone %}Expired{% elif row.soon %}Soon{% else %}Dated{% endif %}</span>
           </div>
-        </a>
-        {% if can('scan') or can('edit_grocery') %}
-        <button type="button" class="btn sm secondary" data-sheet="{{ url_for('items.expires_sheet', item_id=item.id) }}" data-sheet-title="On the shelf">Edit</button>
-        {% endif %}
-        <span class="badge {% if row.gone %}out{% elif row.soon %}low{% endif %}">{% if row.gone %}Expired{% elif row.soon %}Soon{% else %}Dated{% endif %}</span>
-      </div>
+        </div>
+      </article>
     {% endfor %}
   </div>
   {% else %}
@@ -233,4 +233,5 @@
   </form>
   {% endif %}
 </details>
+</div>
 {% endblock %}

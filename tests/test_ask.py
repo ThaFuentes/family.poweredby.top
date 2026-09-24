@@ -150,6 +150,13 @@ class LocalHouseTests(unittest.TestCase):
     def test_save_tool_is_not_a_list(self):
         self.assertIsNone(_local_house_say("save a tool named hammer"))
 
+    def test_usual_rooms(self):
+        from app.utils.classify import usual_store_place
+
+        self.assertEqual(usual_store_place("Peanut Butter"), "Pantry")
+        self.assertEqual(usual_store_place("whole milk"), "Fridge")
+        self.assertEqual(usual_store_place("ice cream"), "Freezer")
+
     def test_sort_inventory_is_not_a_list(self):
         self.assertIsNone(_local_house_say("sort all the items in the inventory"))
         self.assertIsNone(_local_house_say("organize my pantry"))
@@ -1263,9 +1270,9 @@ class AskHttpTests(unittest.TestCase):
                 headers={"X-CSRF-Token": token},
             )
         say = (first.get_json() or {}).get("say") or ""
-        self.assertIn("isn’t on the site", say.replace("'", "’") if "isn't" in say else say)
         self.assertTrue("site yet" in say or "isn’t on the site" in say or "isn't on the site" in say)
-        self.assertRegex(say.lower(), r"inventory|tools|vehicle|house")
+        self.assertIn("pantry", say.lower())
+        self.assertNotIn("Where should it go", say)
         with self.app.app_context():
             from app.builddb.table_items import Item
             from app.builddb.table_users import User
@@ -1281,7 +1288,7 @@ class AskHttpTests(unittest.TestCase):
         with patch("app.utils.ask.complete", side_effect=fail_if_called):
             second = self.client.post(
                 "/ask/message",
-                json={"message": "yes pantry"},
+                json={"message": "yes"},
                 headers={"X-CSRF-Token": token},
             )
         done = (second.get_json() or {}).get("say") or ""
