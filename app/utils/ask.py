@@ -574,6 +574,13 @@ _TOKEN_EXPAND = {
     "lawnmower": ("mower", "lawnmower", "lawn"),
     "tundra": ("tundra", "trundra"),
     "trundra": ("tundra", "trundra"),
+    "creamer": ("creamer", "creamers"),
+    "creamers": ("creamer", "creamers"),
+    "fv": ("fv", "french", "vanilla"),
+    "french": ("french", "fv"),
+    "vanilla": ("vanilla", "fv"),
+    "burrito": ("burrito", "burritos"),
+    "burritos": ("burrito", "burritos"),
 }
 
 
@@ -623,7 +630,7 @@ def _matching_machines(text: str, types: tuple[str, ...] = ("tool", "vehicle")) 
     tokens = _machine_tokens(text)
     rows = []
     for kind in types:
-        for item in _find_items("", kind, limit=40):
+        for item in _find_items("", kind, limit=80):
             if all(item.id != old.id for old in rows):
                 rows.append(item)
     if not rows or not tokens:
@@ -1846,23 +1853,102 @@ def _expire_local_say(text: str) -> str | None:
     return _speak_expire(tool_expire_list({"days": 21}))
 
 
-_PUT_ROOM = re.compile(
-    r"\b(?:go(?:es)?|put|live|belong|keep|store)\s+"
-    r"(?:them |these |those |it |this )?"
-    r"(?:in(?:to)?(?:\s+the)?)\s+"
-    r"(fridge|refrigerator|freezer|pantry|bathroom|garage|laundry|closet|kitchen)\b",
+_STOCK_ROOMS = r"fridge|refrigerator|freezer|pantry|bathroom|garage|laundry|closet|kitchen|driveway"
+_MOVE_FROM_TO = re.compile(
+    r"\b(?:please\s+)*(?:put|move|place)\s+(?:the\s+)?"
+    r"(?P<item>.+?)"
+    r"(?:\s+that\s+are|\s+that\s+is|\s+from)?"
+    r"\s+in(?:to)?(?:\s+the)?\s+(?P<src>" + _STOCK_ROOMS + r")"
+    r"\s+in(?:to)?(?:\s+the)?\s+(?P<dst>" + _STOCK_ROOMS + r")\b",
     re.I,
 )
-_SET_QTY = re.compile(
-    r"\b(?:show|have|set|keep)\b.{0,48}?\b(\d{1,4})\b",
+_MOVE_TO = re.compile(
+    r"\b(?:please\s+)*(?:put|move|place|keep|store)\s+(?:the\s+|those\s+|these\s+)?"
+    r"(?P<item>.+?)"
+    r"\s+in(?:to)?(?:\s+the)?\s+(?P<dst>" + _STOCK_ROOMS + r")\b",
+    re.I,
+)
+_GO_IN = re.compile(
+    r"\b(?:go(?:es)?|belong)\s+(?:in(?:to)?(?:\s+the)?)\s+(?P<dst>" + _STOCK_ROOMS + r")\b",
+    re.I,
+)
+_QTY_ON = re.compile(
+    r"\b(?:make sure we |make sure )?(?:show|have|set|keep)\s+"
+    r"(?:in(?:to)?\s+(?:the\s+)?inventory\s+)?"
+    r"(?P<qty>\d{1,4})\s+(?:of\s+)?(?P<item>.+)",
     re.I,
 )
 
 
-def _stock_item_name(text: str, cut_at: int | None = None) -> str:
-    raw = (text or "")[: cut_at if cut_at is not None else None]
-    raw = re.split(r"\b(close those|those|them|and make sure|and show)\b", raw, maxsplit=1, flags=re.I)[0]
-    return raw.strip(" .,;:!?")[:120]
+def _clean_stock_name(raw: str) -> str:
+    name = (raw or "").strip(" .,;:!?")
+    name = re.sub(r"^(please|the|those|these|my|our)\s+", "", name, flags=re.I)
+    name = re.sub(r"\s+(please|thanks|thank you)$", "", name, flags=re.I)
+    return name.strip(" .,;:!?")[:120]
+
+
+def _grocery_in_place(item, place: str) -> bool:
+    if not place:
+        return True
+    g = getattr(item, "grocery", None)
+    loc = (getattr(g, "default_location", None) or "").strip().lower() if g is not None else ""
+    want = (place or "").strip().lower()
+    if want in ("fridge", "refrigerator"):
+        return "fridge" in loc or loc == "refrigerator"
+    return bool(want and (want in loc or loc in want))
+
+
+def _match_groceries(q: str, in_place: str = ""):
+    q = _trim(q, 120)
+    rows = _find_items(q, "grocery", limit=8) if q else []
+    if not rows and q:
+        rows = _matching_machines(q, ("grocery",))
+    if in_place:
+        placed = [r for r in rows if _grocery_in_place(r, in_place)]
+        return placed
+    return rows
+
+
+def _parse_stock_jobs(text: str) -> list[dict]:
+    raw = (text or "").strip()
+    jobs = []
+    rest = raw
+    move = _MOVE_FROM_TO.search(raw)
+    if move:
+        jobs.append(
+            {
+                "q": _clean_stock_name(move.group("item")),
+                "from": move.group("src"),
+                "place": move.group("dst"),
+                "action": "place",
+            }
+        )
+        rest = (raw[: move.start()] + " " + raw[move.end() :]).strip()
+    else:
+        one = _MOVE_TO.search(raw)
+        go = _GO_IN.search(raw)
+        if one:
+            jobs.append(
+                {
+                    "q": _clean_stock_name(one.group("item")),
+                    "from": "",
+                    "place": one.group("dst"),
+                    "action": "place",
+                }
+            )
+            rest = (raw[: one.start()] + " " + raw[one.end() :]).strip()
+        elif go:
+            name = _clean_stock_name(raw[: go.start()])
+            if name:
+                jobs.append({"q": name, "from": "", "place": go.group("dst"), "action": "place"})
+            rest = (raw[: go.start()] + " " + raw[go.end() :]).strip()
+    qty = _QTY_ON.search(rest) or (_QTY_ON.search(raw) if not jobs else None)
+    if qty:
+        item = _clean_stock_name(qty.group("item"))
+        item = re.sub(r"\b(and make sure we|and make sure|please)\b.*", "", item, flags=re.I).strip()
+        if item.lower() not in ("these", "them", "it", "of these", "of them"):
+            jobs.append({"q": item, "from": "", "place": "", "action": "set", "amount": qty.group("qty")})
+    return [j for j in jobs if (j.get("q") or "") and len(j.get("q") or "") >= 3]
 
 
 def _stock_local_say(text: str):
@@ -1871,27 +1957,36 @@ def _stock_local_say(text: str):
         return None
     if asked_to_list(raw):
         return None
-    room_m = _PUT_ROOM.search(raw)
-    qty_m = _SET_QTY.search(raw)
-    if not room_m and not qty_m:
+    jobs = _parse_stock_jobs(raw)
+    if not jobs:
         return None
-    name = _stock_item_name(raw, room_m.start() if room_m else None)
-    if len(name) < 3:
+    writes = []
+    misses = []
+    for job in jobs:
+        rows = _match_groceries(job["q"], in_place=job.get("from") or "")
+        if not rows:
+            misses.append(job["q"])
+            continue
+        for item in rows[:4]:
+            args = {"q": item.name, "item": item.name, "action": job["action"]}
+            if job.get("place"):
+                args["place"] = job["place"]
+            if job.get("amount"):
+                args["amount"] = job["amount"]
+            writes.append({"tool": "inventory", "args": args})
+    if not writes:
+        if misses:
+            return f"I don’t have {misses[0]} in inventory."
         return None
-    args = {"q": name, "action": "place"}
-    if room_m:
-        args["place"] = room_m.group(1)
-    if qty_m:
-        args["action"] = "set"
-        args["amount"] = qty_m.group(1)
     from app.utils.ask_confirm import hold_writes, should_hold_tool
 
-    if should_hold_tool("inventory", args):
-        return hold_writes([{"tool": "inventory", "args": args}])
-    result = tool_inventory(args)
-    if result.get("need") or result.get("error"):
-        return str(result.get("hint") or result.get("error") or "")
-    return _speak_result("inventory", result) or None
+    if should_hold_tool("inventory", writes[0]["args"]):
+        return hold_writes(writes)
+    says = []
+    for row in writes:
+        result = tool_inventory(row["args"])
+        says.append(_speak_result("inventory", result) or result.get("hint") or "")
+    return "\n".join(s for s in says if s) or None
 
 
 def _local_house_say(text: str) -> str | None:
@@ -3098,7 +3193,15 @@ def tool_inventory(args: dict) -> dict:
         hit = Item.query.filter_by(household_id=hid, barcode=upc).filter(Item.removed_at.is_(None)).first()
         if hit is not None:
             rows = [hit]
+    if q and not rows:
+        rows = _match_groceries(q, in_place=_trim(args.get("from") or args.get("from_place"), 40))
     if not rows:
+        if action in ("place", "set") or len(q) > 48 or re.match(r"please\b", q, re.I):
+            return {
+                "ok": False,
+                "error": f"I don’t have {q or 'that'} in inventory.",
+                "hint": f"I don’t have {q or 'that'} in inventory.",
+            }
         name = q or "Item"
         where_text = _trim(args.get("where") or args.get("on") or place, 80)
         return _ask_where_to_add(name, upc=upc, amount=amount, place=place, where_text=where_text)

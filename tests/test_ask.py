@@ -10,6 +10,7 @@ if ROOT not in sys.path:
 
 from app.utils.ask import (
     _local_house_say,
+    _parse_stock_jobs,
     _parse_turn,
     _plain_say,
     _speak_house,
@@ -158,6 +159,21 @@ class LocalHouseTests(unittest.TestCase):
         self.assertEqual(usual_store_place("ice cream"), "Freezer")
         self.assertEqual(usual_store_place("El Monterey Beef & Bean Burritos"), "Freezer")
         self.assertEqual(usual_store_place("Coffee Mate FV Creamer"), "Fridge")
+
+    def test_stock_jobs_parse_move_and_count(self):
+        msg = (
+            "please put the fried burritos that are in the pantry in the fridge please "
+            "and make sure we show 2 french vanilla creamers"
+        )
+        jobs = _parse_stock_jobs(msg)
+        self.assertGreaterEqual(len(jobs), 2)
+        self.assertIn("burrito", jobs[0]["q"].lower())
+        self.assertEqual(jobs[0]["from"].lower(), "pantry")
+        self.assertEqual(jobs[0]["place"].lower(), "fridge")
+        self.assertEqual(jobs[1]["action"], "set")
+        self.assertEqual(str(jobs[1]["amount"]), "2")
+        self.assertIn("creamer", jobs[1]["q"].lower())
+        self.assertIsNone(_local_house_say(msg))
 
     def test_sort_inventory_is_not_a_list(self):
         self.assertIsNone(_local_house_say("sort all the items in the inventory"))
@@ -1480,6 +1496,55 @@ class AskHttpTests(unittest.TestCase):
             from app.builddb.table_item_logs import ItemLog
 
             self.assertIsNone(ItemLog.query.filter_by(item_id=item_id, kind="trip").first())
+
+    def test_put_pantry_burritos_in_fridge_and_set_creamer(self):
+        self.admin = f"ask_move_{self.suffix}"
+        self._register(self.admin, household=f"AskMove {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        burrito_id = self._grocery("El Monterey Beef & Bean Burritos")
+        cream_id = self._grocery("Coffee Mate FV Creamer")
+        with self.app.app_context():
+            from app.builddb.builddb import db
+            from app.builddb.table_grocery_items import GroceryItem
+
+            b = GroceryItem.query.filter_by(item_id=burrito_id).first()
+            b.default_location = "Pantry"
+            c = GroceryItem.query.filter_by(item_id=cream_id).first()
+            c.default_location = "Fridge"
+            db.session.commit()
+        token = self._csrf(self.client.get("/").data)
+        msg = (
+            "please put the fried burritos that are in the pantry in the fridge please "
+            "and make sure we show 2 french vanilla creamers"
+        )
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("stock jobs should not dump inventory")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            first = self.client.post(
+                "/ask/message",
+                json={"message": msg},
+                headers={"X-CSRF-Token": token},
+            )
+        data = first.get_json() or {}
+        say = data.get("say") or ""
+        self.assertNotIn("isn’t on the site", say)
+        self.assertNotIn("isn't on the site", say)
+        self.assertNotIn("Inventory in this house", say)
+        if data.get("confirm"):
+            self.assertIn("burrito", say.lower())
+            with patch("app.utils.ask.complete", side_effect=fail_if_called):
+                first = self._yes(token)
+            say = (first.get_json() or {}).get("say") or ""
+        self.assertNotIn("isn’t on the site", say)
+        with self.app.app_context():
+            from app.builddb.table_grocery_items import GroceryItem
+
+            b = GroceryItem.query.filter_by(item_id=burrito_id).first()
+            c = GroceryItem.query.filter_by(item_id=cream_id).first()
+            self.assertEqual((b.default_location or "").lower(), "fridge")
+            self.assertEqual(int(c.quantity or 0), 2)
 
     def test_named_food_goes_in_a_room_without_dumping(self):
         self.admin = f"ask_put_{self.suffix}"
