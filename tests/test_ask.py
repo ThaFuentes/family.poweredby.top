@@ -127,6 +127,9 @@ class RoomTests(unittest.TestCase):
         self.assertEqual(_trip_item_hint("I'm home with 81650 miles", ending=True), "")
         self.assertEqual(_trip_miles_from("I'm home with 81650 miles"), "81650")
         self.assertIsNone(_trip_local_say("I'm home with the kids"))
+        glued = "can you start a trip for my black tundra?284438 miles at start"
+        self.assertEqual(_trip_item_hint(glued, ending=False), "black tundra")
+        self.assertEqual(_trip_miles_from(glued), "284438")
 
     def test_unknown_slash(self):
         self.assertIn("/help", slash_reply("/nope", "house") or "")

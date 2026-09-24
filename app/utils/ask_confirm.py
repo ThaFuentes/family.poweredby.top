@@ -132,6 +132,32 @@ def _remove_is_vehicle(args: dict) -> bool:
     return item is not None and getattr(item, "item_type", "") == "vehicle" and err is None
 
 
+def _looks_like_sentence(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return True
+    if "?" in t or len(t) > 48:
+        return True
+    if re.search(r"\b(can you|please|start|trip|miles|with)\b", t, re.I) and len(t.split()) > 4:
+        return True
+    return False
+
+
+def _trip_who(args: dict) -> str:
+    hint = _trim(args.get("item") or args.get("name") or "", 80)
+    try:
+        from app.utils.ask_do import _trip_vehicle
+
+        item, _err = _trip_vehicle(args)
+        if item is not None:
+            return item.name
+    except Exception:
+        pass
+    if hint and not _looks_like_sentence(hint):
+        return hint
+    return "the truck"
+
+
 def _fmt_miles(raw) -> str:
     s = str(raw or "").replace(",", "").strip()
     if not s:
@@ -162,23 +188,22 @@ def plan_line(tool: str, args: dict | None = None) -> str:
         return f"I’ll remove {item.name} from {kind}."
     if tool == "trip_save":
         action = _trim(args.get("action") or args.get("op") or "", 20).lower()
+        who = _trip_who(args)
         if action in ("end", "home", "done", "close", "finish") or args.get("end") or args.get("end_miles"):
             miles = _fmt_miles(args.get("reading") or args.get("end") or args.get("end_miles") or args.get("miles"))
-            who = _trim(args.get("item") or args.get("name") or "", 80)
             truck = f" on {who}" if who else ""
             at = f" at {miles} miles" if miles else ""
-            return f"I’ll end the open trip{truck}{at}."
+            return f"End the open trip{truck}{at}."
         origin = _trim(args.get("origin") or args.get("from"), 80)
         dest = _trim(args.get("dest") or args.get("to"), 80)
         miles = _fmt_miles(args.get("reading") or args.get("start") or args.get("start_miles") or args.get("miles"))
-        who = _trim(args.get("item") or "the truck", 80)
         route = ""
         if origin and dest:
             route = f" from {origin} to {dest}"
         elif origin or dest:
             route = f" {origin or dest}"
         at = f" at {miles} miles" if miles else ""
-        return f"I’ll start a trip on {who}{route}{at}."
+        return f"Start a trip on {who}{route}{at}."
     if tool == "inventory":
         action = _trim(args.get("action") or "restock", 20).lower() or "restock"
         return f"I’ll {action} {name or 'that food'} in inventory."
@@ -242,9 +267,9 @@ def hold_writes(items: list) -> dict:
     if not lines:
         say = "Nothing to do."
     elif len(lines) == 1:
-        say = lines[0] + "\nAllow this, don’t, or say always allow."
+        say = lines[0] + "\nDoes that look right?"
     else:
-        say = "I’ll do this:\n" + "\n".join(f"· {ln}" for ln in lines) + "\nAllow this, don’t, or say always allow."
+        say = "I’ll do this:\n" + "\n".join(f"· {ln}" for ln in lines) + "\nDoes that look right?"
     return {
         "ok": True,
         "say": say,

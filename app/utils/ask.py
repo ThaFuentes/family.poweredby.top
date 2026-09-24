@@ -1591,12 +1591,14 @@ _TRIP_END = re.compile(
     re.I,
 )
 _TRIP_FROM_TO = re.compile(r"from\s+([^,\n]+?)\s+to\s+([^,\n]+?)(?:\s+with|\s+at|\s*$|,)", re.I)
-_TRIP_IN = re.compile(
-    r"\bin\s+(?:my|the|our)\s+(.+?)(?:\s*,|\s+with\b|\s+from\b|\s+at\b|\s*$)",
+_TRIP_NAMED = re.compile(
+    r"\b(?:in|on|for|with)\s+(?:my|the|our)\s+(.+)",
     re.I,
 )
 _TRIP_MILES = re.compile(
-    r"(?:with|at|odometer|odo)\s*[:=]?\s*(\d{3,7})|(\d{3,7})\s*(?:miles|mi)\b",
+    r"(?:with|at|odometer|odo|start(?:ing)?)\s*[:=]?\s*(\d{3,7})"
+    r"|(\d{3,7})\s*(?:miles|mi)\b"
+    r"|(\d{3,7})\s*(?:at\s+)?start\b",
     re.I,
 )
 
@@ -1605,17 +1607,31 @@ def _trip_miles_from(text: str):
     m = _TRIP_MILES.search(text or "")
     if not m:
         return None
-    return m.group(1) or m.group(2)
+    return m.group(1) or m.group(2) or m.group(3)
+
+
+def _clean_trip_hint(raw: str) -> str:
+    hint = (raw or "").strip()
+    hint = re.split(r"[?!,]|\s+with\b|\s+from\b|\s+at\b|\d{3,7}", hint, maxsplit=1, flags=re.I)[0]
+    return hint.strip(" .,-")[:80]
 
 
 def _trip_item_hint(text: str, *, ending: bool) -> str:
     raw = text or ""
-    named = _TRIP_IN.search(raw)
+    named = _TRIP_NAMED.search(raw)
     if named:
-        return named.group(1).strip(" .,")[:80]
+        hint = _clean_trip_hint(named.group(1))
+        if hint:
+            return hint
+    try:
+        rows = _matching_machines(raw, ("vehicle",))
+        if len(rows) == 1:
+            return rows[0].name
+    except Exception:
+        pass
     if ending:
         return ""
-    return raw
+    return ""
 
 
 def _trip_local_say(text: str) -> str | None:
@@ -1646,6 +1662,14 @@ def _trip_local_say(text: str) -> str | None:
         args["origin"] = origin
     if dest:
         args["dest"] = dest
+    try:
+        from app.utils.ask_do import _trip_vehicle
+
+        item, _err = _trip_vehicle(args)
+        if item is not None:
+            args["item"] = item.name
+    except Exception:
+        pass
     from app.utils.ask_confirm import hold_writes, should_hold_tool
 
     if should_hold_tool("trip_save", args):
@@ -1760,8 +1784,10 @@ def _speak_result(tool: str, r: dict) -> str:
         return _speak_expire_guess(r)
     if tool == "trip_save":
         if r.get("did") == "trip started":
+            title = (r.get("title") or "").strip()
+            extra = f", {title}" if title and title.lower() != "trip" else ""
             return (
-                f"Trip started on {r.get('name')}: {r.get('title') or 'trip'} "
+                f"Trip started on {r.get('name')}{extra} "
                 f"at {int(r.get('start_miles') or 0):,} miles. {r.get('href') or ''}"
             ).strip()
         if r.get("did") == "trip ended":
