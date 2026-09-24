@@ -1147,6 +1147,12 @@ def _stash_pending_item(payload: dict) -> None:
 
 
 def _ask_where_to_add(name: str, *, upc: str = "", amount=1, place: str = "", where_text: str = "") -> dict:
+    if _looks_like_command(name):
+        return {
+            "ok": False,
+            "error": "That’s a move, not a new item.",
+            "hint": "That’s a move, not a new item. I won’t add a new grocery with that sentence.",
+        }
     extra = ""
     if has_request_context():
         extra = getattr(g, "ask_message", "") or ""
@@ -1898,14 +1904,39 @@ def _grocery_in_place(item, place: str) -> bool:
     return bool(want and (want in loc or loc in want))
 
 
+def _looks_like_command(name: str) -> bool:
+    n = (name or "").strip()
+    if not n:
+        return True
+    if n.lower().startswith("please "):
+        return True
+    if len(n) > 48:
+        return True
+    if re.search(r"\b(put|move|place)\b.+\b(in|into)\b.+\b(fridge|freezer|pantry|bathroom|garage)\b", n, re.I):
+        return True
+    if re.search(r"\bthat are in\b", n, re.I):
+        return True
+    return False
+
+
 def _match_groceries(q: str, in_place: str = ""):
     q = _trim(q, 120)
     rows = _find_items(q, "grocery", limit=8) if q else []
     if not rows and q:
         rows = _matching_machines(q, ("grocery",))
+    if not rows and q:
+        tokens = sorted(_machine_tokens(q), key=len, reverse=True)
+        for tok in tokens:
+            if len(tok) < 4:
+                continue
+            hits = _find_items(tok, "grocery", limit=8)
+            if hits:
+                rows = hits
+                break
     if in_place:
         placed = [r for r in rows if _grocery_in_place(r, in_place)]
-        return placed
+        if placed:
+            return placed
     return rows
 
 
@@ -1958,7 +1989,10 @@ def _stock_local_say(text: str):
     if asked_to_list(raw):
         return None
     jobs = _parse_stock_jobs(raw)
+    putting = bool(re.search(r"\b(put|move|place)\b", raw, re.I) and re.search(rf"\b({_STOCK_ROOMS})\b", raw, re.I))
     if not jobs:
+        if putting:
+            return "Which food should I move? Name it like it is on the site."
         return None
     writes = []
     misses = []
@@ -1977,6 +2011,8 @@ def _stock_local_say(text: str):
     if not writes:
         if misses:
             return f"I don’t have {misses[0]} in inventory."
+        if putting:
+            return "Which food should I move? Name it like it is on the site."
         return None
     from app.utils.ask_confirm import hold_writes, should_hold_tool
 
@@ -3196,11 +3232,11 @@ def tool_inventory(args: dict) -> dict:
     if q and not rows:
         rows = _match_groceries(q, in_place=_trim(args.get("from") or args.get("from_place"), 40))
     if not rows:
-        if action in ("place", "set") or len(q) > 48 or re.match(r"please\b", q, re.I):
+        if action in ("place", "set") or _looks_like_command(q):
             return {
                 "ok": False,
                 "error": f"I don’t have {q or 'that'} in inventory.",
-                "hint": f"I don’t have {q or 'that'} in inventory.",
+                "hint": f"I don’t have {q or 'that'} in inventory. That’s a move, not a new item.",
             }
         name = q or "Item"
         where_text = _trim(args.get("where") or args.get("on") or place, 80)

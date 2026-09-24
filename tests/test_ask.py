@@ -1497,6 +1497,53 @@ class AskHttpTests(unittest.TestCase):
 
             self.assertIsNone(ItemLog.query.filter_by(item_id=item_id, kind="trip").first())
 
+    def test_put_sentence_does_not_create_an_item(self):
+        self.admin = f"ask_putsent_{self.suffix}"
+        self._register(self.admin, household=f"AskPutSent {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        burrito_id = self._grocery("El Monterey Beef & Bean Burritos")
+        with self.app.app_context():
+            from app.builddb.builddb import db
+            from app.builddb.table_grocery_items import GroceryItem
+
+            GroceryItem.query.filter_by(item_id=burrito_id).first().default_location = "Pantry"
+            db.session.commit()
+        token = self._csrf(self.client.get("/").data)
+        msg = "please put the fried burritos that are in the pantry in the fridge please"
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("put in fridge should not hit the model")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            first = self.client.post(
+                "/ask/message",
+                json={"message": msg},
+                headers={"X-CSRF-Token": token},
+            )
+        data = first.get_json() or {}
+        say = data.get("say") or ""
+        self.assertNotIn("isn’t on the site", say)
+        self.assertNotIn("isn't on the site", say)
+        self.assertNotIn("I’ll put it in Fridge", say)
+        if data.get("confirm"):
+            with patch("app.utils.ask.complete", side_effect=fail_if_called):
+                first = self._yes(token)
+            say = (first.get_json() or {}).get("say") or ""
+        self.assertNotIn("isn’t on the site", say)
+        with self.app.app_context():
+            from app.builddb.table_grocery_items import GroceryItem
+            from app.builddb.table_items import Item
+            from app.builddb.table_users import User
+
+            user = User.query.filter_by(username=self.admin).first()
+            fake = Item.query.filter(
+                Item.household_id == user.household_id,
+                Item.name.ilike("please put the fried%"),
+            ).first()
+            self.assertIsNone(fake)
+            g = GroceryItem.query.filter_by(item_id=burrito_id).first()
+            self.assertEqual((g.default_location or "").lower(), "fridge")
+
     def test_put_pantry_burritos_in_fridge_and_set_creamer(self):
         self.admin = f"ask_move_{self.suffix}"
         self._register(self.admin, household=f"AskMove {self.suffix}", name="Pat")
