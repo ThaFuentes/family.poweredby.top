@@ -633,8 +633,8 @@ a.btn:hover { text-decoration: none; }
   pointer-events: none;
   left: 4%;
   right: 4%;
-  top: 36%;
-  height: 26%;
+  top: 32%;
+  height: 32%;
   width: auto;
   transform: none;
   border: 2.5px solid #3ecf7a;
@@ -653,7 +653,8 @@ a.btn:hover { text-decoration: none; }
 #scan-live-reader canvas {
   width: 100% !important;
   height: 100% !important;
-  object-fit: cover;
+  object-fit: contain;
+  background: #000;
 }
 #scan-freeze {
   position: absolute;
@@ -801,7 +802,7 @@ html.scan-live-open #scan-live {
   }
   #scan-live-reader video,
   #scan-live-reader canvas {
-    object-fit: cover;
+    object-fit: contain;
   }
 }
 

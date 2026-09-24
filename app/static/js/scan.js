@@ -1157,22 +1157,58 @@
   function decoderFormats() {
     const F = window.Html5QrcodeSupportedFormats;
     if (!F) return undefined;
-    return [F.UPC_A, F.UPC_E, F.EAN_13, F.EAN_8, F.QR_CODE, F.CODE_128, F.ITF].filter(function (x) {
+    return [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.QR_CODE, F.CODE_128, F.CODE_39].filter(function (x) {
       return x != null;
     });
   }
 
   function scanConfig() {
     return {
-      fps: 10,
+      fps: 15,
       disableFlip: false,
       rememberLastUsedCamera: true,
-      aspectRatio: 1.777778,
-      qrbox: function (w, h) {
-        const boxW = Math.max(Math.min(Math.floor(w * 0.94), w - 16), 240);
-        const boxH = Math.max(Math.min(Math.floor(h * 0.34), Math.floor(boxW * 0.5)), 120);
-        return { width: boxW, height: boxH };
+      videoConstraints: {
+        facingMode: { ideal: "environment" },
       },
+    };
+  }
+
+  function attachNativeReader(host, onHit) {
+    if (!host || typeof BarcodeDetector === "undefined") return function () {};
+    let stopped = false;
+    let timer = 0;
+    let inFlight = false;
+    let det = null;
+    try {
+      det = new BarcodeDetector({
+        formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "qr_code"],
+      });
+    } catch (e) {
+      return function () {};
+    }
+    function loop() {
+      if (stopped) return;
+      const video = host.querySelector("video");
+      if (video && video.readyState >= 2 && !pauseDecode && !busy && !inFlight) {
+        inFlight = true;
+        det
+          .detect(video)
+          .then(function (hits) {
+            if (stopped || !hits || !hits.length) return;
+            const raw = hits[0] && hits[0].rawValue;
+            if (raw) onHit(String(raw));
+          })
+          .catch(function () {})
+          .then(function () {
+            inFlight = false;
+          });
+      }
+      timer = window.setTimeout(loop, 90);
+    }
+    loop();
+    return function () {
+      stopped = true;
+      if (timer) window.clearTimeout(timer);
     };
   }
 
@@ -1196,7 +1232,7 @@
         return new Html5Qrcode(readerId, {
           verbose: false,
           formatsToSupport: decoderFormats(),
-          experimentalFeatures: { useBarCodeDetectorIfSupported: false },
+          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
         });
       } catch (e) {
         return new Html5Qrcode(readerId, false);
@@ -1210,6 +1246,20 @@
       const code = preferUpc(raw);
       if (!code) return;
       applyBarcode(code);
+    }
+    function hookNative() {
+      if (instanceSlot.nativeStop) {
+        try {
+          instanceSlot.nativeStop();
+        } catch (e) {}
+        instanceSlot.nativeStop = null;
+      }
+      const box = document.getElementById(readerId);
+      if (!box || !box.querySelector("video")) {
+        instanceSlot.nativeWait = window.setTimeout(hookNative, 180);
+        return;
+      }
+      instanceSlot.nativeStop = attachNativeReader(box, onDecoded);
     }
     function go(target) {
       return qr.start(target, scanConfig(), onDecoded);
@@ -1232,6 +1282,7 @@
       })
       .then(function () {
         instanceSlot.starting = false;
+        hookNative();
         if (onReady) onReady();
       })
       .catch(function (err) {
@@ -1246,7 +1297,18 @@
   }
 
   function stopQr(slot) {
-    if (!slot || !slot.qr) return Promise.resolve();
+    if (!slot) return Promise.resolve();
+    if (slot.nativeWait) {
+      window.clearTimeout(slot.nativeWait);
+      slot.nativeWait = 0;
+    }
+    if (slot.nativeStop) {
+      try {
+        slot.nativeStop();
+      } catch (e) {}
+      slot.nativeStop = null;
+    }
+    if (!slot.qr) return Promise.resolve();
     const q = slot.qr;
     slot.qr = null;
     slot.starting = false;
