@@ -155,6 +155,7 @@ def help_text(room: str | None = None) -> str:
         "then “I’m home with 81650 miles.” That writes the day on the truck’s Log tab and updates miles.\n\n"
         "Writes show a plan first. Allow, don’t, “always allow” (simple work runs free), or “always ask.” "
         "/allow and /confirm switch that too.\n\n"
+        "Sort inventory: “sort the inventory” files food into Fridge, Pantry, and the other rooms. It does not dump the list.\n\n"
         f"You are in {here['title']}. {here['hint']}"
     )
 

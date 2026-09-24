@@ -242,6 +242,10 @@ def plan_line(tool: str, args: dict | None = None) -> str:
         return f"I’ll set a use-by date on {name or 'that food'}."
     if tool == "expire_guess":
         return "I’ll put typical use-by dates on undated food."
+    if tool == "inventory_sort":
+        if str(args.get("only_empty") or "1") in ("0", "false", "no", "all"):
+            return "Re-file every grocery into Fridge, Pantry, and the other rooms."
+        return "Put inventory with no room yet into Fridge, Pantry, and the other rooms."
     if tool == "legal_save":
         return f"I’ll save {name or 'that paper'}."
     if tool == "basket_match":

@@ -16,6 +16,7 @@ from app.utils.ask import (
     _trip_item_hint,
     _trip_local_say,
     _trip_miles_from,
+    asked_to_list,
 )
 from app.utils.ask_rooms import help_text, normalize_room, room_from_path, slash_reply
 from app.utils.household_ai import ask_available, chat_on, household_config
@@ -148,6 +149,22 @@ class LocalHouseTests(unittest.TestCase):
 
     def test_save_tool_is_not_a_list(self):
         self.assertIsNone(_local_house_say("save a tool named hammer"))
+
+    def test_sort_inventory_is_not_a_list(self):
+        self.assertIsNone(_local_house_say("sort all the items in the inventory"))
+        self.assertIsNone(_local_house_say("organize my pantry"))
+
+    def test_talking_about_inventory_is_not_a_dump(self):
+        self.assertFalse(asked_to_list("sort all the items in the inventory", "inventory"))
+        self.assertFalse(asked_to_list("start a trip in my black tundra", "vehicles"))
+        self.assertFalse(asked_to_list("can you update my inventory", "inventory"))
+        self.assertFalse(asked_to_list("the oil for my tundra", "vehicles"))
+        self.assertTrue(asked_to_list("open my inventory", "inventory"))
+        self.assertTrue(asked_to_list("show me the vehicles", "vehicles"))
+        self.assertTrue(asked_to_list("what's in my inventory", "inventory"))
+        self.assertTrue(asked_to_list("can you look up what tools i have", "tools"))
+        self.assertIsNone(_local_house_say("can you update my inventory"))
+        self.assertIsNone(_local_house_say("start a trip in my black tundra"))
 
     def test_speak_empty(self):
         text = _speak_house({"kind": "tools", "lines": [], "empty": "No tools saved yet."})
@@ -1447,6 +1464,37 @@ class AskHttpTests(unittest.TestCase):
             from app.builddb.table_item_logs import ItemLog
 
             self.assertIsNone(ItemLog.query.filter_by(item_id=item_id, kind="trip").first())
+
+    def test_sort_inventory_files_rooms_not_a_dump(self):
+        self.admin = f"ask_sort_{self.suffix}"
+        self._register(self.admin, household=f"AskSort {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        self._grocery("Milk")
+        token = self._csrf(self.client.get("/").data)
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("sort inventory should not need the chat model")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            first = self.client.post(
+                "/ask/message",
+                json={"message": "sort all the items in the inventory"},
+                headers={"X-CSRF-Token": token},
+            )
+        data = first.get_json() or {}
+        say = data.get("say") or ""
+        self.assertTrue(data.get("confirm"), data)
+        self.assertNotIn("Inventory in this house", say)
+        self.assertIn("room", say.lower())
+        with patch("app.utils.ask.complete", side_effect=fail_if_called), patch(
+            "app.utils.classify.parse_pantry_places",
+            return_value={"used_ai": False, "lines": ["Fridge: Milk"], "moved": 1, "error": None},
+        ):
+            yes = self._yes(token)
+        done = (yes.get_json() or {}).get("say") or ""
+        self.assertIn("Fridge", done)
+        self.assertIn("Milk", done)
+        self.assertNotIn("Inventory in this house", done)
 
 
 if __name__ == "__main__":

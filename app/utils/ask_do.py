@@ -229,6 +229,15 @@ JOBS = (
         "how": "action start or end. Start needs odometer miles, a vehicle, and optionally from/to. End needs ending miles — if one trip is open, that truck is used. Updates the truck's miles and the Log tab.",
     },
     {
+        "id": "inventory_sort",
+        "perm": "edit_grocery",
+        "title": "Put inventory into rooms",
+        "tool": "inventory_sort",
+        "need": [],
+        "optional": ["only_empty"],
+        "how": "Files groceries into Fridge, Pantry, and the other rooms. only_empty 1 fills items with no room yet. Do not list inventory.",
+    },
+    {
         "id": "legal",
         "perm": "legal",
         "title": "Citation, ticket, or notice",
@@ -1234,6 +1243,62 @@ def tool_trip_save(args: dict | None = None) -> dict:
         "end_miles": extra.get("end_miles"),
         "href": href,
         "did": "trip ended",
+    }
+
+
+def tool_inventory_sort(args: dict | None = None) -> dict:
+    args = args if isinstance(args, dict) else {}
+    if not can("edit_grocery"):
+        return _denied("sort inventory")
+    from flask_login import current_user
+    from sqlalchemy.orm import joinedload
+
+    from app.builddb.builddb import db
+    from app.builddb.table_items import Item
+    from app.utils.classify import parse_pantry_places
+    from app.utils.household import household_id
+
+    hid = household_id()
+    household = getattr(current_user, "household", None)
+    items = (
+        Item.query.options(joinedload(Item.grocery))
+        .filter_by(household_id=hid, item_type="grocery")
+        .filter(Item.removed_at.is_(None))
+        .order_by(Item.name.asc())
+        .all()
+    )
+    only_empty = str(args.get("only_empty") if args.get("only_empty") is not None else "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "all",
+    )
+    if str(args.get("all") or "").strip().lower() in ("1", "true", "yes"):
+        only_empty = False
+    if only_empty:
+        items = [i for i in items if i.grocery and not (i.grocery.default_location or "").strip()]
+    else:
+        items = [i for i in items if i.grocery]
+    if not items:
+        return {
+            "ok": True,
+            "moved": 0,
+            "used_ai": False,
+            "lines": [],
+            "href": "/groceries/",
+            "did": "sorted",
+            "hint": "Every grocery already has a room." if only_empty else "Nothing in inventory to sort.",
+        }
+    report = parse_pantry_places(household, items)
+    db.session.commit()
+    return {
+        "ok": True,
+        "moved": int(report.get("moved") or 0),
+        "used_ai": bool(report.get("used_ai")),
+        "lines": list(report.get("lines") or [])[:24],
+        "error": report.get("error"),
+        "href": "/groceries/",
+        "did": "sorted",
     }
 
 

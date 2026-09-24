@@ -67,6 +67,7 @@ TOOLS = (
     "expire_list",
     "expire_save",
     "expire_guess",
+    "inventory_sort",
 )
 
 WRITE_TOOLS = (
@@ -92,6 +93,7 @@ WRITE_TOOLS = (
     "item_remove",
     "expire_save",
     "expire_guess",
+    "inventory_sort",
 )
 
 SYSTEM = """You are Ask in Family OS. Do the house work this person is already allowed to do: people, tools, parts, vehicles, the house, notes, inventory, basket, logs, legal paper, photos, oil specs, food dates, and (only when unlocked) the vault.
@@ -144,6 +146,7 @@ The say field is spoken English only. Never put JSON, tool names, or raw tool re
 {"tool":"oil_lookup","args":{"q":"white tundra 2011"}}
 {"tool":"expire_list","args":{"days":21}}
 {"tool":"expire_guess","args":{}}
+{"tool":"inventory_sort","args":{"only_empty":"1"}}
 {"tool":"note_save","args":{"title":"Spare key","body":"In the kitchen drawer.","item":"Silverado","share":"household"}}
 {"tool":"legal_save","args":{"title":"Parking ticket","kind":"ticket","agency":"","due":"","amount":"","body":""}}
 {"tool":"guide","args":{"action":"add_person"}}
@@ -157,6 +160,7 @@ Adding a person: call member_add only when you have a name and username. If eith
 When member_add returns a password, say the username and password once so they can copy it.
 inventory action: restock, used, set, need, create. If the item is not on the site, do not create it yet — inventory returns a where/confirm need. Ask which place: inventory (pantry/fridge), tools, a named vehicle, or the house. After they say yes and where, call the matching save tool.
 expire_save writes a use-by date on food. expire_list says what is going bad soon and how many food rows have no date. expire_guess writes typical shelf life on those undated rows when they say add generic expirations.
+If they say sort / organize / put inventory in rooms, call inventory_sort. That files groceries into Fridge, Pantry, and the other rooms. Do not dump the inventory list. only_empty 1 (default) fills items with no room yet. only_empty 0 re-files everything.
 item_remove takes a tool, vehicle, or grocery out of the house. Call it with the exact name. Prefer a grocery when they named food (protein bars, milk). Never remove a vehicle unless they named that truck or said truck/car. The tool asks for a yes before it deletes. Do not remove vault cards this way.
 vault kind: password, billing, info. share: personal or household.
 two_factor: none, sms, app, email, hardware, other.
@@ -168,6 +172,7 @@ Look up a UPC/VIN before creating a tool, vehicle, or grocery when they gave a c
 A saved vehicle or tool already has its year, make, model, color, VIN, plate, serial, and oil. Call item_inspect or vehicle_card before you ask for any of those.
 Trips: start a trip with trip_save action start (odometer + from/to). End it with action end and the new miles. That updates the truck's miles and the Log tab. "I'm home with 81650 miles" is an end.
 The app may queue writes and ask them to allow. A queued result is not saved yet. Do not say you already saved until a tool returns ok without queued.
+Do not dump inventory, vehicles, tools, or the basket unless they asked to show, list, or open that. Talking about a truck, sorting food, or doing a job is not a list request. Inspect the named thing instead.
 Do not invent counts, passwords, VINs, or bills. Keep answers short.
 """
 
@@ -1375,6 +1380,8 @@ def _stored_vehicle_say(text: str) -> str | None:
     raw = (text or "").strip()
     if not raw:
         return None
+    if asked_to_list(raw, "vehicles"):
+        return None
     if re.search(r"\boil\b", raw, re.I):
         return None
     if not re.search(r"\b(vin|plate)\b", raw, re.I) and "my site" not in raw.lower() and "already" not in raw.lower():
@@ -1384,16 +1391,70 @@ def _stored_vehicle_say(text: str) -> str | None:
     rows = _matching_vehicles(raw)
     if rows:
         return _speak_vehicle_facts(rows, raw)
-    if re.search(r"\b(vin|truck|where|looking|april|tundra)\b", raw, re.I):
-        saved = _find_items("", "vehicle", limit=12)
-        if saved:
-            return "Saved vehicles:\n" + _speak_vehicle_facts(saved, raw)
     return None
+
+
+def asked_to_list(text: str, kind: str | None = None) -> bool:
+    """Only dump a list when they asked to see it."""
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+    if t in ("tools", "vehicles", "cars", "trucks", "basket", "inventory", "pantry", "groceries"):
+        return True
+    kinds = {
+        "inventory": r"inventory|pantry|grocer(?:y|ies)?|food|stock",
+        "vehicles": r"vehicles?|cars?|trucks?|fleet",
+        "tools": r"tools?",
+        "basket": r"basket|shopping list",
+    }
+    noun = kinds.get(kind or "", r"inventory|pantry|grocer(?:y|ies)?|tools?|vehicles?|cars?|trucks?|basket|food")
+    if re.search(rf"\b(show|list|open|display)\b.{{0,40}}\b({noun})\b", t):
+        return True
+    if re.search(rf"\b({noun})\b.{{0,20}}\b(show|list|open)\b", t):
+        return True
+    if re.search(rf"\b(what|which)\b.{{0,40}}\b({noun})\b", t) and re.search(
+        r"\b(have|has|got|in|on)\b", t
+    ):
+        return True
+    if re.search(rf"\blook(?:ing)?(?:\s+up)?\s+what\b.{{0,40}}\b({noun})\b", t):
+        return True
+    if re.search(rf"\b({noun})\s+(do i have|i have|we have|have i|have we)\b", t):
+        return True
+    if re.search(r"\bwhat(?:'s| is|s)?\s+in\b.{0,20}\b(" + noun + r")\b", t):
+        return True
+    return False
 
 
 def tool_house(args: dict | None = None) -> dict:
     args = args if isinstance(args, dict) else {}
     kind = _trim(args.get("kind") or args.get("what") or "tools", 20).lower()
+    list_kind = "tools"
+    if kind in ("vehicle", "vehicles", "car", "cars", "truck", "trucks"):
+        list_kind = "vehicles"
+    elif kind in ("basket", "list", "shopping"):
+        list_kind = "basket"
+    elif kind in ("grocery", "groceries", "inventory", "pantry", "food"):
+        list_kind = "inventory"
+    msg = ""
+    if has_request_context():
+        msg = str(getattr(g, "ask_message", "") or "")
+    if msg and not asked_to_list(msg, list_kind):
+        href = {
+            "tools": "/tools/",
+            "vehicles": "/vehicles/",
+            "basket": "/groceries/list",
+            "inventory": "/groceries/",
+        }.get(list_kind, "/")
+        return {
+            "ok": False,
+            "need": ["list_ok"],
+            "kind": list_kind,
+            "href": href,
+            "hint": (
+                f"They did not ask to see the {list_kind} list. Do not dump it. "
+                "Do the work they asked, or inspect one named item."
+            ),
+        }
     if kind in ("tool", "tools", "drill", "drills"):
         rows = _find_items("", "tool", limit=40)
         lines = [_item_line(i) for i in rows]
@@ -1680,6 +1741,53 @@ def _trip_local_say(text: str) -> str | None:
     return _speak_result("trip_save", result) or None
 
 
+_SORT_INV = re.compile(
+    r"\b(sort|organize|organise|arrange|file)\b.{0,50}\b(inventory|inventories|pantry|grocer(?:y|ies)?|food|items|rooms?)\b"
+    r"|\b(inventory|pantry|grocer(?:y|ies)?).{0,40}\b(sort|organize|organise|rooms?)\b"
+    r"|\bput\b.{0,40}\b(inventory|pantry|grocer(?:y|ies)?|items|food).{0,30}\brooms?\b"
+    r"|\bsort all\b",
+    re.I,
+)
+
+
+def _sort_local_say(text: str):
+    raw = (text or "").strip()
+    if not raw or not _SORT_INV.search(raw):
+        return None
+    if re.search(r"\b(notes?|discord|dump)\b", raw, re.I) and not re.search(
+        r"\b(inventory|pantry|grocer)", raw, re.I
+    ):
+        return None
+    from app.utils.ask_do import tool_inventory_sort
+
+    args = {"only_empty": "1"}
+    if re.search(r"\b(re-?sort|again|overwrite|already have a room)\b", raw, re.I):
+        args["only_empty"] = "0"
+    from app.utils.ask_confirm import hold_writes, should_hold_tool
+
+    if should_hold_tool("inventory_sort", args):
+        return hold_writes([{"tool": "inventory_sort", "args": args}])
+    result = tool_inventory_sort(args)
+    if result.get("need") or result.get("error") and not result.get("ok"):
+        return str(result.get("hint") or result.get("error") or "")
+    return _speak_inventory_sort(result)
+
+
+def _speak_inventory_sort(r: dict) -> str:
+    if not isinstance(r, dict):
+        return str(r or "")
+    if r.get("error") and not r.get("moved"):
+        return str(r.get("error"))
+    href = r.get("href") or "/groceries/"
+    moved = int(r.get("moved") or 0)
+    lines = [str(x) for x in (r.get("lines") or []) if x][:16]
+    if moved <= 0:
+        return (r.get("hint") or "Rooms already looked fine. Nothing moved.") + f" {href}"
+    head = f"Put {moved} in rooms" if r.get("used_ai") else f"Guessed rooms for {moved}"
+    body = "\n".join(f"· {ln}" for ln in lines)
+    return f"{head}:\n{body}\n{href}".strip()
+
+
 def _expire_local_say(text: str) -> str | None:
     t = (text or "").strip().lower()
     if not t:
@@ -1696,27 +1804,22 @@ def _local_house_say(text: str) -> str | None:
     if not t:
         return None
     if re.search(
-        r"\b(add|save|create|new|delete|remove|share|oil|note|spec|filter|tire|battery|expir|set|trip)\b",
+        r"\b(add|save|create|new|delete|remove|share|oil|note|spec|filter|tire|battery|expir|set|trip|sort|organize|organise)\b",
         t,
     ):
         return None
-    wants = bool(re.search(r"\b(what|which|list|have|has|show|my|our|got|lookup|look up|tell)\b", t)) or t in (
-        "tools",
-        "vehicles",
-        "basket",
-        "inventory",
-    )
-    if not wants:
-        return None
-    if re.search(r"\btools?\b", t):
+    if asked_to_list(t, "tools"):
         return _speak_house(tool_house({"kind": "tools"}))
-    if re.search(r"\b(vehicles?|cars?|trucks?)\b", t):
+    if asked_to_list(t, "vehicles"):
         return _speak_house(tool_house({"kind": "vehicles"}))
-    if re.search(r"\b(basket|shopping list)\b", t):
+    if asked_to_list(t, "basket"):
         return _speak_house(tool_house({"kind": "basket"}))
-    if re.search(r"\b(inventory|pantry|groceries)\b", t):
+    if asked_to_list(t, "inventory"):
         return _speak_house(tool_house({"kind": "inventory"}))
-    if re.search(r"\b(due|reminders?)\b", t):
+    if re.search(r"\b(what(?:'s| is)? due|what(?:'s| is)? (?:on )?the list|show (?:me )?(?:the )?reminders?)\b", t) or t in (
+        "due",
+        "reminders",
+    ):
         due = tool_due()
         open_rows = due.get("open") or []
         if not open_rows:
@@ -1782,6 +1885,8 @@ def _speak_result(tool: str, r: dict) -> str:
         return _speak_expire(r)
     if tool == "expire_guess" or r.get("filled") is not None and r.get("skipped") is not None:
         return _speak_expire_guess(r)
+    if tool == "inventory_sort" or r.get("did") == "sorted":
+        return _speak_inventory_sort(r)
     if tool == "trip_save":
         if r.get("did") == "trip started":
             title = (r.get("title") or "").strip()
@@ -3170,6 +3275,10 @@ def run_tool(name: str, args: dict | None) -> dict:
             return tool_oil_lookup(args)
         if key == "expire_guess":
             return tool_expire_guess(args)
+        if key == "inventory_sort":
+            from app.utils.ask_do import tool_inventory_sort
+
+            return tool_inventory_sort(args)
     except Exception as exc:
         return {"ok": False, "error": f"Could not do that: {exc}"}
     return {"ok": False, "error": f"Unknown tool {name}."}
@@ -3428,6 +3537,18 @@ def run_ask(
             trip_say
             if isinstance(trip_say, dict)
             else {"ok": True, "say": trip_say, "did": [], "vault_locked": False}
+        )
+        history = _history()
+        history.append({"role": "user", "text": text})
+        history.append({"role": "assistant", "text": payload.get("say") or ""})
+        _save_history(history)
+        return payload
+    sort_say = None if has_photo else _sort_local_say(text)
+    if sort_say:
+        payload = (
+            sort_say
+            if isinstance(sort_say, dict)
+            else {"ok": True, "say": sort_say, "did": [], "vault_locked": False}
         )
         history = _history()
         history.append({"role": "user", "text": text})
