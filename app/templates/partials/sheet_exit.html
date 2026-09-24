@@ -1,0 +1,14 @@
+<div class="sheet-exit">
+  <a class="btn sm secondary" href="{{ exit_href }}" data-sheet-exit>Close</a>
+</div>
+<script>
+(function () {
+  if (!(window.parent && window.parent !== window)) return;
+  document.addEventListener("click", function (e) {
+    var a = e.target.closest("[data-sheet-exit]");
+    if (!a) return;
+    e.preventDefault();
+    try { window.parent.postMessage({ family: "sheet-close" }, "*"); } catch (err) {}
+  });
+})();
+</script>

@@ -8,6 +8,8 @@
   {% include "partials/theme_head.html" %}
 </head>
 <body class="sheet-body">
+{% set exit_href = url_for('vault.index') %}
+{% include "partials/sheet_exit.html" %}
 {% set draft = draft or {} %}
 {% set fields = draft %}
 {% set kind = kind or 'password' %}
@@ -26,6 +28,6 @@
   {% include "partials/vault_fields.html" %}
   <div class="btn-row"><button class="btn" type="submit">Save in vault</button></div>
 </form>
-<script src="{{ url_for('static', filename='js/app.js') }}?v=os23"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}?v=os24"></script>
 </body>
 </html>

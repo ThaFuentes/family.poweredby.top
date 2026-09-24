@@ -422,6 +422,11 @@ body.sheet-body {
   padding: .55rem 1rem calc(1.5rem + var(--safe-b));
   background: var(--bg);
 }
+.sheet-exit {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 .7rem;
+}
 body.sheet-body .cal-connect { margin: 0; box-shadow: none; }
 .cal-embed {
   width: 100%;

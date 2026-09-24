@@ -8,6 +8,8 @@
   {% include "partials/theme_head.html" %}
 </head>
 <body class="sheet-body">
+  {% set exit_href = url_for('appearance.picker') %}
+  {% include "partials/sheet_exit.html" %}
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
       {% for category, message in messages %}

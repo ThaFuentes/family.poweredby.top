@@ -84,8 +84,9 @@
     }
   }
   window.addEventListener("message", function (e) {
-    if (!e.data || e.data.family !== "sheet-saved") return;
-    sheetDirty = true;
+    if (!e.data || !e.data.family) return;
+    if (e.data.family === "sheet-saved") sheetDirty = true;
+    if (e.data.family === "sheet-close") closeSheet();
   });
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape") closeSheet();

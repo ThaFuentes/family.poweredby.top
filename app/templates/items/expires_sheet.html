@@ -8,6 +8,8 @@
   {% include "partials/theme_head.html" %}
 </head>
 <body class="sheet-body">
+{% set exit_href = url_for('items.detail', item_id=item.id) %}
+{% include "partials/sheet_exit.html" %}
 {% if ping_saved %}
 <script>try { window.parent.postMessage({ family: "sheet-saved" }, "*"); } catch (e) {}</script>
 {% endif %}

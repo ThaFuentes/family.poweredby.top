@@ -8,6 +8,8 @@
   {% include "partials/theme_head.html" %}
 </head>
 <body class="sheet-body">
+{% set exit_href = url_for('items.detail', item_id=item.id) %}
+{% include "partials/sheet_exit.html" %}
 <p class="muted" style="margin:0">{{ item.name }}</p>
 <h1 style="margin:.15rem 0 .6rem;font-size:1.25rem">On it now</h1>
 {% if rows %}

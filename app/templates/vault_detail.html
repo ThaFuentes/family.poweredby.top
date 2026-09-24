@@ -8,6 +8,8 @@
   {% include "partials/theme_head.html" %}
 </head>
 <body class="sheet-body">
+{% set exit_href = url_for('vault.index') %}
+{% include "partials/sheet_exit.html" %}
 <div id="vault-keep" hidden></div>
 {% if ping_saved %}
 <script>try { window.parent.postMessage({ family: "sheet-saved" }, "*"); } catch (e) {}</script>
@@ -33,7 +35,7 @@
 </details>
 {% endif %}
 {% endif %}
-<script src="{{ url_for('static', filename='js/app.js') }}?v=os23"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}?v=os24"></script>
 <script>
 (function () {
   document.querySelectorAll(".share-mode").forEach(function (sel) {

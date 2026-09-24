@@ -8,6 +8,8 @@
   {% include "partials/theme_head.html" %}
 </head>
 <body class="sheet-body">
+{% set exit_href = url_for('groceries.grocery_list') %}
+{% include "partials/sheet_exit.html" %}
 {% from "partials/row_pic.html" import row_pic with context %}
 {% macro basket_row(row) %}
   <div class="basket-row" data-entry-id="{{ row.id }}">
