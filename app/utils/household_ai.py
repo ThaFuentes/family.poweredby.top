@@ -6,6 +6,7 @@ are tried, in order, when the one before them is down.
 from __future__ import annotations
 
 import secrets
+import time
 
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -13,10 +14,22 @@ from app.builddb.builddb import db
 from app.utils.ai import (
     DEFAULT_MODEL,
     DEFAULT_PROVIDER,
+    MODELS_CACHE_SECS,
     PROVIDERS,
     _pack,
+    fetch_provider_models,
+    guess_job,
+    menu_models,
+    normalize_job,
     normalize_provider,
 )
+
+
+def normalize_ask_confirm(value: str | None) -> str:
+    v = (value or "ask").strip().lower().replace("-", "_").replace(" ", "_")
+    if v in ("allow", "free", "run", "run_free", "always_allow", "open", "go"):
+        return "allow"
+    return "ask"
 from app.utils.crypto import decrypt_text, encrypt_text, looks_encrypted
 from app.utils.platform_settings import mask_secret
 
@@ -48,6 +61,11 @@ def _stored_rows(blob: dict) -> tuple[list[dict], str]:
             provider = normalize_provider(item.get("provider") or DEFAULT_PROVIDER)
             spec = PROVIDERS.get(provider) or PROVIDERS[DEFAULT_PROVIDER]
             model = (item.get("model") or "").strip() or (spec["models"][0] if spec.get("models") else DEFAULT_MODEL)
+            live = [str(x)[:120] for x in (item.get("models_live") or []) if x][:40]
+            try:
+                models_at = int(item.get("models_at") or 0)
+            except (TypeError, ValueError):
+                models_at = 0
             rows.append(
                 {
                     "id": kid[:40],
@@ -57,6 +75,9 @@ def _stored_rows(blob: dict) -> tuple[list[dict], str]:
                     "base_url": (item.get("base_url") or "").strip()[:300],
                     "on": item.get("on") is not False,
                     "order": int(item.get("order") or i),
+                    "job": normalize_job(item.get("job") or guess_job(provider, model)),
+                    "models_live": live,
+                    "models_at": models_at,
                 }
             )
     if rows:
@@ -77,6 +98,9 @@ def _stored_rows(blob: dict) -> tuple[list[dict], str]:
                 "base_url": (blob.get("base_url") or "").strip()[:300],
                 "on": True,
                 "order": 0,
+                "job": normalize_job(blob.get("job") or guess_job(provider, model)),
+                "models_live": [str(x)[:120] for x in (blob.get("models_live") or []) if x][:40],
+                "models_at": int(blob.get("models_at") or 0) if str(blob.get("models_at") or "").isdigit() else 0,
             }
         )
     backup = blob.get("backup") if isinstance(blob.get("backup"), dict) else {}
@@ -93,6 +117,9 @@ def _stored_rows(blob: dict) -> tuple[list[dict], str]:
                 "base_url": (backup.get("base_url") or "").strip()[:300],
                 "on": True,
                 "order": 1,
+                "job": normalize_job(backup.get("job") or guess_job(provider, model)),
+                "models_live": [str(x)[:120] for x in (backup.get("models_live") or []) if x][:40],
+                "models_at": 0,
             }
         )
     default_id = ""
@@ -111,7 +138,7 @@ def _try_rows(rows: list[dict], default_id: str) -> list[dict]:
 
 
 def _pack_row(row: dict) -> dict:
-    return _pack(
+    packed = _pack(
         row["provider"],
         _decrypt_key(row.get("api_key") or ""),
         row.get("model") or "",
@@ -119,6 +146,9 @@ def _pack_row(row: dict) -> dict:
         source="household",
         from_env=False,
     )
+    packed["job"] = normalize_job(row.get("job") or guess_job(row.get("provider"), row.get("model")))
+    packed["models"] = menu_models(row.get("provider") or "", row.get("models_live"), packed.get("model") or "")
+    return packed
 
 
 def household_config(household) -> dict:
@@ -162,13 +192,14 @@ def household_config(household) -> dict:
                 "provider": row["provider"],
                 "label": spec["label"],
                 "model": row.get("model") or "",
-                "models": list(spec.get("models") or ()),
+                "models": menu_models(row["provider"], row.get("models_live"), row.get("model") or ""),
                 "base_url": row.get("base_url") or "",
                 "needs_base": row["provider"] == "custom",
                 "key_hint": mask_secret(plain),
                 "on": bool(row.get("on")),
                 "default": row["id"] == default_id,
                 "order": row.get("order", 0),
+                "job": normalize_job(row.get("job") or guess_job(row["provider"], row.get("model"))),
             }
         )
     cfg["saved_keys"] = saved
@@ -176,6 +207,7 @@ def household_config(household) -> dict:
     cfg["backup_has_key"] = len(rows) > 1
     cfg["backup_key_hint"] = ""
     cfg["try_order"] = "primary"
+    cfg["ask_confirm"] = normalize_ask_confirm(blob.get("ask_confirm"))
     return cfg
 
 
@@ -194,6 +226,7 @@ def _write_rows(household, rows: list[dict], default_id: str, *, chat_on: bool, 
         "chat": bool(chat_on),
         "keys": rows,
         "default_id": default_id,
+        "ask_confirm": normalize_ask_confirm(blob.get("ask_confirm")),
     }
     household.settings_json = settings
     flag_modified(household, "settings_json")
@@ -332,10 +365,44 @@ def add_household_key(
             "base_url": (base_url or "").strip().rstrip("/")[:300],
             "on": bool(use),
             "order": len(rows),
+            "job": guess_job(provider, model),
         }
     )
     if not default_id:
         default_id = kid
+    chat_on, enabled_on = _chat_enabled(blob, None, None)
+    _write_rows(household, rows, default_id, chat_on=chat_on, enabled=enabled_on)
+    refresh_key_models(household, key_id=kid, stale_only=False, force=True)
+    return household_config(household)
+
+
+def refresh_key_models(household, *, key_id: str | None = None, stale_only: bool = True, force: bool = False) -> dict:
+    """Ask each saved key which chat models it can use. Keeps the last good list on a miss."""
+    blob = _ai_blob(household)
+    rows, default_id = _stored_rows(blob)
+    now = int(time.time())
+    changed = False
+    want = (key_id or "").strip()
+    for row in rows:
+        if want and row["id"] != want:
+            continue
+        live = row.get("models_live") or []
+        at = int(row.get("models_at") or 0)
+        if stale_only and not force and live and now - at < MODELS_CACHE_SECS:
+            continue
+        plain = _decrypt_key(row.get("api_key") or "")
+        if not plain:
+            continue
+        found = fetch_provider_models(row.get("provider") or "", plain, row.get("base_url") or "")
+        if not found:
+            continue
+        row["models_live"] = found[:40]
+        row["models_at"] = now
+        if not (row.get("model") or "").strip():
+            row["model"] = found[0]
+        changed = True
+    if not changed:
+        return household_config(household)
     chat_on, enabled_on = _chat_enabled(blob, None, None)
     return _write_rows(household, rows, default_id, chat_on=chat_on, enabled=enabled_on)
 
@@ -369,12 +436,16 @@ def household_key_action(
     model: str = "",
     api_key: str = "",
     base_url: str = "",
+    job: str = "",
 ) -> dict:
     blob = _ai_blob(household)
     rows, default_id = _stored_rows(blob)
     key_id = (key_id or "").strip()
     action = (action or "").strip().lower()
     row = next((r for r in rows if r["id"] == key_id), None)
+    if action == "models" and row:
+        refresh_key_models(household, key_id=key_id, stale_only=False, force=True)
+        return household_config(household)
     if action == "update" and row:
         chosen = (model or "").strip()
         if chosen:
@@ -383,6 +454,10 @@ def household_key_action(
             row["base_url"] = (base_url or "").strip().rstrip("/")[:300]
         if (api_key or "").strip():
             row["api_key"] = encrypt_text(api_key.strip()) or row["api_key"]
+            row["models_live"] = []
+            row["models_at"] = 0
+        if job:
+            row["job"] = normalize_job(job)
     elif action == "remove" and row:
         rows = [r for r in rows if r["id"] != key_id]
         if default_id == key_id:
@@ -412,6 +487,22 @@ def household_key_action(
                     if item["id"] in rank:
                         item["order"] = rank[item["id"]]
                 default_id = ids[0]
+    chat_on, enabled_on = _chat_enabled(blob, None, None)
+    _write_rows(household, rows, default_id, chat_on=chat_on, enabled=enabled_on)
+    if action == "update" and row and (api_key or "").strip():
+        refresh_key_models(household, key_id=key_id, stale_only=False, force=True)
+    return household_config(household)
+
+
+def set_household_ask_confirm(household, mode: str) -> dict:
+    settings = dict(household.settings_json or {})
+    ai = dict(settings.get("ai") or {})
+    ai["ask_confirm"] = normalize_ask_confirm(mode)
+    settings["ai"] = ai
+    household.settings_json = settings
+    flag_modified(household, "settings_json")
+    blob = _ai_blob(household)
+    rows, default_id = _stored_rows(blob)
     chat_on, enabled_on = _chat_enabled(blob, None, None)
     return _write_rows(household, rows, default_id, chat_on=chat_on, enabled=enabled_on)
 

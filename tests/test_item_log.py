@@ -28,6 +28,13 @@ class MpgTests(unittest.TestCase):
         ]
         self.assertEqual(year_driven(snaps, 2026, 87432), 7432)
 
+    def test_trip_miles(self):
+        from app.utils.item_log import _miles_int, trip_title
+
+        self.assertEqual(_miles_int("81,200"), 81200)
+        self.assertEqual(trip_title("Odessa", "Lubbock"), "Odessa → Lubbock")
+        self.assertEqual(trip_title("odessa", "lubbock"), "Odessa → Lubbock")
+
     def test_bad_gallons(self):
         self.assertIsNone(mpg_of(100, 0))
         self.assertIsNone(mpg_of(100, None))

@@ -535,7 +535,7 @@ def email_test():
 def ai_settings():
     if request.method == "POST":
         provider = normalize_provider(request.form.get("ai_provider"))
-        model = (request.form.get("ai_model") or "").strip() or DEFAULT_MODEL
+        model = (request.form.get("ai_model_custom") or request.form.get("ai_model") or "").strip() or DEFAULT_MODEL
         base = (request.form.get("ai_base_url") or "").strip()
         set_setting("ai_provider", provider)
         set_setting("ai_model", model)

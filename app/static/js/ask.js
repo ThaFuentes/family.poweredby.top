@@ -56,11 +56,35 @@
     return /model is busy|timed out|could not reach|request failed/i.test(say || "");
   }
 
-  function addBubble(role, text, imageUrl, retry) {
+  function addConfirm(el, on) {
+    if (!el || !on) return;
+    var row = document.createElement("div");
+    row.className = "ask-confirm";
+    [
+      ["yes", "Allow"],
+      ["no", "Don’t"],
+      ["always allow", "Always allow"],
+    ].forEach(function (pair) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "ask-confirm-btn";
+      btn.textContent = pair[1];
+      btn.addEventListener("click", function () {
+        sendAsk(pair[0], "", false);
+      });
+      row.appendChild(btn);
+    });
+    el.appendChild(row);
+  }
+
+  function addBubble(role, text, imageUrl, retry, confirm) {
     if (!log) return null;
     var el = document.createElement("div");
     el.className = "ask-bubble " + role;
-    el.innerHTML = linkify(text);
+    var body = document.createElement("div");
+    body.className = "ask-text";
+    body.innerHTML = linkify(text);
+    el.appendChild(body);
     if (imageUrl && String(imageUrl).indexOf("data:image/") === 0) {
       var img = document.createElement("img");
       img.className = "ask-shot-img";
@@ -79,6 +103,7 @@
       });
       el.appendChild(again);
     }
+    if (confirm) addConfirm(el, true);
     log.appendChild(el);
     log.scrollTop = log.scrollHeight;
     return el;
@@ -153,7 +178,11 @@
       var cls = el.className || "";
       if (cls.indexOf("pending") >= 0 || cls.indexOf("err") >= 0) return;
       var role = /\bme\b/.test(cls) ? "user" : "assistant";
-      var text = (el.innerText || el.textContent || "").replace(/\s*Try again\s*$/, "").trim();
+      var textEl = el.querySelector(".ask-text");
+      var text = ((textEl && (textEl.innerText || textEl.textContent)) || el.innerText || el.textContent || "")
+        .replace(/\s*Try again\s*$/, "")
+        .replace(/\s*Allow\s*Don’t\s*Always allow\s*$/, "")
+        .trim();
       if (text) out.push({ role: role, text: text });
     });
     return out;
@@ -319,7 +348,7 @@
         var data = out.data || {};
         var say = (data.say || data.error || "").trim() || "Couldn’t get an answer. Try “what tools do I have.”";
         if (pending) pending.remove();
-        addBubble(data.ok ? "them" : "them err", say, "", !data.ok && canRetry(say) ? retry : null);
+        addBubble(data.ok ? "them" : "them err", say, "", !data.ok && canRetry(say) ? retry : null, data.ok && data.confirm);
         if (data.vault_locked) addBubble("them", "Open /vault/ with this login, then ask again.");
         if (data.ok) cacheWrite(turnsFromLog());
       })

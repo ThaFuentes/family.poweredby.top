@@ -149,6 +149,11 @@ def sheet(panel):
         abort(403)
     if panel not in SHEETS:
         abort(404)
+    if panel == "ai":
+        household = Household.query.get(household_id())
+        from app.utils.household_ai import refresh_key_models
+
+        refresh_key_models(household, stale_only=True)
     ctx = _page_ctx()
     ctx["sheet_panel"] = panel
     return render_template("members/sheet.html", **ctx)
@@ -690,10 +695,11 @@ def set_member_calendar(user_id):
 @login_required
 @require_perm("settings")
 def save_ai():
-    from app.utils.household_ai import set_household_chat
+    from app.utils.household_ai import set_household_ask_confirm, set_household_chat
 
     h = Household.query.get(household_id())
     set_household_chat(h, chat=("1" in request.form.getlist("ai_chat")))
+    set_household_ask_confirm(h, request.form.get("ask_confirm") or "ask")
     flash("Ask setting saved.", "success")
     return _after()
 
@@ -713,7 +719,7 @@ def add_ai():
     add_household_key(
         h,
         provider=normalize_provider(request.form.get("ai_provider")),
-        model=(request.form.get("ai_model") or "").strip(),
+        model=(request.form.get("ai_model_custom") or request.form.get("ai_model") or "").strip(),
         api_key=key,
         base_url=(request.form.get("ai_base_url") or "").strip(),
         use=(request.form.get("ai_use") or "") in ("1", "true", "on", "yes"),
@@ -730,15 +736,20 @@ def ai_key():
 
     h = Household.query.get(household_id())
     chosen = (request.form.get("model_custom") or request.form.get("model") or "").strip()
+    action = (request.form.get("action") or "").strip()
     household_key_action(
         h,
         request.form.get("key_id") or "",
-        request.form.get("action") or "",
+        action,
         model=chosen,
         api_key=(request.form.get("api_key") or "").strip(),
         base_url=(request.form.get("base_url") or "").strip(),
+        job=(request.form.get("job") or "").strip(),
     )
-    flash("AI keys updated.", "success")
+    if action == "models":
+        flash("Loaded the latest models this key can use.", "success")
+    else:
+        flash("AI keys updated.", "success")
     return _after()
 
 

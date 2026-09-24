@@ -106,7 +106,10 @@ JOBS = (
         "tool": "inventory",
         "need": ["name"],
         "optional": ["upc", "amount", "place", "action"],
-        "how": "action is restock, used, set, need, or create. A barcode is looked up before a new row is made.",
+        "how": (
+            "action is restock, used, set, need, or create. If it is not on the site, do not invent a row — "
+            "the tool asks where (inventory, tools, a vehicle, the house). After they confirm, it is created."
+        ),
     },
     {
         "id": "basket",
@@ -214,7 +217,16 @@ JOBS = (
         "tool": "log_save",
         "need": ["item"],
         "optional": ["kind", "reading", "gallons", "cost", "notes", "title", "happened"],
-        "how": "Name the vehicle, tool, or the house. kind is miles, hours, fillup, repair, note, or code.",
+        "how": "Name the vehicle, tool, or the house. kind is miles, hours, fillup, repair, note, code, or trip.",
+    },
+    {
+        "id": "trip",
+        "perm": ("scan", "maintain", "edit_meta", "photo"),
+        "title": "Start or end a road trip",
+        "tool": "trip_save",
+        "need": [],
+        "optional": ["item", "action", "reading", "origin", "dest", "happened"],
+        "how": "action start or end. Start needs odometer miles, a vehicle, and optionally from/to. End needs ending miles — if one trip is open, that truck is used. Updates the truck's miles and the Log tab.",
     },
     {
         "id": "legal",
@@ -1071,6 +1083,157 @@ def tool_log_save(args: dict | None = None) -> dict:
         "kind": kind,
         "href": _path("items.detail", item_id=item.id) or f"/items/{item.id}",
         "did": "logged",
+    }
+
+
+def _trip_vehicle(args: dict):
+    from app.utils.ask import _find_items, _matching_machines, _pick_named_item
+    from app.utils.household import household_id
+    from app.utils.item_log import open_trips_for_household
+
+    q = _trim(args.get("item") or args.get("q") or args.get("name") or args.get("vehicle"), 200)
+    action = _trim(args.get("action") or args.get("op") or "", 20).lower()
+    ending = action in ("end", "home", "done", "close", "finish") or bool(
+        args.get("end") or args.get("end_miles")
+    )
+    picked = None
+    pick_err = None
+    if q:
+        picked, pick_err = _pick_named_item(q, ("vehicle",))
+        if picked is None and pick_err and not pick_err.get("choices"):
+            rows = _matching_machines(q, ("vehicle",))
+            if len(rows) == 1:
+                picked, pick_err = rows[0], None
+            elif len(rows) > 1:
+                pick_err = {
+                    "ok": False,
+                    "need": ["item"],
+                    "choices": [r.name for r in rows[:8]],
+                    "hint": "Which vehicle? " + ", ".join(r.name for r in rows[:6]),
+                }
+        if picked is not None:
+            return picked, None
+        if pick_err and pick_err.get("choices") and not ending:
+            return None, pick_err
+        if pick_err and not ending:
+            return None, pick_err
+
+    opens = open_trips_for_household(household_id())
+    if ending:
+        if len(opens) == 1:
+            return opens[0].item, None
+        if len(opens) > 1:
+            names = [(row.item.name if row.item else "vehicle") for row in opens]
+            return None, {
+                "ok": False,
+                "need": ["item"],
+                "choices": names,
+                "hint": "Which trip? " + ", ".join(names),
+            }
+        if picked is not None:
+            return picked, None
+        return None, {
+            "ok": False,
+            "need": ["item"],
+            "hint": "No open trip. Start one first, or name the truck.",
+        }
+
+    if pick_err:
+        return None, pick_err
+    vehicles = _find_items("", "vehicle", limit=8)
+    if len(vehicles) == 1:
+        return vehicles[0], None
+    return None, {"ok": False, "need": ["item"], "hint": "Which vehicle?"}
+
+
+def tool_trip_save(args: dict | None = None) -> dict:
+    args = args if isinstance(args, dict) else {}
+    if not (can("scan") or can("maintain") or can("edit_meta") or can("photo")):
+        return _denied("log a trip")
+    from app.builddb.builddb import db
+    from app.utils.ask import _path
+    from app.utils.item_log import end_trip, start_trip, trip_extra, trip_title
+
+    action = _trim(args.get("action") or args.get("op") or "", 20).lower()
+    if action in ("begin", "start", "open"):
+        action = "start"
+    if action in ("end", "home", "done", "close", "finish"):
+        action = "end"
+    if action not in ("start", "end"):
+        action = "end" if args.get("end") or args.get("end_miles") else "start"
+    args = dict(args)
+    args["action"] = action
+    item, err = _trip_vehicle(args)
+    if err:
+        return err
+    if item is None or item.item_type != "vehicle":
+        return {"ok": False, "error": "Trips stay on a vehicle."}
+    happened = None
+    raw_day = _trim(args.get("happened") or args.get("date") or args.get("day"), 32)
+    if raw_day:
+        try:
+            happened = datetime.strptime(raw_day[:10], "%Y-%m-%d").date()
+        except ValueError:
+            happened = None
+    href = (_path("items.detail", item_id=item.id) or f"/items/{item.id}") + "?tab=log"
+    if action == "start":
+        try:
+            row, status = start_trip(
+                item,
+                user_id=current_user.id,
+                start_miles=args.get("reading") or args.get("start") or args.get("start_miles") or args.get("miles"),
+                origin=args.get("origin") or args.get("from") or "",
+                dest=args.get("dest") or args.get("to") or "",
+                happened_on=happened,
+                notes=args.get("notes"),
+            )
+        except ValueError as exc:
+            return {"ok": False, "need": ["reading"], "hint": str(exc)}
+        db.session.commit()
+        extra = trip_extra(row)
+        title = trip_title(extra.get("origin") or "", extra.get("dest") or "")
+        if status == "open":
+            return {
+                "ok": False,
+                "need": ["action"],
+                "hint": f"A trip is already open on {item.name}: {title} at {int(extra.get('start_miles') or row.reading or 0):,} miles. End it first.",
+                "href": href,
+            }
+        return {
+            "ok": True,
+            "id": item.id,
+            "log_id": row.id,
+            "name": item.name,
+            "title": title,
+            "start_miles": extra.get("start_miles"),
+            "href": href,
+            "did": "trip started",
+        }
+    try:
+        row, miles = end_trip(
+            item,
+            user_id=current_user.id,
+            end_miles=args.get("reading") or args.get("end") or args.get("end_miles") or args.get("miles"),
+            happened_on=happened,
+            notes=args.get("notes"),
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        need = ["reading"] if "ending" in msg.lower() or "Need ending" in msg else ["item"]
+        return {"ok": False, "need": need, "hint": msg}
+    db.session.commit()
+    extra = trip_extra(row)
+    title = trip_title(extra.get("origin") or "", extra.get("dest") or "")
+    return {
+        "ok": True,
+        "id": item.id,
+        "log_id": row.id,
+        "name": item.name,
+        "title": title,
+        "miles": miles,
+        "end_miles": extra.get("end_miles"),
+        "href": href,
+        "did": "trip ended",
     }
 
 

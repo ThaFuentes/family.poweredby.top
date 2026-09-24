@@ -1353,6 +1353,66 @@ def add_log(item_id):
     return redirect(url_for("items.detail", item_id=item.id, tab="log"))
 
 
+@items_bp.route("/<int:item_id>/trip", methods=["POST"])
+@login_required
+def trip_log(item_id):
+    if not (can("scan") or can("maintain") or can("edit_meta") or can("photo")):
+        abort(403)
+    item = _item_or_404(item_id)
+    if item.item_type != "vehicle":
+        abort(404)
+    from app.utils.item_log import end_trip, start_trip, trip_extra, trip_title
+
+    action = (request.form.get("action") or "start").strip().lower()
+    happened = _parse_day(request.form.get("happened_on") or "") or datetime.utcnow().date()
+    if action == "end":
+        try:
+            row, miles = end_trip(
+                item,
+                user_id=current_user.id,
+                end_miles=request.form.get("end_miles") or request.form.get("reading"),
+                happened_on=happened,
+                notes=request.form.get("notes"),
+            )
+        except ValueError as exc:
+            flash(str(exc), "danger")
+            return redirect(url_for("items.detail", item_id=item.id, tab="log"))
+        db.session.commit()
+        extra = trip_extra(row)
+        label = trip_title(extra.get("origin") or "", extra.get("dest") or "")
+        flash(
+            f"{label}: {miles:,} miles. {item.name} is at {int(row.reading):,} miles.",
+            "success",
+        )
+        return redirect(url_for("items.detail", item_id=item.id, tab="log"))
+    try:
+        row, status = start_trip(
+            item,
+            user_id=current_user.id,
+            start_miles=request.form.get("start_miles") or request.form.get("reading"),
+            origin=request.form.get("origin") or "",
+            dest=request.form.get("dest") or "",
+            happened_on=happened,
+            notes=request.form.get("notes"),
+        )
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("items.detail", item_id=item.id, tab="log"))
+    db.session.commit()
+    extra = trip_extra(row)
+    if status == "open":
+        flash(
+            f"A trip is already open: {trip_title(extra.get('origin') or '', extra.get('dest') or '')}. End it first.",
+            "warning",
+        )
+    else:
+        flash(
+            f"Trip started: {trip_title(extra.get('origin') or '', extra.get('dest') or '')} at {int(row.reading):,} miles.",
+            "success",
+        )
+    return redirect(url_for("items.detail", item_id=item.id, tab="log"))
+
+
 @items_bp.route("/<int:item_id>/oil", methods=["POST"])
 @login_required
 def save_oil(item_id):

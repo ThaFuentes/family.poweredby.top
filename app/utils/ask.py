@@ -22,6 +22,8 @@ SESSION_HISTORY = "family_ask_history"
 SESSION_HITS = "family_ask_hits"
 SESSION_OIL_PENDING = "family_ask_oil_pending"
 SESSION_EXPIRE_PENDING = "family_ask_expire_pending"
+SESSION_ITEM_PENDING = "family_ask_item_pending"
+SESSION_REMOVE_PENDING = "family_ask_remove_pending"
 MAX_HISTORY = 24
 MAX_TOOL_ROUNDS = 6
 MAX_HITS = 40
@@ -58,6 +60,7 @@ TOOLS = (
     "member_remove",
     "part_save",
     "log_save",
+    "trip_save",
     "legal_save",
     "oil_save",
     "oil_lookup",
@@ -83,6 +86,7 @@ WRITE_TOOLS = (
     "member_remove",
     "part_save",
     "log_save",
+    "trip_save",
     "legal_save",
     "oil_save",
     "item_remove",
@@ -134,6 +138,8 @@ The say field is spoken English only. Never put JSON, tool names, or raw tool re
 {"tool":"member_password","args":{"username":"sam","password":""}}
 {"tool":"member_remove","args":{"username":"sam"}}
 {"tool":"log_save","args":{"item":"Silverado","kind":"miles","reading":"81200","notes":""}}
+{"tool":"trip_save","args":{"item":"blue tundra","action":"start","reading":"81200","origin":"Odessa","dest":"Lubbock"}}
+{"tool":"trip_save","args":{"item":"blue tundra","action":"end","reading":"81650"}}
 {"tool":"oil_save","args":{"item":"Honda generator","needs":"SAE 10W-30","capacity":"20 oz","in_it":"","last_date":"","interval_hours":"50","interval_months":"6"}}
 {"tool":"oil_lookup","args":{"q":"white tundra 2011"}}
 {"tool":"expire_list","args":{"days":21}}
@@ -149,9 +155,9 @@ needs is the Oil it needs field. in_it is what was poured. Do not say the oil wa
 If they say add that, save that, yes, or put that on a vehicle, tool, or the house, save your previous reply on that item with note_save. When the reply is an oil spec, also oil_save with needs set to that spec.
 Adding a person: call member_add only when you have a name and username. If either is missing, ask. Role member, admin, or child. Password may be blank.
 When member_add returns a password, say the username and password once so they can copy it.
-inventory action: restock, used, set, need, create.
+inventory action: restock, used, set, need, create. If the item is not on the site, do not create it yet — inventory returns a where/confirm need. Ask which place: inventory (pantry/fridge), tools, a named vehicle, or the house. After they say yes and where, call the matching save tool.
 expire_save writes a use-by date on food. expire_list says what is going bad soon and how many food rows have no date. expire_guess writes typical shelf life on those undated rows when they say add generic expirations.
-item_remove takes a tool, vehicle, or grocery out of the house. Confirm the name you found, then remove it. Do not remove vault cards this way.
+item_remove takes a tool, vehicle, or grocery out of the house. Call it with the exact name. Prefer a grocery when they named food (protein bars, milk). Never remove a vehicle unless they named that truck or said truck/car. The tool asks for a yes before it deletes. Do not remove vault cards this way.
 vault kind: password, billing, info. share: personal or household.
 two_factor: none, sms, app, email, hardware, other.
 reminder type: bill, oil_change, filter, custom. every: 30d, 90d, 180d, 365d, 3000mi, 5000mi, 50h, or monthly/yearly.
@@ -160,6 +166,8 @@ If they name a store run (Sam's, Costco) put those names on the basket with stor
 If vault is locked, call vault_unlock when they gave the password, else tell them to open /vault/ or paste the password.
 Look up a UPC/VIN before creating a tool, vehicle, or grocery when they gave a code.
 A saved vehicle or tool already has its year, make, model, color, VIN, plate, serial, and oil. Call item_inspect or vehicle_card before you ask for any of those.
+Trips: start a trip with trip_save action start (odometer + from/to). End it with action end and the new miles. That updates the truck's miles and the Log tab. "I'm home with 81650 miles" is an end.
+The app may queue writes and ask them to allow. A queued result is not saved yet. Do not say you already saved until a tool returns ok without queued.
 Do not invent counts, passwords, VINs, or bills. Keep answers short.
 """
 
@@ -446,7 +454,9 @@ _VEHICLE_STOP = {
     "need", "needs", "for", "and", "its", "it's", "this", "that", "with", "about",
     "use", "type", "named", "name", "right", "area", "truck", "trucks", "car",
     "cars", "vehicle", "vehicles", "are", "was", "were", "there", "still", "not",
-    "finding", "kinda", "kind", "into", "onto",
+    "finding", "kinda", "kind", "into", "onto", "delete", "remove", "removed",
+    "home", "miles", "mile", "trip", "trips", "start", "starting", "begin",
+    "ending", "odometer", "odo",
 }
 
 
@@ -556,6 +566,8 @@ _TOKEN_EXPAND = {
     "generator": ("gen", "generator", "genset"),
     "mower": ("mower", "lawnmower", "lawn"),
     "lawnmower": ("mower", "lawnmower", "lawn"),
+    "tundra": ("tundra", "trundra"),
+    "trundra": ("tundra", "trundra"),
 }
 
 
@@ -907,6 +919,7 @@ def _lookup_oem_oil(item) -> dict:
         timeout=25,
         household=household,
         household_only=True,
+        job="heavy",
     )
     parsed = parse_json_object(raw) if ok else None
     spec = {}
@@ -1009,6 +1022,12 @@ _GENERIC_EXPIRE = re.compile(
     r"(?:generic|typical|usual)\s+(?:expir|use[- ]?by|dates?)",
     re.I,
 )
+_ITEM_WHERE = re.compile(
+    r"\b(inventory|pantry|fridge|freezer|grocery|groceries|food|kitchen|garage|"
+    r"tools?|truck|trucks?|vehicle|vehicles?|car|cars?|house)\b",
+    re.I,
+)
+_NO_ADD = re.compile(r"^\s*(no|nope|cancel|never mind|don't|do not)\b", re.I)
 
 
 def _apply_pending_oil() -> dict | None:
@@ -1057,6 +1076,233 @@ def _apply_pending_oil() -> dict | None:
     }
 
 
+def _parse_add_where(text: str) -> dict:
+    t = (text or "").lower()
+    place = ""
+    if re.search(r"\b(fridge|refrigerator)\b", t):
+        place = "fridge"
+    elif re.search(r"\bfreezer\b", t):
+        place = "freezer"
+    elif re.search(r"\bpantry\b", t):
+        place = "pantry"
+    elif re.search(r"\bkitchen\b", t):
+        place = "kitchen"
+    elif re.search(r"\bgarage\b", t):
+        place = "garage"
+    kind = None
+    if re.search(r"\b(inventory|grocery|groceries|food|pantry|fridge|freezer|kitchen)\b", t):
+        kind = "grocery"
+    elif re.search(r"\btools?\b", t):
+        kind = "tool"
+    elif re.search(r"\bhouse\b", t):
+        kind = "house"
+    vehicles = _matching_machines(text, ("vehicle",))
+    if vehicles:
+        item = vehicles[0]
+        return {
+            "kind": "vehicle",
+            "place": place or item.name,
+            "vehicle": item.name,
+            "vehicle_id": item.id,
+        }
+    if kind is None and place:
+        kind = "grocery"
+    return {"kind": kind, "place": place, "vehicle": "", "vehicle_id": None}
+
+
+def _where_label(where: dict) -> str:
+    kind = (where or {}).get("kind") or ""
+    place = (where or {}).get("place") or ""
+    vehicle = (where or {}).get("vehicle") or ""
+    if kind == "tool":
+        return "tools"
+    if kind == "house":
+        return "the house"
+    if kind == "vehicle":
+        return f"the {vehicle}" if vehicle else "that vehicle"
+    if kind == "grocery":
+        return f"inventory ({place})" if place else "inventory"
+    return "inventory, tools, a vehicle, or the house"
+
+
+def _stash_pending_item(payload: dict) -> None:
+    if not has_request_context():
+        return
+    session[SESSION_ITEM_PENDING] = payload
+    session.pop(SESSION_OIL_PENDING, None)
+
+
+def _ask_where_to_add(name: str, *, upc: str = "", amount=1, place: str = "", where_text: str = "") -> dict:
+    extra = ""
+    if has_request_context():
+        extra = getattr(g, "ask_message", "") or ""
+    guess = _parse_add_where(" ".join(x for x in (name, place, where_text, extra) if x))
+    if not guess.get("kind") and place:
+        guess = {"kind": "grocery", "place": place, "vehicle": "", "vehicle_id": None}
+    _stash_pending_item(
+        {
+            "name": name,
+            "upc": upc,
+            "amount": amount,
+            "kind": guess.get("kind") or "",
+            "place": guess.get("place") or place,
+            "vehicle": guess.get("vehicle") or "",
+            "vehicle_id": guess.get("vehicle_id"),
+        }
+    )
+    if guess.get("kind"):
+        hint = (
+            f"{name} isn’t on the site yet. Add it to {_where_label(guess)}? "
+            "Say yes, or pick inventory, tools, a vehicle, or the house."
+        )
+    else:
+        hint = (
+            f"{name} isn’t on the site yet. Where should it go — inventory (pantry/fridge), "
+            "tools, a vehicle, or the house?"
+        )
+    return {
+        "ok": False,
+        "need": ["confirm", "where"],
+        "name": name,
+        "choices": ["inventory", "tools", "vehicle", "house"],
+        "guess": guess.get("kind") or "",
+        "hint": hint,
+    }
+
+
+def _create_from_pending(where: dict) -> dict:
+    pending = session.get(SESSION_ITEM_PENDING) if has_request_context() else None
+    if not isinstance(pending, dict) or not pending.get("name"):
+        return {"ok": False, "error": "Nothing waiting to add."}
+    from app.routes.items import can_create_type, quick_create_item
+    from app.utils.household import household_id
+
+    name = pending.get("name") or "Item"
+    upc = pending.get("upc") or ""
+    amount = pending.get("amount") or 1
+    kind = (where.get("kind") or pending.get("kind") or "grocery").strip().lower()
+    place = where.get("place") or pending.get("place") or ""
+    vehicle_id = where.get("vehicle_id") or pending.get("vehicle_id")
+    vehicle_name = where.get("vehicle") or pending.get("vehicle") or ""
+    hid = household_id()
+    session.pop(SESSION_ITEM_PENDING, None)
+    if kind == "tool":
+        if not can_create_type("tool"):
+            return {"ok": False, "error": "You cannot add tools."}
+        item, status = quick_create_item(
+            hid=hid, user_id=current_user.id, name=name, item_type="tool", barcode=upc or None
+        )
+        if item is None:
+            return {"ok": False, "error": status or "Could not add that tool."}
+        href = _path("items.detail", item_id=item.id) or f"/items/{item.id}"
+        return {"ok": True, "id": item.id, "name": item.name, "did": "saved", "href": href, "where": "tools"}
+    if kind == "house":
+        from app.utils.ask_do import tool_part_save
+
+        return tool_part_save({"name": name, "vehicle": "house", "serial": upc})
+    if kind == "vehicle":
+        if not vehicle_id:
+            rows = _matching_machines(vehicle_name, ("vehicle",)) if vehicle_name else _find_items("", "vehicle", limit=8)
+            if len(rows) == 1:
+                vehicle_id = rows[0].id
+                vehicle_name = rows[0].name
+            elif rows:
+                names = ", ".join(r.name for r in rows[:6])
+                _stash_pending_item({**pending, "kind": "vehicle"})
+                return {
+                    "ok": False,
+                    "need": ["where"],
+                    "hint": f"Which vehicle for {name}? {names}",
+                    "choices": [r.name for r in rows[:8]],
+                }
+            else:
+                _stash_pending_item(pending)
+                return {
+                    "ok": False,
+                    "need": ["where"],
+                    "hint": f"Which vehicle should {name} go on?",
+                }
+        if not can_create_type("tool"):
+            return {"ok": False, "error": "You cannot add equipment to a vehicle."}
+        item, status = quick_create_item(
+            hid=hid,
+            user_id=current_user.id,
+            name=name,
+            item_type="tool",
+            barcode=upc or None,
+            linked_item_id=vehicle_id,
+        )
+        if item is None:
+            return {"ok": False, "error": status or "Could not add that."}
+        href = _path("items.detail", item_id=item.id) or f"/items/{item.id}"
+        return {
+            "ok": True,
+            "id": item.id,
+            "name": item.name,
+            "did": "saved",
+            "href": href,
+            "where": vehicle_name or "vehicle",
+        }
+    if not can_create_type("grocery"):
+        return {"ok": False, "error": "You cannot add inventory."}
+    item, status = quick_create_item(
+        hid=hid,
+        user_id=current_user.id,
+        name=name,
+        item_type="grocery",
+        barcode=upc or None,
+        location=place or None,
+        quantity=amount,
+        action="restock",
+    )
+    if item is None:
+        return {"ok": False, "error": status or "Could not add that."}
+    href = _path("items.detail", item_id=item.id) or f"/items/{item.id}"
+    label = f"inventory ({place})" if place else "inventory"
+    if status == "exists":
+        return {"ok": True, "id": item.id, "name": item.name, "did": "already had it · restocked", "href": href, "where": label}
+    return {"ok": True, "id": item.id, "name": item.name, "did": "saved", "href": href, "where": label}
+
+
+def _speak_add_result(result: dict, name: str) -> str:
+    if not result.get("ok"):
+        return str(result.get("hint") or result.get("error") or "Could not add that.")
+    where = result.get("where") or "the house"
+    href = result.get("href") or ""
+    return f"Added {result.get('name') or name} to {where}. {href}".strip()
+
+
+def _apply_pending_item(text: str) -> dict | None:
+    pending = session.get(SESSION_ITEM_PENDING) if has_request_context() else None
+    if not isinstance(pending, dict) or not pending.get("name"):
+        return None
+    if _NO_ADD.match(text or ""):
+        session.pop(SESSION_ITEM_PENDING, None)
+        return {
+            "ok": True,
+            "say": f"Okay, I left {pending.get('name')} off.",
+            "did": [],
+            "vault_locked": False,
+        }
+    where = _parse_add_where(text)
+    if not where.get("kind"):
+        where = {
+            "kind": pending.get("kind") or "grocery",
+            "place": pending.get("place") or "",
+            "vehicle": pending.get("vehicle") or "",
+            "vehicle_id": pending.get("vehicle_id"),
+        }
+    result = _create_from_pending(where)
+    if result.get("need"):
+        return {"ok": True, "say": result.get("hint") or "Which one?", "did": [], "vault_locked": False}
+    return {
+        "ok": bool(result.get("ok")),
+        "say": _speak_add_result(result, pending.get("name") or "it"),
+        "did": ["item"] if result.get("ok") else [],
+        "vault_locked": False,
+    }
+
+
 def _confirm_pending(text: str) -> dict | None:
     raw = (text or "").strip()
     if _GENERIC_EXPIRE.search(raw):
@@ -1066,6 +1312,38 @@ def _confirm_pending(text: str) -> dict | None:
             "ok": True,
             "say": _speak_expire_guess(result),
             "did": ["expire"] if result.get("ok") else [],
+            "vault_locked": False,
+        }
+    if session.get(SESSION_ITEM_PENDING) and (
+        _YES_ADD.match(raw) or _ITEM_WHERE.search(raw) or _NO_ADD.match(raw)
+    ):
+        applied = _apply_pending_item(raw)
+        if applied:
+            return applied
+    if session.get(SESSION_REMOVE_PENDING) and (_YES_ADD.match(raw) or _NO_ADD.match(raw)):
+        if _NO_ADD.match(raw):
+            pending = session.pop(SESSION_REMOVE_PENDING, {}) or {}
+            return {
+                "ok": True,
+                "say": f"Okay, I left {pending.get('name') or 'it'} in the house.",
+                "did": [],
+                "vault_locked": False,
+            }
+        pending = session.get(SESSION_REMOVE_PENDING) or {}
+        item, err = _pick_named_item(str(pending.get("id") or ""), (pending.get("kind") or "grocery",))
+        session.pop(SESSION_REMOVE_PENDING, None)
+        if err or item is None:
+            return {
+                "ok": True,
+                "say": "That item is already gone.",
+                "did": [],
+                "vault_locked": False,
+            }
+        result = _soft_remove_item(item)
+        return {
+            "ok": True,
+            "say": f"Removed {result.get('name') or item.name} from the house. {result.get('href') or ''}".strip(),
+            "did": ["remove"],
             "vault_locked": False,
         }
     if not _YES_ADD.match(raw):
@@ -1304,6 +1582,80 @@ def _remember_reply(text: str) -> dict | None:
     }
 
 
+_TRIP_START = re.compile(
+    r"\b(start|starting|begin|open)\b.{0,50}\btrip\b|\btrip\b.{0,40}\b(from|to)\b",
+    re.I,
+)
+_TRIP_END = re.compile(
+    r"\b(i['’]?m\s+home|im\s+home|home\s+with|end(?:ing)?\s+(?:the\s+)?trip|trip\s+is\s+(?:over|done)|back\s+home)\b",
+    re.I,
+)
+_TRIP_FROM_TO = re.compile(r"from\s+([^,\n]+?)\s+to\s+([^,\n]+?)(?:\s+with|\s+at|\s*$|,)", re.I)
+_TRIP_IN = re.compile(
+    r"\bin\s+(?:my|the|our)\s+(.+?)(?:\s*,|\s+with\b|\s+from\b|\s+at\b|\s*$)",
+    re.I,
+)
+_TRIP_MILES = re.compile(
+    r"(?:with|at|odometer|odo)\s*[:=]?\s*(\d{3,7})|(\d{3,7})\s*(?:miles|mi)\b",
+    re.I,
+)
+
+
+def _trip_miles_from(text: str):
+    m = _TRIP_MILES.search(text or "")
+    if not m:
+        return None
+    return m.group(1) or m.group(2)
+
+
+def _trip_item_hint(text: str, *, ending: bool) -> str:
+    raw = text or ""
+    named = _TRIP_IN.search(raw)
+    if named:
+        return named.group(1).strip(" .,")[:80]
+    if ending:
+        return ""
+    return raw
+
+
+def _trip_local_say(text: str) -> str | None:
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    start = bool(_TRIP_START.search(raw))
+    end = bool(_TRIP_END.search(raw))
+    if not start and not end:
+        return None
+    miles = _trip_miles_from(raw)
+    if end and not start and not miles and not re.search(r"\btrip\b", raw, re.I):
+        return None
+    from app.utils.ask_do import tool_trip_save
+
+    origin, dest = "", ""
+    route = _TRIP_FROM_TO.search(raw)
+    if route:
+        origin = route.group(1).strip(" .,").title()
+        dest = route.group(2).strip(" .,").title()
+    action = "start" if start and not end else "end"
+    args = {
+        "item": _trip_item_hint(raw, ending=(action == "end")),
+        "action": action,
+        "reading": miles or "",
+    }
+    if origin:
+        args["origin"] = origin
+    if dest:
+        args["dest"] = dest
+    from app.utils.ask_confirm import hold_writes, should_hold_tool
+
+    if should_hold_tool("trip_save", args):
+        return hold_writes([{"tool": "trip_save", "args": args}])
+    result = tool_trip_save(args)
+    if result.get("need") or result.get("error"):
+        return str(result.get("hint") or result.get("error") or "")
+    return _speak_result("trip_save", result) or None
+
+
 def _expire_local_say(text: str) -> str | None:
     t = (text or "").strip().lower()
     if not t:
@@ -1320,7 +1672,7 @@ def _local_house_say(text: str) -> str | None:
     if not t:
         return None
     if re.search(
-        r"\b(add|save|create|new|delete|remove|share|oil|note|spec|filter|tire|battery|expir|set)\b",
+        r"\b(add|save|create|new|delete|remove|share|oil|note|spec|filter|tire|battery|expir|set|trip)\b",
         t,
     ):
         return None
@@ -1406,6 +1758,17 @@ def _speak_result(tool: str, r: dict) -> str:
         return _speak_expire(r)
     if tool == "expire_guess" or r.get("filled") is not None and r.get("skipped") is not None:
         return _speak_expire_guess(r)
+    if tool == "trip_save":
+        if r.get("did") == "trip started":
+            return (
+                f"Trip started on {r.get('name')}: {r.get('title') or 'trip'} "
+                f"at {int(r.get('start_miles') or 0):,} miles. {r.get('href') or ''}"
+            ).strip()
+        if r.get("did") == "trip ended":
+            return (
+                f"{r.get('title') or 'Trip'}: {int(r.get('miles') or 0):,} miles. "
+                f"{r.get('name')} is at {int(r.get('end_miles') or 0):,} miles. {r.get('href') or ''}"
+            ).strip()
     if tool == "oil_lookup":
         oem = r.get("oem") or {}
         if oem.get("needs"):
@@ -1680,10 +2043,77 @@ def _soft_remove_item(item) -> dict:
     }
 
 
+def _name_token_hits(item, tokens: list[str]) -> int:
+    blob = (getattr(item, "name", None) or "").lower()
+    extra = getattr(item, "category", None) or ""
+    grocery = getattr(item, "grocery", None)
+    if grocery is not None:
+        extra = " ".join(str(x or "") for x in (extra, grocery.brand, grocery.size))
+    blob = (blob + " " + extra).lower()
+    return sum(1 for tok in tokens if tok and tok in blob)
+
+
+def _pick_for_remove(q: str):
+    needle = _trim(q, 200)
+    if not needle:
+        return None, {"ok": False, "need": ["q"], "hint": "Which item should I take out?"}
+    raw = needle.lower()
+    wants_vehicle = bool(re.search(r"\b(truck|trucks|car|cars|van|suv|vehicle|vehicles)\b", raw))
+    wants_tool = bool(re.search(r"\b(tool|tools|drill|mower|gen|generator|saw)\b", raw))
+    foodish = bool(
+        re.search(
+            r"\b(protein|bar|bars|milk|cereal|snack|chip|chips|food|grocery|groceries|"
+            r"pantry|bread|egg|eggs|yogurt|juice|soda|candy)\b",
+            raw,
+        )
+    )
+    if wants_vehicle and not foodish:
+        order = ("vehicle", "tool", "grocery")
+    elif wants_tool and not foodish:
+        order = ("tool", "grocery", "vehicle")
+    else:
+        order = ("grocery", "tool", "vehicle")
+    tokens = [t for t in _machine_tokens(needle) if t not in ("delete", "remove", "removed")]
+    hits = []
+    for kind in order:
+        found = _find_items(needle, kind, limit=8)
+        if not found and tokens:
+            scored = []
+            for item in _find_items("", kind, limit=40):
+                n = _name_token_hits(item, tokens)
+                need = min(2, len(tokens)) if len(tokens) > 1 else 1
+                if n >= need:
+                    scored.append((n, item))
+            scored.sort(key=lambda pair: (-pair[0], (pair[1].name or "").lower()))
+            found = [item for _, item in scored[:6]]
+        if kind == "vehicle" and not wants_vehicle:
+            found = [
+                item
+                for item in found
+                if tokens and _name_token_hits(item, tokens) >= min(2, len(tokens) or 1)
+            ]
+        for item in found:
+            if all(item.id != old.id for old in hits):
+                hits.append(item)
+        if hits:
+            break
+    if len(hits) == 1:
+        return hits[0], None
+    if len(hits) > 1:
+        names = ", ".join(f"{r.name} ({r.item_type})" for r in hits[:6])
+        return None, {
+            "ok": False,
+            "need": ["q"],
+            "choices": [r.name for r in hits[:8]],
+            "hint": f"Which one? {names}",
+        }
+    return None, {"ok": False, "error": f"Nothing saved matches {needle}."}
+
+
 def tool_item_remove(args: dict | None = None) -> dict:
     args = args if isinstance(args, dict) else {}
     q = _trim(args.get("q") or args.get("name") or args.get("item") or "", 200)
-    item, err = _pick_named_item(q, ("tool", "vehicle", "grocery"))
+    item, err = _pick_for_remove(q)
     if err:
         return err
     if not _can_remove_item(item):
@@ -1691,6 +2121,29 @@ def tool_item_remove(args: dict | None = None) -> dict:
             "ok": False,
             "denied": True,
             "error": f"You cannot remove {item.name}. That stays with someone who can edit it.",
+        }
+    from app.utils.ask_confirm import write_needs_confirm
+
+    if write_needs_confirm("item_remove", args):
+        if has_request_context():
+            session[SESSION_REMOVE_PENDING] = {
+                "id": item.id,
+                "name": item.name,
+                "kind": item.item_type,
+            }
+        kind = {"grocery": "inventory", "tool": "tools", "vehicle": "vehicles"}.get(item.item_type, item.item_type)
+        href = _path("items.detail", item_id=item.id) or f"/items/{item.id}"
+        return {
+            "ok": False,
+            "need": ["confirm"],
+            "id": item.id,
+            "name": item.name,
+            "kind": item.item_type,
+            "href": href,
+            "hint": (
+                f"Remove {item.name} from {kind}? Say yes. "
+                "That is the only thing I will take out."
+            ),
         }
     return _soft_remove_item(item)
 
@@ -2388,7 +2841,6 @@ def tool_reminder_save(args: dict) -> dict:
 
 
 def tool_inventory(args: dict) -> dict:
-    from app.routes.items import can_create_type, quick_create_item
     from app.utils.household import household_id
     from app.utils.scan import apply_grocery_stock, flag_need_more, qty_label
 
@@ -2404,44 +2856,19 @@ def tool_inventory(args: dict) -> dict:
     amount = args.get("amount") or args.get("qty") or 1
     place = _trim(args.get("place") or args.get("location"), 80)
     hid = household_id()
-    if action == "create":
-        if not can_create_type("grocery"):
-            return {"ok": False, "error": "You cannot add inventory."}
-        name = q or "Item"
-        item, status = quick_create_item(
-            hid=hid,
-            user_id=current_user.id,
-            name=name,
-            item_type="grocery",
-            barcode=upc or None,
-            location=place or None,
-            quantity=amount,
-            action="restock",
-        )
-        if item is None:
-            return {"ok": False, "error": status or "Could not add that."}
-        if status == "exists":
-            g = item.grocery
-            if g is not None:
-                apply_grocery_stock(g, item, "restock", amount, current_user.id, place=place or None)
-                db.session.commit()
-            return {
-                "ok": True,
-                "id": item.id,
-                "name": item.name,
-                "did": "already had it · restocked",
-                "href": _path("items.detail", item_id=item.id),
-            }
-        return {
-            "ok": True,
-            "id": item.id,
-            "name": item.name,
-            "did": "saved",
-            "href": _path("items.detail", item_id=item.id),
-        }
-    rows = _find_items(q, "grocery")
+    rows = _find_items(q, "grocery") if q else []
+    if upc and not rows:
+        from app.builddb.table_items import Item
+
+        hit = Item.query.filter_by(household_id=hid, barcode=upc).filter(Item.removed_at.is_(None)).first()
+        if hit is not None:
+            rows = [hit]
     if not rows:
-        return {"ok": False, "error": f"Nothing in inventory matches {q or 'that'}. Use action create to add it."}
+        name = q or "Item"
+        where_text = _trim(args.get("where") or args.get("on") or place, 80)
+        return _ask_where_to_add(name, upc=upc, amount=amount, place=place, where_text=where_text)
+    if action == "create":
+        action = "restock"
     item = rows[0]
     g = item.grocery
     if g is None:
@@ -2701,6 +3128,10 @@ def run_tool(name: str, args: dict | None) -> dict:
             from app.utils.ask_do import tool_log_save
 
             return tool_log_save(args)
+        if key == "trip_save":
+            from app.utils.ask_do import tool_trip_save
+
+            return tool_trip_save(args)
         if key == "legal_save":
             from app.utils.ask_do import tool_legal_save
 
@@ -2890,6 +3321,8 @@ def run_ask(
 
     _set_room(room)
     text = _trim(message, MSG_CAP)
+    if has_request_context():
+        g.ask_message = text
     photo = None
     if image_bytes:
         stash_ask_photo(int(getattr(household, "id", 0) or 0), image_bytes, image_mime or "image/jpeg")
@@ -2926,6 +3359,15 @@ def run_ask(
         return {"ok": True, "say": slash, "did": [], "vault_locked": False, "room": _room()}
     if not _rate_ok():
         return {"ok": False, "error": "Give Ask a minute. Too many questions just now."}
+    from app.utils.ask_confirm import handle_reply, hold_writes, should_hold_tool
+
+    gated = None if has_photo else handle_reply(text)
+    if gated:
+        history = _history()
+        history.append({"role": "user", "text": text})
+        history.append({"role": "assistant", "text": gated.get("say") or ""})
+        _save_history(history)
+        return gated
     confirmed = None if has_photo else _confirm_pending(text)
     if confirmed:
         history = _history()
@@ -2954,6 +3396,18 @@ def run_ask(
         history.append({"role": "assistant", "text": stored})
         _save_history(history)
         return {"ok": True, "say": stored, "did": [], "vault_locked": False}
+    trip_say = None if has_photo else _trip_local_say(text)
+    if trip_say:
+        payload = (
+            trip_say
+            if isinstance(trip_say, dict)
+            else {"ok": True, "say": trip_say, "did": [], "vault_locked": False}
+        )
+        history = _history()
+        history.append({"role": "user", "text": text})
+        history.append({"role": "assistant", "text": payload.get("say") or ""})
+        _save_history(history)
+        return payload
     expire_say = None if has_photo else _expire_local_say(text)
     if expire_say:
         history = _history()
@@ -2974,6 +3428,7 @@ def run_ask(
     if oil_note:
         tool_notes.append(oil_note)
     did = []
+    queued = []
     last_say = ""
     system = _system_now(has_photo)
     for _ in range(MAX_TOOL_ROUNDS + 1):
@@ -2986,6 +3441,7 @@ def run_ask(
             household_only=True,
             image_bytes=photo[0] if has_photo else None,
             image_mime=(photo[1] if has_photo else None) or "image/jpeg",
+            job="heavy" if has_photo else "everyday",
         )
         if not ok:
             spoken = _speak_tool_notes(tool_notes) or _local_house_say(text)
@@ -2998,6 +3454,15 @@ def run_ask(
             return {"ok": False, "error": raw or "The model is busy. Try “what tools do I have.”"}
         turn = _parse_turn(raw)
         if turn["kind"] == "tool":
+            if should_hold_tool(turn["tool"], turn.get("args"), has_photo=has_photo):
+                queued.append({"tool": turn["tool"], "args": turn.get("args") or {}})
+                tool_notes.append(
+                    {
+                        "tool": turn["tool"],
+                        "result": {"ok": True, "queued": True, "hint": "Waiting for you to allow this."},
+                    }
+                )
+                continue
             result = run_tool(turn["tool"], turn.get("args"))
             if has_photo and turn["tool"] in PHOTO_TOOLS:
                 try:
@@ -3019,6 +3484,15 @@ def run_ask(
         if not last_say and tool_notes:
             last_say = _speak_tool_notes(tool_notes)
         break
+    if queued:
+        held = hold_writes(queued)
+        last_say = held.get("say") or last_say
+        last_say = _with_issued_login(last_say, tool_notes)
+        history.append({"role": "user", "text": text})
+        history.append({"role": "assistant", "text": last_say})
+        _save_history(history)
+        held["say"] = last_say
+        return held
     if not last_say:
         last_say = _speak_tool_notes(tool_notes) or _oil_local_say(text) or _expire_local_say(text) or _local_house_say(text)
     last_say = _plain_say(last_say or "", tool_notes)

@@ -631,10 +631,10 @@ a.btn:hover { text-decoration: none; }
   position: absolute;
   z-index: 2;
   pointer-events: none;
-  left: 7%;
-  right: 7%;
-  top: 40%;
-  height: 18%;
+  left: 4%;
+  right: 4%;
+  top: 36%;
+  height: 26%;
   width: auto;
   transform: none;
   border: 2.5px solid #3ecf7a;
@@ -2013,6 +2013,26 @@ html.family-intro-out #family-intro{opacity:0;transition:opacity .4s ease}
   font-weight: 800;
   cursor: pointer;
 }
+.ask-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  margin-top: .5rem;
+}
+.ask-confirm-btn {
+  display: inline-flex;
+  padding: .35rem .7rem;
+  border: 0;
+  border-radius: .65rem;
+  background: #2d6a45;
+  color: #fff;
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.ask-confirm-btn:nth-child(2) { background: #5c1810; }
+.ask-confirm-btn:nth-child(3) { background: #2c332e; }
 .ask-bubble a { font-weight: 800; color: inherit; }
 .ask-form {
   display: grid;

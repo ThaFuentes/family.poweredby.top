@@ -160,7 +160,7 @@
   </div>
   <script>window.FAMILY_CAN_CREATE = {{ 'true' if can('edit_grocery') or can('edit_meta') or can('maintain') else 'false' }};</script>
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="{{ url_for('static', filename='js/scan.js') }}?v=os38"></script>
+  <script src="{{ url_for('static', filename='js/scan.js') }}?v=os39"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}?v=os23"></script>
   {% if ask_open and ask_embed %}
   {% include "partials/ask.html" %}

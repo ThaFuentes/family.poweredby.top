@@ -292,7 +292,7 @@
 
 {% elif sheet_panel == 'ai' %}
 <h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">AI keys</h1>
-<p class="muted">Add a key for Gemini, Groq, Grok, OpenAI, or any other provider. Turn on the ones Ask may use. Main goes first. If it is down, Ask tries the next one you left on.</p>
+<p class="muted">Add a key for Gemini, Groq, Grok, OpenAI, or any other provider. Turn on the ones Ask may use. Main goes first. If that model is busy, Ask tries the other models on the same key, then the next key. Everyday is lists and chat. Heavy is photos and oil lookup.</p>
 {% for k in ai.saved_keys or [] %}
 <div class="card ai-key">
   <strong>{{ k.label }}</strong>
@@ -303,6 +303,9 @@
     <input type="hidden" name="key_id" value="{{ k.id }}">
     <label>Model</label>
     <select name="model">
+      {% if not k.models %}
+      <option value="" disabled {% if not k.model %}selected{% endif %}>No models listed yet — hit Refresh models</option>
+      {% endif %}
       {% for m in k.models %}
       <option value="{{ m }}" {% if k.model == m %}selected{% endif %}>{{ m }}</option>
       {% endfor %}
@@ -311,6 +314,13 @@
       {% endif %}
     </select>
     <input name="model_custom" value="" placeholder="Or type a different model id">
+    <p class="muted">Newest this key can use is first.</p>
+    <label>Use for</label>
+    <select name="job">
+      <option value="any" {% if k.job == 'any' %}selected{% endif %}>Both — chat and heavy work</option>
+      <option value="everyday" {% if k.job == 'everyday' %}selected{% endif %}>Everyday — lists, short answers</option>
+      <option value="heavy" {% if k.job == 'heavy' %}selected{% endif %}>Heavy — photos, oil lookup</option>
+    </select>
     {% if k.needs_base %}
     <label>Base URL</label>
     <input name="base_url" value="{{ k.base_url }}" placeholder="https://…/v1">
@@ -319,6 +329,7 @@
     <input type="password" name="api_key" autocomplete="off" placeholder="Leave blank to keep {{ k.key_hint or 'the saved key' }}">
     <div class="btn-row">
       <button class="btn sm" type="submit" name="action" value="update">Save model</button>
+      <button class="btn sm secondary" type="submit" name="action" value="models">Refresh models</button>
     </div>
     <div class="btn-row">
       {% if not (k.default and k.on) %}
@@ -350,8 +361,17 @@
   </select>
   <p class="muted" id="ai-hint"></p>
   <label>Model</label>
-  <input name="ai_model" id="ai-model" list="ai-models" placeholder="Leave blank for the usual model">
-  <datalist id="ai-models"></datalist>
+  <select name="ai_model" id="ai-model">
+    {% for p in ai.providers %}
+      {% if p.id == 'gemini' %}
+        {% for m in p.models %}
+        <option value="{{ m }}">{{ m }}</option>
+        {% endfor %}
+      {% endif %}
+    {% endfor %}
+  </select>
+  <input name="ai_model_custom" id="ai-model-custom" value="" placeholder="Or type a model id this key can use">
+  <p class="muted">Newest first. After you add the key we ask that provider for the models it actually has.</p>
   <label id="ai-base-label" hidden>Base URL</label>
   <input name="ai_base_url" id="ai-base-url" placeholder="https://…/v1" hidden>
   <label>API key</label>
@@ -369,6 +389,12 @@
     <input type="checkbox" name="ai_chat" value="1" {% if ai.chat != False %}checked{% endif %}>
     Ask window
   </label>
+  <label>Before Ask adds, changes, or deletes</label>
+  <select name="ask_confirm">
+    <option value="ask" {% if ai.ask_confirm != 'allow' %}selected{% endif %}>Always ask — show the plan, then Allow or Don’t</option>
+    <option value="allow" {% if ai.ask_confirm == 'allow' %}selected{% endif %}>Run free — do simple work; still ask before people, vault, or deleting a vehicle</option>
+  </select>
+  <p class="muted">You can also say “always allow” or “always ask” in the chat.</p>
   <button class="btn secondary" type="submit">Save Ask</button>
 </form>
 {% if ai.has_key %}
@@ -382,34 +408,41 @@
   var providers = {{ ai.providers|tojson }};
   var sel = document.getElementById("ai-provider");
   var hint = document.getElementById("ai-hint");
-  var list = document.getElementById("ai-models");
   var model = document.getElementById("ai-model");
   var base = document.getElementById("ai-base-url");
   var baseLabel = document.getElementById("ai-base-label");
   if (!sel) return;
-  function sync() {
+  function fillModels(ids, current) {
+    if (!model) return;
+    model.innerHTML = "";
+    var list = ids && ids.length ? ids : [];
+    if (!list.length) {
+      var empty = document.createElement("option");
+      empty.value = "";
+      empty.textContent = "No models for this provider yet";
+      model.appendChild(empty);
+      return;
+    }
+    list.forEach(function (m) {
+      var o = document.createElement("option");
+      o.value = m;
+      o.textContent = m;
+      if (current && m === current) o.selected = true;
+      model.appendChild(o);
+    });
+    if (!current) model.selectedIndex = 0;
+  }
+  function sync(pickFirst) {
     var p = providers.filter(function (x) { return x.id === sel.value; })[0] || providers[0];
     if (!p) return;
     if (hint) hint.textContent = p.hint || "";
-    if (list) {
-      list.innerHTML = "";
-      (p.models || []).forEach(function (m) {
-        var o = document.createElement("option");
-        o.value = m;
-        list.appendChild(o);
-      });
-    }
-    if (model && !model.value && p.models && p.models[0]) model.placeholder = p.models[0];
+    fillModels(p.models || [], pickFirst ? ((p.models || [])[0] || "") : (model && model.value) || "");
     var showBase = !!p.needs_base;
     if (base) base.hidden = !showBase;
     if (baseLabel) baseLabel.hidden = !showBase;
   }
-  sel.addEventListener("change", function () {
-    var p = providers.filter(function (x) { return x.id === sel.value; })[0];
-    if (model) model.value = (p && p.models && p.models[0]) || "";
-    sync();
-  });
-  sync();
+  sel.addEventListener("change", function () { sync(true); });
+  sync(true);
 })();
 </script>
 

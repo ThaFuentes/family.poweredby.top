@@ -23,10 +23,12 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "kind": "gemini",
         "base_url": "https://generativelanguage.googleapis.com/v1beta",
         "models": (
+            "gemini-3.8-flash",
+            "gemini-3.7-flash",
             "gemini-3.6-flash",
             "gemini-3.5-flash",
             "gemini-3.5-flash-lite",
-            "gemini-3.8-flash",
+            "gemini-2.5-flash",
         ),
         "hint": "aistudio.google.com/apikey — free Gemini key. Family OS never uses the owner's.",
         "env": "GEMINI_API_KEY",
@@ -47,7 +49,7 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "label": "OpenAI",
         "kind": "openai",
         "base_url": "https://api.openai.com/v1",
-        "models": ("gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "o4-mini"),
+        "models": ("gpt-4.1-mini", "gpt-4o-mini", "gpt-4o", "gpt-4.1", "o4-mini"),
         "hint": "platform.openai.com",
         "env": "OPENAI_API_KEY",
         "placeholder": "sk-…",
@@ -118,17 +120,18 @@ PROVIDERS: dict[str, dict[str, Any]] = {
 }
 
 DEFAULT_PROVIDER = "gemini"
-DEFAULT_MODEL = "gemini-3.6-flash"
+DEFAULT_MODEL = "gemini-3.8-flash"
+MODELS_CACHE_SECS = 6 * 3600
 # Google retires Flash ids. Map old household/platform picks so Test this key works.
 _RETIRED_MODELS = {
-    "gemini-2.5-flash": "gemini-3.6-flash",
-    "gemini-2.5-pro": "gemini-3.6-flash",
+    "gemini-2.5-flash": "gemini-3.8-flash",
+    "gemini-2.5-pro": "gemini-3.8-flash",
     "gemini-2.5-flash-lite": "gemini-3.5-flash-lite",
-    "gemini-2.0-flash": "gemini-3.6-flash",
+    "gemini-2.0-flash": "gemini-3.8-flash",
     "gemini-2.0-flash-lite": "gemini-3.5-flash-lite",
-    "gemini-1.5-flash": "gemini-3.6-flash",
-    "gemini-1.5-pro": "gemini-3.6-flash",
-    "gemini-pro": "gemini-3.6-flash",
+    "gemini-1.5-flash": "gemini-3.8-flash",
+    "gemini-1.5-pro": "gemini-3.8-flash",
+    "gemini-pro": "gemini-3.8-flash",
 }
 _SUGGESTED_MODEL = re.compile(
     r"use models?/([a-z0-9._-]+)|update your code to use models?/([a-z0-9._-]+)",
@@ -219,6 +222,192 @@ def _suggested_model(err: str) -> str | None:
     return name or None
 
 
+_SKIP_MODEL_BITS = (
+    "embed",
+    "tts",
+    "transcribe",
+    "whisper",
+    "imagen",
+    "veo",
+    "dall-e",
+    "dall_e",
+    "moderation",
+    "aqa",
+    "native-audio",
+    "live-translate",
+    "computer-use",
+    "image-preview",
+    "sora",
+    "-image",
+    "robotics",
+    "realtime",
+    "playai",
+    "guard",
+    "safety",
+    "babbage",
+    "davinci",
+    "ada-00",
+)
+
+
+def _chat_model_id(raw: str) -> str:
+    name = (raw or "").strip()
+    if name.startswith("models/"):
+        name = name[len("models/") :]
+    return name[:120]
+
+
+def _skip_model(name: str) -> bool:
+    n = (name or "").lower()
+    if not n:
+        return True
+    if any(bit in n for bit in _SKIP_MODEL_BITS):
+        return True
+    if re.search(r"(^|[-_/])live($|[-_/])", n):
+        return True
+    return False
+
+
+def _model_rank(name: str) -> tuple:
+    n = (name or "").lower()
+    nums = [int(x) for x in re.findall(r"\d+", n)]
+    nums = (nums + [0, 0, 0, 0])[:4]
+    latest = 1 if "latest" in n else 0
+    preview = 1 if any(s in n for s in ("preview", "-exp", "experimental")) else 0
+    return (-nums[0], -nums[1], -nums[2], -latest, preview, n)
+
+
+def _can_generate(row: dict) -> bool:
+    methods = (
+        row.get("supportedGenerationMethods")
+        or row.get("supported_generation_methods")
+        or row.get("supportedActions")
+        or row.get("supported_actions")
+        or []
+    )
+    if not methods:
+        return True
+    blob = " ".join(str(m).lower() for m in methods)
+    if "embed" in blob and "generatecontent" not in blob and "generate_content" not in blob:
+        return False
+    return True
+
+
+def ids_from_gemini_payload(data) -> list[str]:
+    rows = (data or {}).get("models") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return []
+    out = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if not _can_generate(row):
+            continue
+        name = _chat_model_id(row.get("name") or row.get("displayName") or "")
+        if name and not _skip_model(name) and name not in out:
+            out.append(name)
+    out.sort(key=_model_rank)
+    return out[:40]
+
+
+def ids_from_openai_payload(data) -> list[str]:
+    rows = (data or {}).get("data") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return []
+    out = []
+    for row in rows:
+        if isinstance(row, dict):
+            name = _chat_model_id(row.get("id") or row.get("name") or "")
+        else:
+            name = _chat_model_id(str(row or ""))
+        if name and not _skip_model(name) and name not in out:
+            out.append(name)
+    out.sort(key=_model_rank)
+    return out[:40]
+
+
+def menu_models(provider: str, live=None, current: str = "") -> list[str]:
+    """Newest live ids first, then the built-in list, then whatever they already saved."""
+    spec = list((PROVIDERS.get(provider or "") or {}).get("models") or ())
+    cur = _chat_model_id(current)
+    out: list[str] = []
+    for m in list(live or []) + spec + ([cur] if cur else []):
+        name = _chat_model_id(str(m or ""))
+        if not name or name in out:
+            continue
+        if _skip_model(name) and name != cur:
+            continue
+        out.append(name)
+    return out[:40]
+
+
+def fetch_provider_models(provider: str, api_key: str, base_url: str = "", timeout: int = 4) -> list[str]:
+    """Ask this key which chat models it can use. Empty on any miss."""
+    key = (api_key or "").strip()
+    if not key:
+        return []
+    pid = normalize_provider(provider)
+    spec = _spec(pid)
+    base = (base_url or "").strip().rstrip("/") or spec.get("base_url") or ""
+    kind = spec.get("kind") or "openai"
+    try:
+        if kind == "gemini":
+            url = f"{base or 'https://generativelanguage.googleapis.com/v1beta'}/models"
+            resp = requests.get(
+                url,
+                params={"key": key, "pageSize": 100},
+                headers={"x-goog-api-key": key},
+                timeout=timeout,
+            )
+            if resp.status_code >= 400:
+                return []
+            data = resp.json() if resp.content else {}
+            found = ids_from_gemini_payload(data)
+            token = (data.get("nextPageToken") or "").strip() if isinstance(data, dict) else ""
+            if token:
+                more = requests.get(
+                    url,
+                    params={"key": key, "pageSize": 100, "pageToken": token},
+                    headers={"x-goog-api-key": key},
+                    timeout=timeout,
+                )
+                if more.status_code < 400 and more.content:
+                    extra = ids_from_gemini_payload(more.json() if more.content else {})
+                    for name in extra:
+                        if name not in found:
+                            found.append(name)
+                    found.sort(key=_model_rank)
+            return found[:40]
+        if kind == "anthropic":
+            url = f"{base or 'https://api.anthropic.com/v1'}/models"
+            resp = requests.get(
+                url,
+                headers={
+                    "x-api-key": key,
+                    "anthropic-version": "2023-06-01",
+                },
+                timeout=timeout,
+            )
+            if resp.status_code >= 400:
+                return []
+            return ids_from_openai_payload(resp.json() if resp.content else {})
+        if not base:
+            return []
+        headers = {
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+        }
+        if pid == "openrouter":
+            headers["HTTP-Referer"] = "https://family.poweredby.top"
+            headers["X-Title"] = "Family OS"
+        resp = requests.get(f"{base}/models", headers=headers, timeout=timeout)
+        if resp.status_code >= 400:
+            return []
+        return ids_from_openai_payload(resp.json() if resp.content else {})
+    except Exception:
+        return []
+
+
 def persist_model(model: str, household=None) -> None:
     """Write a working model id so Test this key and the next scan stay on it."""
     model = (model or "").strip()[:120]
@@ -265,7 +454,7 @@ def _pack(
         "hint": spec["hint"],
         "placeholder": spec["placeholder"],
         "model": model,
-        "models": list(spec["models"]),
+        "models": menu_models(provider, None, model),
         "has_key": bool(key),
         "key_hint": mask_secret(key),
         "ready": bool(key) and bool(base or spec["kind"] != "openai"),
@@ -417,10 +606,68 @@ def _model_rejected(err: str) -> bool:
 
 
 def _next_listed_model(provider: str | None, current: str | None) -> str | None:
-    models = list((PROVIDERS.get(provider or "") or {}).get("models") or ())
-    cur = (current or "").strip()
-    rest = [m for m in models if m != cur]
+    rest = _sibling_models(provider, current)
     return rest[0] if rest else None
+
+
+def _sibling_models(provider: str | None, current: str | None, listed: list | None = None) -> list[str]:
+    """Other chat ids for this key, starting after the one they picked."""
+    models = menu_models(provider or "", listed, current or "")
+    if not models:
+        return []
+    cur = (current or "").strip()
+    if provider == "gemini":
+        cur = _live_model("gemini", cur)
+    if cur in models:
+        i = models.index(cur)
+        return [m for m in (models[i + 1 :] + models[:i]) if m != cur]
+    return [m for m in models if m != cur]
+
+
+JOB_KINDS = ("any", "everyday", "heavy")
+
+
+def normalize_job(value: str | None) -> str:
+    v = (value or "any").strip().lower()
+    aliases = {
+        "chat": "everyday",
+        "basic": "everyday",
+        "light": "everyday",
+        "fast": "everyday",
+        "photo": "heavy",
+        "photos": "heavy",
+        "vision": "heavy",
+        "research": "heavy",
+        "both": "any",
+        "all": "any",
+        "": "any",
+    }
+    v = aliases.get(v, v)
+    return v if v in JOB_KINDS else "any"
+
+
+def guess_job(provider: str | None, model: str | None) -> str:
+    m = (model or "").lower()
+    if any(s in m for s in ("lite", "mini", "haiku", "8b", "20b", "flash-lite")):
+        return "everyday"
+    if any(s in m for s in ("pro", "sonnet", "gpt-4o", "grok-4", "120b", "large", "opus")):
+        return "heavy"
+    return "any"
+
+
+def slots_for_job(slots: list, job: str | None) -> list:
+    """Everyday vs heavy first, then the other keys as backup."""
+    want = normalize_job(job) if job else "any"
+    if not slots or want == "any":
+        return list(slots or [])
+    pref, rest = [], []
+    for slot in slots:
+        kind = normalize_job(slot.get("job"))
+        if kind in (want, "any"):
+            pref.append(slot)
+        else:
+            rest.append(slot)
+    return (pref or list(slots)) + [s for s in rest if s not in (pref or [])]
 
 
 def _for_image(cfg: dict, image_bytes) -> dict:
@@ -454,6 +701,7 @@ def complete(
     household_only: bool = False,
     image_bytes: bytes | None = None,
     image_mime: str | None = None,
+    job: str | None = None,
 ) -> tuple[bool, str]:
     if household is not None and not _household_in_scope(household):
         return False, "AI stays in this household."
@@ -461,6 +709,7 @@ def complete(
     slots = [c for c in (cfg.get("chain") or []) if (c.get("api_key") or "").strip()]
     if not slots and (cfg.get("api_key") or "").strip():
         slots = [cfg]
+    slots = slots_for_job(slots, job)
     if not slots:
         return False, "No AI key on this household. Paste your own Gemini (free) or other key in Household. Family OS does not share the owner's key."
 
@@ -475,17 +724,28 @@ def complete(
             return _anthropic(use_cfg, prompt, system, max_tokens, timeout, image_bytes, image_mime)
         return _openai_compat(use_cfg, prompt, system, max_tokens, timeout, image_bytes, image_mime)
 
+    def _persist_swap(local, new_model: str, *, keep: bool) -> None:
+        if not keep or not new_model or not local.get("key_id"):
+            return
+        try:
+            from app.utils.household_ai import set_key_model
+
+            set_key_model(household, local["key_id"], new_model)
+        except Exception:
+            persist_model(new_model, household=household)
+
     def _attempt(use_cfg) -> tuple[bool, str]:
         last = ""
-        local = use_cfg
-        for attempt in range(3):
+        local = dict(use_cfg)
+        tried: list[str] = []
+        while True:
+            model = (local.get("model") or "").strip() or "?"
+            if model in tried:
+                break
+            tried.append(model)
             try:
                 text = _call(local)
                 if text:
-                    if local.get("model") != use_cfg.get("model") and local.get("key_id"):
-                        from app.utils.household_ai import set_key_model
-
-                        set_key_model(household, local["key_id"], local["model"])
                     return True, text
                 last = "AI returned nothing. Check the key, model, and base URL."
             except requests.Timeout:
@@ -493,48 +753,41 @@ def complete(
             except Exception as exc:
                 last = str(exc)
                 suggested = _suggested_model(last)
-                if suggested and suggested != local.get("model"):
-                    nxt = dict(local)
-                    nxt["model"] = suggested
-                    if local.get("key_id") and local.get("key_id") == cfg.get("key_id"):
-                        persist_model(suggested, household=household)
-                    local = nxt
+                if suggested and suggested not in tried:
+                    _persist_swap(local, suggested, keep=True)
+                    local = dict(local)
+                    local["model"] = suggested
                     continue
-                if _model_rejected(last):
-                    alt = _next_listed_model(local.get("provider"), local.get("model"))
-                    if alt:
-                        local = dict(local)
-                        local["model"] = alt
-                        continue
-            busy = _capacity_err(last)
-            if busy and attempt < 2:
-                time.sleep(0.6 * (attempt + 1))
-                continue
-            if busy and (local.get("kind") or "") == "gemini":
-                alt = _next_gemini_model(local.get("model"))
-                if alt:
-                    nxt = dict(local)
-                    nxt["model"] = alt
-                    try:
-                        text = _call(nxt)
-                        if text:
-                            if local.get("key_id") and local.get("key_id") == cfg.get("key_id"):
-                                persist_model(alt, household=household)
-                            return True, text
-                    except Exception as exc2:
-                        last = str(exc2)
-            break
+            if _capacity_err(last):
+                time.sleep(0.45)
+                try:
+                    text = _call(local)
+                    if text:
+                        return True, text
+                except Exception as exc:
+                    last = str(exc)
+            alt = next(
+                (
+                    m
+                    for m in _sibling_models(local.get("provider"), model, local.get("models"))
+                    if m not in tried
+                ),
+                None,
+            )
+            if not alt:
+                break
+            if _model_rejected(last):
+                _persist_swap(local, alt, keep=True)
+            local = dict(local)
+            local["model"] = alt
         return False, last
 
     last_err = ""
-    for i, slot in enumerate(slots):
+    for slot in slots:
         ok, text = _attempt(slot)
         if ok:
             return True, text
         last_err = text
-        if i < len(slots) - 1 and _capacity_err(last_err):
-            continue
-        break
     if _capacity_err(last_err):
         return False, "The model is busy right now. I can still look up this house — tools, vehicles, basket, what’s due."
     if last_err:

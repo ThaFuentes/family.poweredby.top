@@ -22,8 +22,8 @@ ROOM_META = {
     },
     "vehicles": {
         "title": "Vehicles",
-        "hint": "This thread is only vehicles — oil, VIN, parts, the log.",
-        "placeholder": "What oil does the tundra need?",
+        "hint": "This thread is only vehicles — oil, VIN, parts, trips, the log.",
+        "placeholder": "Start a trip in the blue tundra from Odessa to Lubbock with 81200 miles",
     },
     "inventory": {
         "title": "Inventory",
@@ -81,7 +81,7 @@ ROOM_ALIASES = {
 
 ROOM_RULES = {
     "house": "This is the house thread. Prefer find and item_inspect. Point them at /ask/vehicles or /ask/inventory when the talk is only that area.",
-    "vehicles": "This thread is vehicles only. Inspect trucks and cars here. Do not dump inventory, the basket, or tools unless they ask.",
+    "vehicles": "This thread is vehicles only. Inspect trucks and cars here, start and end trips, log miles. Do not dump inventory, the basket, or tools unless they ask.",
     "inventory": "This thread is inventory only. Counts, use-by dates, restock, and the pantry. Do not dump the vehicle list.",
     "tools": "This thread is tools and generators. Inspect, add, remove, and oil_save here. Do not dump the pantry.",
     "basket": "This thread is the shopping basket. Add names, match scans, list what is on it.",
@@ -151,6 +151,10 @@ def help_text(room: str | None = None) -> str:
         "/ask/basket — Basket\n"
         "/ask/due — Due\n"
         "/ask/help — this list\n\n"
+        "Trips: “start a trip in my blue tundra with 81200 miles from Odessa to Lubbock” "
+        "then “I’m home with 81650 miles.” That writes the day on the truck’s Log tab and updates miles.\n\n"
+        "Writes show a plan first. Allow, don’t, “always allow” (simple work runs free), or “always ask.” "
+        "/allow and /confirm switch that too.\n\n"
         f"You are in {here['title']}. {here['hint']}"
     )
 
@@ -220,6 +224,14 @@ def slash_reply(text: str, room: str | None = None) -> str | None:
         return help_text(here)
     if cmd in ("oil", "oils"):
         return local_list("oil")
+    if cmd in ("allow", "free"):
+        from app.utils.ask_confirm import set_mode
+
+        return set_mode("allow").get("say") or ""
+    if cmd in ("confirm", "ask-first", "askfirst"):
+        from app.utils.ask_confirm import set_mode
+
+        return set_mode("ask").get("say") or ""
     dest = ROOM_ALIASES.get(cmd)
     if dest is None:
         return f"No command named /{cmd}. Try /help."

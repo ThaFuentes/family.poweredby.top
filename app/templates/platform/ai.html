@@ -20,10 +20,18 @@
   </select>
   <p class="muted" id="ai-hint">{{ ai.hint }}</p>
   <label>Model</label>
-  <input name="ai_model" id="ai-model" list="ai-models" value="{{ ai.model or '' }}" placeholder="Any model this key can use">
-  <datalist id="ai-models">
-    {% for m in ai.models %}<option value="{{ m }}">{% endfor %}
-  </datalist>
+  <select name="ai_model" id="ai-model">
+    {% if not ai.models %}
+    <option value="" disabled {% if not ai.model %}selected{% endif %}>No models listed yet</option>
+    {% endif %}
+    {% for m in ai.models %}
+    <option value="{{ m }}" {% if ai.model == m %}selected{% endif %}>{{ m }}</option>
+    {% endfor %}
+    {% if ai.model and ai.model not in ai.models %}
+    <option value="{{ ai.model }}" selected>{{ ai.model }}</option>
+    {% endif %}
+  </select>
+  <input name="ai_model_custom" value="" placeholder="Or type a model id">
   <label>API key</label>
   <input type="password" name="ai_api_key" autocomplete="off" placeholder="{% if ai.has_key %}unchanged · {{ ai.key_hint }}{% else %}{{ ai.placeholder }}{% endif %}">
   <label id="ai-base-label" {% if ai.provider != 'custom' %}hidden{% endif %}>Base URL</label>
@@ -41,32 +49,40 @@
   const providers = {{ ai.providers|tojson }};
   const sel = document.getElementById('ai-provider');
   const hint = document.getElementById('ai-hint');
-  const list = document.getElementById('ai-models');
   const model = document.getElementById('ai-model');
   const base = document.getElementById('ai-base-url');
   const baseLabel = document.getElementById('ai-base-label');
   if (!sel) return;
-  function sync() {
+  function fillModels(ids, current) {
+    if (!model) return;
+    model.innerHTML = '';
+    const list = ids && ids.length ? ids : [];
+    if (!list.length) {
+      const empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = 'No models for this provider yet';
+      model.appendChild(empty);
+      return;
+    }
+    list.forEach(function (m) {
+      const o = document.createElement('option');
+      o.value = m;
+      o.textContent = m;
+      if (current && m === current) o.selected = true;
+      model.appendChild(o);
+    });
+  }
+  function sync(pickFirst) {
     const p = providers.find(function (x) { return x.id === sel.value; }) || providers[0];
     if (hint) hint.textContent = p.hint || '';
-    if (list) {
-      list.innerHTML = '';
-      (p.models || []).forEach(function (m) {
-        const o = document.createElement('option');
-        o.value = m;
-        list.appendChild(o);
-      });
-    }
+    const current = pickFirst ? ((p.models || [])[0] || '') : (model && model.value) || '';
+    fillModels(p.models || [], current);
     const showBase = !!p.needs_base;
     if (base) base.hidden = !showBase;
     if (baseLabel) baseLabel.hidden = !showBase;
   }
-  sel.addEventListener('change', function () {
-    const p = providers.find(function (x) { return x.id === sel.value; });
-    if (p && p.models && p.models[0]) model.value = p.models[0];
-    sync();
-  });
-  sync();
+  sel.addEventListener('change', function () { sync(true); });
+  sync(false);
 })();
 </script>
 {% endblock %}

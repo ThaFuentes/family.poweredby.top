@@ -13,6 +13,9 @@ from app.utils.ask import (
     _parse_turn,
     _plain_say,
     _speak_house,
+    _trip_item_hint,
+    _trip_local_say,
+    _trip_miles_from,
 )
 from app.utils.ask_rooms import help_text, normalize_room, room_from_path, slash_reply
 from app.utils.household_ai import ask_available, chat_on, household_config
@@ -115,6 +118,15 @@ class RoomTests(unittest.TestCase):
         self.assertIn("/ask/vehicles", text)
         self.assertIn("/inventory", text)
         self.assertIn("Vehicles", text)
+        self.assertIn("home with 81650", text)
+
+    def test_trip_hint_and_miles(self):
+        start = "please start me a trip in my blue tundra, with 81200 miles from odessa to lubbock"
+        self.assertEqual(_trip_item_hint(start, ending=False), "blue tundra")
+        self.assertEqual(_trip_miles_from(start), "81200")
+        self.assertEqual(_trip_item_hint("I'm home with 81650 miles", ending=True), "")
+        self.assertEqual(_trip_miles_from("I'm home with 81650 miles"), "81650")
+        self.assertIsNone(_trip_local_say("I'm home with the kids"))
 
     def test_unknown_slash(self):
         self.assertIn("/help", slash_reply("/nope", "house") or "")
@@ -159,8 +171,9 @@ class AskHttpTests(unittest.TestCase):
 
     def setUp(self):
         with self.client.session_transaction() as sess:
-            sess.pop("family_ask_hits", None)
-            sess.pop("family_ask_history", None)
+            for key in list(sess.keys()):
+                if key.startswith("family_ask_"):
+                    sess.pop(key, None)
 
     def _csrf(self, html):
         import re
@@ -174,6 +187,13 @@ class AskHttpTests(unittest.TestCase):
 
     def _logout(self):
         self.client.get("/auth/logout", follow_redirects=True)
+
+    def _yes(self, token):
+        return self.client.post(
+            "/ask/message",
+            json={"message": "yes"},
+            headers={"X-CSRF-Token": token},
+        )
 
     def _register(self, username, household=None, name=None):
         self._logout()
@@ -253,6 +273,9 @@ class AskHttpTests(unittest.TestCase):
                 headers={"X-CSRF-Token": token},
             )
         self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertTrue((resp.get_json() or {}).get("confirm"))
+        with patch("app.utils.ask.complete", side_effect=lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("yes is local"))):
+            resp = self._yes(token)
         data = resp.get_json()
         self.assertTrue(data.get("ok"))
         self.assertIn("Netflix", data.get("say") or "")
@@ -288,6 +311,9 @@ class AskHttpTests(unittest.TestCase):
                 headers={"X-CSRF-Token": token},
             )
         self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertTrue((resp.get_json() or {}).get("confirm"))
+        with patch("app.utils.ask.complete", side_effect=lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("yes is local"))):
+            resp = self._yes(token)
         data = resp.get_json()
         self.assertTrue(data.get("ok"))
         self.assertTrue(data.get("vault_locked"))
@@ -314,6 +340,9 @@ class AskHttpTests(unittest.TestCase):
                 headers={"X-CSRF-Token": token},
             )
         self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertTrue((resp.get_json() or {}).get("confirm"), resp.get_json())
+        with patch("app.utils.ask.complete", side_effect=lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("yes is local"))):
+            resp = self._yes(token)
         data = resp.get_json()
         self.assertTrue(data.get("ok"), data)
         with self.app.app_context():
@@ -349,6 +378,9 @@ class AskHttpTests(unittest.TestCase):
                 headers={"X-CSRF-Token": token},
             )
         self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertTrue((resp.get_json() or {}).get("confirm"), resp.get_json())
+        with patch("app.utils.ask.complete", side_effect=lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("yes is local"))):
+            resp = self._yes(token)
         data = resp.get_json()
         self.assertTrue(data.get("ok"), data)
         self.assertFalse(data.get("vault_locked"))
@@ -610,6 +642,9 @@ class AskHttpTests(unittest.TestCase):
                 json={"message": "username " + username},
                 headers={"X-CSRF-Token": token},
             )
+        self.assertTrue((resp.get_json() or {}).get("confirm"), resp.get_json())
+        with patch("app.utils.ask.complete", side_effect=lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("yes is local"))):
+            resp = self._yes(token)
         data = resp.get_json()
         self.assertEqual(resp.status_code, 200, data)
         self.assertIn("Password ", data.get("say") or "")
@@ -641,7 +676,10 @@ class AskHttpTests(unittest.TestCase):
                 headers={"X-CSRF-Token": token},
             )
         self.assertEqual(resp.status_code, 200, resp.data)
-        self.assertIn("cannot add a person", blocked[1].lower())
+        self.assertTrue((resp.get_json() or {}).get("confirm"), resp.get_json())
+        with patch("app.utils.ask.complete", side_effect=lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("yes is local"))):
+            yes = self._yes(token)
+        self.assertIn("cannot add", ((yes.get_json() or {}).get("say") or "").lower())
         with self.app.app_context():
             from app.builddb.table_users import User
 
@@ -890,7 +928,7 @@ class AskHttpTests(unittest.TestCase):
         item_id = self._tool("Old drill", type="drill")
         replies = [
             (True, '{"tool":"item_remove","args":{"q":"old drill"}}'),
-            (True, '{"say":"Old drill is out of the house."}'),
+            (True, '{"say":"Remove Old drill from tools? Say yes."}'),
         ]
 
         def fake_complete(*args, **kwargs):
@@ -905,6 +943,18 @@ class AskHttpTests(unittest.TestCase):
             )
         self.assertEqual(resp.status_code, 200, resp.get_json())
         self.assertIn("Old drill", (resp.get_json() or {}).get("say") or "")
+        with self.app.app_context():
+            from app.builddb.table_items import Item
+
+            item = Item.query.get(item_id)
+            self.assertIsNone(item.removed_at)
+        with patch("app.utils.ask.complete", side_effect=lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("yes is local"))):
+            yes = self.client.post(
+                "/ask/message",
+                json={"message": "yes"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertIn("Old drill", (yes.get_json() or {}).get("say") or "")
         with self.app.app_context():
             from app.builddb.table_items import Item
 
@@ -934,6 +984,10 @@ class AskHttpTests(unittest.TestCase):
                 json={"message": "set milk to expire 2026-10-04"},
                 headers={"X-CSRF-Token": token},
             )
+        self.assertEqual(resp.status_code, 200, resp.get_json())
+        self.assertTrue((resp.get_json() or {}).get("confirm"), resp.get_json())
+        with patch("app.utils.ask.complete", side_effect=lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("yes is local"))):
+            resp = self._yes(token)
         self.assertEqual(resp.status_code, 200, resp.get_json())
         with self.app.app_context():
             from app.builddb.table_grocery_items import GroceryItem
@@ -1168,6 +1222,228 @@ class AskHttpTests(unittest.TestCase):
                 if soonest(item.grocery):
                     dated += 1
             self.assertGreaterEqual(dated, 2)
+
+    def test_add_missing_item_asks_where_then_creates(self):
+        self.admin = f"ask_add_{self.suffix}"
+        self._register(self.admin, household=f"AskAdd {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        token = self._csrf(self.client.get("/").data)
+        replies = [
+            (True, '{"tool":"inventory","args":{"q":"Peanut Butter","action":"create"}}'),
+            (True, '{"say":"Peanut Butter isn’t on the site yet. Add it to inventory?" }'),
+        ]
+
+        def fake_complete(*_a, **_k):
+            return replies.pop(0)
+
+        with patch("app.utils.ask.complete", side_effect=fake_complete):
+            first = self.client.post(
+                "/ask/message",
+                json={"message": "add peanut butter to my inventory"},
+                headers={"X-CSRF-Token": token},
+            )
+        say = (first.get_json() or {}).get("say") or ""
+        self.assertIn("isn’t on the site", say.replace("'", "’") if "isn't" in say else say)
+        self.assertTrue("site yet" in say or "isn’t on the site" in say or "isn't on the site" in say)
+        self.assertRegex(say.lower(), r"inventory|tools|vehicle|house")
+        with self.app.app_context():
+            from app.builddb.table_items import Item
+            from app.builddb.table_users import User
+
+            user = User.query.filter_by(username=self.admin).first()
+            self.assertIsNone(
+                Item.query.filter_by(household_id=user.household_id, name="Peanut Butter").first()
+            )
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("yes plus where should not call the model")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            second = self.client.post(
+                "/ask/message",
+                json={"message": "yes pantry"},
+                headers={"X-CSRF-Token": token},
+            )
+        done = (second.get_json() or {}).get("say") or ""
+        self.assertIn("Peanut Butter", done)
+        self.assertIn("inventory", done.lower())
+        with self.app.app_context():
+            from app.builddb.table_grocery_items import GroceryItem
+            from app.builddb.table_items import Item
+            from app.builddb.table_users import User
+
+            user = User.query.filter_by(username=self.admin).first()
+            item = Item.query.filter_by(household_id=user.household_id, name="Peanut Butter").first()
+            self.assertIsNotNone(item)
+            self.assertEqual(item.item_type, "grocery")
+            self.assertEqual((item.grocery.default_location or "").lower(), "pantry")
+
+    def test_delete_protein_bars_does_not_touch_the_truck(self):
+        self.admin = f"ask_bars_{self.suffix}"
+        self._register(self.admin, household=f"AskBars {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        truck_id = self._vehicle("White Tundra")
+        bar_id = self._grocery("Quest Protein Bars")
+        token = self._csrf(self.client.get("/").data)
+        replies = [
+            (True, '{"tool":"item_remove","args":{"q":"protein bars"}}'),
+            (True, '{"say":"Remove Quest Protein Bars from inventory?" }'),
+        ]
+
+        def fake_complete(*_a, **_k):
+            return replies.pop(0)
+
+        with patch("app.utils.ask.complete", side_effect=fake_complete):
+            first = self.client.post(
+                "/ask/message",
+                json={"message": "delete the protein bars"},
+                headers={"X-CSRF-Token": token},
+            )
+        say = (first.get_json() or {}).get("say") or ""
+        self.assertIn("Protein Bars", say)
+        self.assertNotIn("Tundra", say)
+        with patch("app.utils.ask.complete", side_effect=lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("yes is local"))):
+            yes = self.client.post(
+                "/ask/message",
+                json={"message": "yes"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertIn("Protein Bars", (yes.get_json() or {}).get("say") or "")
+        with self.app.app_context():
+            from app.builddb.table_items import Item
+
+            bars = Item.query.get(bar_id)
+            truck = Item.query.get(truck_id)
+            self.assertIsNotNone(bars.removed_at)
+            self.assertIsNone(truck.removed_at)
+
+    def test_trip_start_and_home(self):
+        self.admin = f"ask_trip_{self.suffix}"
+        self._register(self.admin, household=f"AskTrip {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        item_id = self._vehicle("Blue Tundra")
+        with self.app.app_context():
+            from app.builddb.builddb import db
+            from app.builddb.table_vehicles import Vehicle
+
+            row = Vehicle.query.filter_by(item_id=item_id).first()
+            row.year = 2011
+            row.make = "Toyota"
+            row.model = "Tundra"
+            row.color = "Blue"
+            db.session.commit()
+        token = self._csrf(self.client.get("/").data)
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("trip start/end should not need the model")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            start = self.client.post(
+                "/ask/message",
+                json={
+                    "message": "please start me a trip in my blue tundra, with 81200 miles from odessa to lubbock"
+                },
+                headers={"X-CSRF-Token": token},
+            )
+        start_say = (start.get_json() or {}).get("say") or ""
+        self.assertTrue((start.get_json() or {}).get("confirm"), start.get_json())
+        self.assertIn("Odessa", start_say)
+        self.assertIn("Lubbock", start_say)
+        self.assertIn("81,200", start_say)
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            allowed = self._yes(token)
+        start_done = (allowed.get_json() or {}).get("say") or ""
+        self.assertIn("Trip started", start_done)
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            home = self.client.post(
+                "/ask/message",
+                json={"message": "I'm home with 81650 miles"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertTrue((home.get_json() or {}).get("confirm"), home.get_json())
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            home_ok = self._yes(token)
+        home_say = (home_ok.get_json() or {}).get("say") or ""
+        self.assertIn("450", home_say)
+        self.assertIn("81,650", home_say)
+        with self.app.app_context():
+            from app.builddb.table_item_logs import ItemLog
+            from app.builddb.table_vehicles import Vehicle
+            from app.utils.item_log import log_stats
+
+            v = Vehicle.query.filter_by(item_id=item_id).first()
+            self.assertEqual(v.current_mileage, 81650)
+            trip = (
+                ItemLog.query.filter_by(item_id=item_id, kind="trip")
+                .order_by(ItemLog.id.desc())
+                .first()
+            )
+            self.assertIsNotNone(trip)
+            extra = trip.extra_data or {}
+            self.assertEqual(extra.get("status"), "done")
+            self.assertEqual(int(extra.get("miles") or 0), 450)
+            stats = log_stats(v.item)
+            self.assertEqual(stats.get("year_trip_miles"), 450)
+        log_page = self.client.get(f"/items/{item_id}?tab=log")
+        self.assertEqual(log_page.status_code, 200)
+        body = log_page.data.decode("utf-8", "replace")
+        self.assertIn("Odessa", body)
+        self.assertIn("Lubbock", body)
+        self.assertIn("450", body)
+        self.assertIn("81,200", body)
+        self.assertIn("81,650", body)
+
+    def test_always_allow_runs_a_trip(self):
+        self.admin = f"ask_free_{self.suffix}"
+        self._register(self.admin, household=f"AskFree {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        self._vehicle("Blue Tundra")
+        token = self._csrf(self.client.get("/").data)
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("mode and trip should not need the model")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            mode = self.client.post(
+                "/ask/message",
+                json={"message": "always allow"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertIn("simple", ((mode.get_json() or {}).get("say") or "").lower())
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            start = self.client.post(
+                "/ask/message",
+                json={"message": "please start me a trip in my blue tundra, with 81200 miles from odessa to lubbock"},
+                headers={"X-CSRF-Token": token},
+            )
+        data = start.get_json() or {}
+        self.assertFalse(data.get("confirm"))
+        self.assertIn("Trip started", data.get("say") or "")
+
+    def test_no_cancels_a_write(self):
+        self.admin = f"ask_no_{self.suffix}"
+        self._register(self.admin, household=f"AskNo {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        item_id = self._vehicle("Blue Tundra")
+        token = self._csrf(self.client.get("/").data)
+        with patch("app.utils.ask.complete", side_effect=lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("local"))):
+            start = self.client.post(
+                "/ask/message",
+                json={"message": "please start me a trip in my blue tundra, with 81200 miles from odessa to lubbock"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertTrue((start.get_json() or {}).get("confirm"))
+        with patch("app.utils.ask.complete", side_effect=lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("local"))):
+            nope = self.client.post(
+                "/ask/message",
+                json={"message": "no"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertIn("left", ((nope.get_json() or {}).get("say") or "").lower())
+        with self.app.app_context():
+            from app.builddb.table_item_logs import ItemLog
+
+            self.assertIsNone(ItemLog.query.filter_by(item_id=item_id, kind="trip").first())
 
 
 if __name__ == "__main__":

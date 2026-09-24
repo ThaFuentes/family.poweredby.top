@@ -382,6 +382,9 @@
     {% if log_stats.year_miles is not none %}
     <p class="muted">{{ '{:,}'.format(log_stats.year_miles) }} miles in {{ log_stats.year }} (YTD)</p>
     {% endif %}
+    {% if log_stats.year_trip_miles %}
+    <p class="muted">{{ '{:,.0f}'.format(log_stats.year_trip_miles) }} miles on trips this year{% if log_stats.trip_count %} · {{ log_stats.trip_count }} trip{% if log_stats.trip_count != 1 %}s{% endif %}{% endif %}</p>
+    {% endif %}
     {% elif item.item_type == 'tool' %}
     <p class="qty">{{ reading or '—' }} <span class="muted">hours</span></p>
     {% else %}
@@ -394,6 +397,41 @@
     </p>
     {% endif %}
   </div>
+
+  {% if item.item_type == 'vehicle' and (can_scan or can_maintain or can_edit or can_photo) %}
+  {% set open_trip = log_stats.open_trip %}
+  {% set textra = open_trip.extra_data if open_trip and open_trip.extra_data else {} %}
+  {% if open_trip %}
+  <div class="card">
+    <p><strong>Trip open</strong> {{ textra.get('origin') or '' }}{% if textra.get('origin') and textra.get('dest') %} → {% endif %}{{ textra.get('dest') or '' }}</p>
+    <p class="muted">Started {{ open_trip.happened_on or '' }} at {{ '{:,.0f}'.format((textra.get('start_miles') or open_trip.reading)|float) }} miles. Ask can end it with “I’m home with X miles.”</p>
+    <form method="post" action="{{ url_for('items.trip_log', item_id=item.id) }}">
+      <input type="hidden" name="action" value="end">
+      <label>Ending miles</label>
+      <input name="end_miles" inputmode="numeric" required placeholder="{{ item.vehicle.current_mileage or '' }}">
+      <label>Notes (optional)</label>
+      <input name="notes" placeholder="Home, traffic, stopped for gas">
+      <div class="btn-row"><button class="btn" type="submit">I’m home</button></div>
+    </form>
+  </div>
+  {% else %}
+  <details class="card add-fold" id="start-trip">
+  <summary>Start a trip</summary>
+  <form method="post" action="{{ url_for('items.trip_log', item_id=item.id) }}">
+    <input type="hidden" name="action" value="start">
+    <label>From</label>
+    <input name="origin" placeholder="Odessa">
+    <label>To</label>
+    <input name="dest" placeholder="Lubbock">
+    <label>Starting miles</label>
+    <input name="start_miles" inputmode="numeric" required value="{{ item.vehicle.current_mileage or '' }}" placeholder="81200">
+    <label>Date</label>
+    <input type="date" name="happened_on" value="{{ today if today is defined else '' }}">
+    <div class="btn-row"><button class="btn" type="submit">Start trip</button></div>
+  </form>
+  </details>
+  {% endif %}
+  {% endif %}
 
   {% if can_scan or can_maintain or can_edit or can_photo %}
   <details class="card add-fold" id="add-log">
@@ -451,6 +489,7 @@
       <div>
         <strong>
           {% if row.kind == 'fillup' %}Fill-up{% if row.extra_data and row.extra_data.get('mpg') %} · {{ row.extra_data.get('mpg') }} mpg{% endif %}
+          {% elif row.kind == 'trip' %}Trip{% if row.title %} · {{ row.title }}{% endif %}{% if row.extra_data and row.extra_data.get('miles') %} · {{ '{:,.0f}'.format(row.extra_data.get('miles')|float) }} mi{% elif row.extra_data and row.extra_data.get('status') == 'open' %} · open{% endif %}
           {% elif row.kind == 'miles' %}{{ '{:,.0f}'.format(row.reading|float) }} miles
           {% elif row.kind == 'hours' %}{{ row.reading }} hours
           {% elif row.kind == 'repair' %}{{ row.title or 'Repair' }}
@@ -464,6 +503,9 @@
             {% if row.cost %} · ${{ '%.2f'|format(row.cost|float) }}{% endif %}
             {% if row.reading %} · {{ '{:,.0f}'.format(row.reading|float) }} mi{% endif %}
             {% if row.extra_data and row.extra_data.get('station') %} · {{ row.extra_data.get('station') }}{% endif %}
+          {% elif row.kind == 'trip' %}
+            {% if row.extra_data and row.extra_data.get('start_miles') %} · {{ '{:,.0f}'.format(row.extra_data.get('start_miles')|float) }}{% if row.extra_data.get('end_miles') %}–{{ '{:,.0f}'.format(row.extra_data.get('end_miles')|float) }}{% endif %} mi{% endif %}
+            {% if row.extra_data and row.extra_data.get('ended_on') %} · home {{ row.extra_data.get('ended_on') }}{% endif %}
           {% elif row.kind == 'repair' and row.reading %} · {{ row.reading }}{% endif %}
           {% if row.kind == 'code' %}
             {% if row.reading %} · {{ '{:,.0f}'.format(row.reading|float) }} mi{% endif %}

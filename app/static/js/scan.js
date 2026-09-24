@@ -253,9 +253,6 @@
   function freezeScan() {
     snapFrame();
     pauseDecode = true;
-    try {
-      if (liveSlot.qr && liveSlot.qr.pause) liveSlot.qr.pause(true);
-    } catch (e) {}
   }
 
   function unfreezeScan() {
@@ -838,6 +835,7 @@
           if (fail && fail.error) err = fail.error;
         } catch (e) {}
         statusEl.textContent = err;
+        unfreezeScan();
         return;
       }
       const data = await res.json();
@@ -845,6 +843,8 @@
       if (data.create) {
         showResult(unknownCard(data), "want");
         statusEl.textContent = "Not in the house yet.";
+        pauseDecode = false;
+        unfreezeScan();
         return;
       }
       if (data.ask_update) {
@@ -893,6 +893,9 @@
           flashToast(data);
           statusEl.textContent = "Tap the usual amount, type it, or next box = 1.";
           pauseDecode = false;
+          setTimeout(function () {
+            unfreezeScan();
+          }, 900);
           return;
         }
         if (flashToast(data)) {
@@ -903,6 +906,7 @@
         showResult(groceryCard(data), statusClass(data));
         statusEl.textContent = encode(data.name || "") + " · next.";
         pauseDecode = false;
+        unfreezeScan();
         return;
       }
       if (data.item_type === "vehicle") {
@@ -932,6 +936,7 @@
     } catch (err) {
       if (!fromQueue) enqueueScan(barcode, forcedAction || "check");
       else statusEl.textContent = "Scan failed. Try again.";
+      unfreezeScan();
     } finally {
       busy = false;
     }
@@ -1152,21 +1157,21 @@
   function decoderFormats() {
     const F = window.Html5QrcodeSupportedFormats;
     if (!F) return undefined;
-    return [F.UPC_A, F.UPC_E, F.EAN_13, F.EAN_8, F.QR_CODE, F.CODE_128].filter(function (x) {
+    return [F.UPC_A, F.UPC_E, F.EAN_13, F.EAN_8, F.QR_CODE, F.CODE_128, F.ITF].filter(function (x) {
       return x != null;
     });
   }
 
   function scanConfig() {
     return {
-      fps: 12,
+      fps: 10,
       disableFlip: false,
       rememberLastUsedCamera: true,
+      aspectRatio: 1.777778,
       qrbox: function (w, h) {
-        return {
-          width: Math.max(Math.floor(w * 0.88), 240),
-          height: Math.max(Math.floor(h * 0.24), 90),
-        };
+        const boxW = Math.max(Math.min(Math.floor(w * 0.94), w - 16), 240);
+        const boxH = Math.max(Math.min(Math.floor(h * 0.34), Math.floor(boxW * 0.5)), 120);
+        return { width: boxW, height: boxH };
       },
     };
   }
@@ -1191,7 +1196,7 @@
         return new Html5Qrcode(readerId, {
           verbose: false,
           formatsToSupport: decoderFormats(),
-          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+          experimentalFeatures: { useBarCodeDetectorIfSupported: false },
         });
       } catch (e) {
         return new Html5Qrcode(readerId, false);
@@ -1200,8 +1205,9 @@
     let qr = makeQr();
     instanceSlot.qr = qr;
     instanceSlot.starting = true;
-    function onDecoded(decoded) {
-      const code = preferUpc(decoded);
+    function onDecoded(decodedText) {
+      const raw = typeof decodedText === "string" ? decodedText : String((decodedText && decodedText.text) || "");
+      const code = preferUpc(raw);
       if (!code) return;
       applyBarcode(code);
     }
