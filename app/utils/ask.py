@@ -96,7 +96,7 @@ WRITE_TOOLS = (
     "inventory_sort",
 )
 
-SYSTEM = """You are Ask in Family OS. Do the house work this person is already allowed to do: people, tools, parts, vehicles, the house, notes, inventory, basket, logs, legal paper, photos, oil specs, food dates, and (only when unlocked) the vault.
+SYSTEM = """You are Ask in Family OS. Hear this turn before you act. Do not assume they mean inventory or a vehicle.
 
 You look things up on this site yourself with find and item_inspect. Never tell them to go look, type a VIN, or open a page to read a field you can inspect.
 
@@ -158,7 +158,7 @@ needs is the Oil it needs field. in_it is what was poured. Do not say the oil wa
 If they say add that, save that, yes, or put that on a vehicle, tool, or the house, save your previous reply on that item with note_save. When the reply is an oil spec, also oil_save with needs set to that spec.
 Adding a person: call member_add only when you have a name and username. If either is missing, ask. Role member, admin, or child. Password may be blank.
 When member_add returns a password, say the username and password once so they can copy it.
-inventory action: restock, used, set, need, create. If the item is not on the site, inventory guesses the room (Fridge, Pantry, …) from the name. Do not ask pantry vs fridge. Confirm the add. Only ask where if grocery vs tools vs a vehicle is actually unclear.
+inventory action: restock, used, set, need, create. create only when they asked to add a new named product. Put/move/“that are in the pantry” is place on a saved item — never create. If you do not know whether it is food, a tool, or a truck, ask. Do not guess inventory.
 expire_save writes a use-by date on food. expire_list says what is going bad soon and how many food rows have no date. expire_guess writes typical shelf life on those undated rows when they say add generic expirations.
 If they say sort / organize / put inventory in rooms, call inventory_sort. That files groceries into Fridge, Pantry, and the other rooms. Do not dump the inventory list. only_empty 1 (default) fills items with no room yet. only_empty 0 re-files everything.
 If they name one food and a room (“burritos go in the freezer”) call inventory with action place. If they want a count (“show 2 of these”) call inventory action set with amount. Never dump the whole inventory for that.
@@ -1178,7 +1178,7 @@ def _ask_where_to_add(name: str, *, upc: str = "", amount=1, place: str = "", wh
 
             brain = {"kind": "grocery", "place": _usual(name) or _usual(extra) or ""}
         if not guess.get("kind"):
-            guess["kind"] = brain.get("kind") or "grocery"
+            guess["kind"] = brain.get("kind") or ""
         if guess.get("kind") == "grocery" and not (guess.get("place") or "").strip():
             guess["place"] = (brain.get("place") or place or "").strip()
     if guess.get("kind") == "grocery" and guess.get("place"):
@@ -1487,7 +1487,13 @@ def asked_to_list(text: str, kind: str | None = None) -> bool:
 
 def tool_house(args: dict | None = None) -> dict:
     args = args if isinstance(args, dict) else {}
-    kind = _trim(args.get("kind") or args.get("what") or "tools", 20).lower()
+    kind = _trim(args.get("kind") or args.get("what") or "", 20).lower()
+    if not kind:
+        return {
+            "ok": False,
+            "need": ["kind"],
+            "hint": "They did not ask for a list. Listen to the request. Do not dump inventory or vehicles.",
+        }
     list_kind = "tools"
     if kind in ("vehicle", "vehicles", "car", "cars", "truck", "trucks"):
         list_kind = "vehicles"
@@ -1986,10 +1992,10 @@ def _stock_local_say(text: str):
     raw = (text or "").strip()
     if not raw:
         return None
-    if asked_to_list(raw):
+    putting = bool(re.search(r"\b(put|move|place)\b", raw, re.I) and re.search(rf"\b({_STOCK_ROOMS})\b", raw, re.I))
+    if asked_to_list(raw) and not putting:
         return None
     jobs = _parse_stock_jobs(raw)
-    putting = bool(re.search(r"\b(put|move|place)\b", raw, re.I) and re.search(rf"\b({_STOCK_ROOMS})\b", raw, re.I))
     if not jobs:
         if putting:
             return "Which food should I move? Name it like it is on the site."
@@ -3657,7 +3663,8 @@ def _prompt_for(history: list, message: str, tool_notes: list) -> str:
         bits.append("Tool result JSON:\n" + json.dumps(note, ensure_ascii=False)[:3500])
     bits.append(
         "Reply with one JSON object only. If you are done, {\"say\":\"spoken English, no JSON inside\"}. "
-        "Do not paste tool results. Look things up on this site; do not ask them to."
+        "Do not paste tool results. Look things up on this site; do not ask them to. "
+        "Listen first. Do not assume inventory or vehicles. Do not create an item from a command sentence."
     )
     return "\n\n".join(bits)
 
@@ -3695,7 +3702,9 @@ def _system_now(has_photo: bool) -> str:
         extra += "\n\n" + brief
     if has_photo:
         extra += "\n\n" + PHOTO_RULES
-    return SYSTEM + "\n\n" + extra
+    from app.utils.ask_listen import LISTEN_RULES
+
+    return SYSTEM + "\n\n" + LISTEN_RULES + "\n\n" + extra
 
 
 def _with_issued_login(say: str, tool_notes: list) -> str:
@@ -3887,7 +3896,26 @@ def run_ask(
             return {"ok": False, "error": raw or "The model is busy. Try “what tools do I have.”"}
         turn = _parse_turn(raw)
         if turn["kind"] == "tool":
-            if should_hold_tool(turn["tool"], turn.get("args"), has_photo=has_photo):
+            args = turn.get("args") or {}
+            q = str(args.get("q") or args.get("name") or args.get("what") or args.get("item") or "")
+            action = str(args.get("action") or "").lower()
+            if turn["tool"] in ("inventory", "place") and (
+                _looks_like_command(text) or _looks_like_command(q)
+            ):
+                stock = _stock_local_say(text)
+                if isinstance(stock, dict):
+                    last_say = stock.get("say") or ""
+                    history.append({"role": "user", "text": text})
+                    history.append({"role": "assistant", "text": last_say})
+                    _save_history(history)
+                    return stock
+                if stock:
+                    last_say = stock
+                    break
+                if action in ("create", "add", "new", ""):
+                    last_say = "That is not a new item. I won’t add a grocery with that sentence."
+                    break
+            if should_hold_tool(turn["tool"], args, has_photo=has_photo):
                 queued.append({"tool": turn["tool"], "args": turn.get("args") or {}})
                 tool_notes.append(
                     {

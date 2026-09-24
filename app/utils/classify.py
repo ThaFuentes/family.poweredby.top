@@ -778,8 +778,9 @@ def guess_item_home(name: str, household=None, extra: str = "", upc: str = "") -
     elif item_type == "vehicle":
         kind = "vehicle"
     loc = usual or snap_location(guess.get("location_hint"), household) or ""
-    if kind == "grocery" and not loc:
-        loc = snap_location("Pantry", household) or "Pantry"
+    if (guess.get("kind") or "unknown") == "unknown" and not usual:
+        kind = ""
+        loc = loc or ""
     return {
         "kind": kind,
         "place": loc or "",
