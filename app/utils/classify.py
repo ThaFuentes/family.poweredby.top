@@ -654,6 +654,27 @@ def place_new_grocery(item, g, lookup, household) -> dict:
 # Longer phrases first so "peanut butter" is pantry, not fridge (butter).
 _USUAL_PLACES = (
     (
+        "Freezer",
+        (
+            "burrito",
+            "burritos",
+            "taquito",
+            "taquitos",
+            "chimichanga",
+            "egg roll",
+            "egg rolls",
+            "frozen",
+            "ice cream",
+            "popsicle",
+            "french fry",
+            "french fries",
+            "chicken bite",
+            "chicken bites",
+            "nugget",
+            "pizza",
+        ),
+    ),
+    (
         "Pantry",
         (
             "peanut butter",
@@ -705,7 +726,7 @@ _USUAL_PLACES = (
     ),
     (
         "Freezer",
-        ("frozen", "ice cream", "popsicle", "popsicle", "ice cube"),
+        ("ice cube",),
     ),
     (
         "Bathroom",

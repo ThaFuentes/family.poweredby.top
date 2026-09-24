@@ -206,6 +206,13 @@ def plan_line(tool: str, args: dict | None = None) -> str:
         return f"Start a trip on {who}{route}{at}."
     if tool == "inventory":
         action = _trim(args.get("action") or "restock", 20).lower() or "restock"
+        loc = _trim(args.get("place") or args.get("location"), 80)
+        qty = _trim(args.get("amount") or args.get("qty") or args.get("quantity"), 20)
+        if action == "place" or (loc and action in ("place", "set", "restock")):
+            bit = f"Put {name or 'that'} in {loc}" if loc else f"Update {name or 'that'}"
+            if qty and action == "set":
+                bit += f" and set the count to {qty}"
+            return bit + "."
         return f"I’ll {action} {name or 'that food'} in inventory."
     if tool == "member_add":
         return f"I’ll add {name or args.get('username') or 'a person'} to this house."

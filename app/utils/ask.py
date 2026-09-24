@@ -161,6 +161,7 @@ When member_add returns a password, say the username and password once so they c
 inventory action: restock, used, set, need, create. If the item is not on the site, inventory guesses the room (Fridge, Pantry, …) from the name. Do not ask pantry vs fridge. Confirm the add. Only ask where if grocery vs tools vs a vehicle is actually unclear.
 expire_save writes a use-by date on food. expire_list says what is going bad soon and how many food rows have no date. expire_guess writes typical shelf life on those undated rows when they say add generic expirations.
 If they say sort / organize / put inventory in rooms, call inventory_sort. That files groceries into Fridge, Pantry, and the other rooms. Do not dump the inventory list. only_empty 1 (default) fills items with no room yet. only_empty 0 re-files everything.
+If they name one food and a room (“burritos go in the freezer”) call inventory with action place. If they want a count (“show 2 of these”) call inventory action set with amount. Never dump the whole inventory for that.
 item_remove takes a tool, vehicle, or grocery out of the house. Call it with the exact name. Prefer a grocery when they named food (protein bars, milk). Never remove a vehicle unless they named that truck or said truck/car. The tool asks for a yes before it deletes. Do not remove vault cards this way.
 vault kind: password, billing, info. share: personal or household.
 two_factor: none, sms, app, email, hardware, other.
@@ -1441,32 +1442,32 @@ def _stored_vehicle_say(text: str) -> str | None:
 
 
 def asked_to_list(text: str, kind: str | None = None) -> bool:
-    """Only dump a list when they asked to see it."""
+    """Only dump a list when they asked to see it — not “show 2 in inventory.”"""
     t = (text or "").strip().lower()
     if not t:
         return False
     if t in ("tools", "vehicles", "cars", "trucks", "basket", "inventory", "pantry", "groceries"):
         return True
+    if re.search(r"\bshow in(?:to)? (?:the |my |our )?(inventory|pantry|fridge|freezer)\b", t):
+        return False
+    if re.search(r"\b(show|have|set|keep)\b.{0,24}\b\d", t) and re.search(r"\binventory\b", t):
+        return False
     kinds = {
-        "inventory": r"inventory|pantry|grocer(?:y|ies)?|food|stock",
+        "inventory": r"inventory|pantry|grocer(?:y|ies)?",
         "vehicles": r"vehicles?|cars?|trucks?|fleet",
         "tools": r"tools?",
         "basket": r"basket|shopping list",
     }
-    noun = kinds.get(kind or "", r"inventory|pantry|grocer(?:y|ies)?|tools?|vehicles?|cars?|trucks?|basket|food")
-    if re.search(rf"\b(show|list|open|display)\b.{{0,40}}\b({noun})\b", t):
+    noun = kinds.get(kind or "", r"inventory|pantry|grocer(?:y|ies)?|tools?|vehicles?|cars?|trucks?|basket")
+    if re.search(rf"\b(show|list|open|display)\s+(?:me |us |my |our |the |all )?(?:the )?({noun})\b", t):
         return True
-    if re.search(rf"\b({noun})\b.{{0,20}}\b(show|list|open)\b", t):
+    if re.search(rf"\b(what|which)\s+({noun})\s+(do i|do we|have i|have we|i have|we have)\b", t):
         return True
-    if re.search(rf"\b(what|which)\b.{{0,40}}\b({noun})\b", t) and re.search(
-        r"\b(have|has|got|in|on)\b", t
-    ):
-        return True
-    if re.search(rf"\blook(?:ing)?(?:\s+up)?\s+what\b.{{0,40}}\b({noun})\b", t):
+    if re.search(rf"\blook(?:ing)?(?:\s+up)?\s+what\s+({noun})\b", t):
         return True
     if re.search(rf"\b({noun})\s+(do i have|i have|we have|have i|have we)\b", t):
         return True
-    if re.search(r"\bwhat(?:'s| is|s)?\s+in\b.{0,20}\b(" + noun + r")\b", t):
+    if re.search(rf"\bwhat(?:'s| is|s)?\s+in\s+(?:my |the |our )?({noun})\b", t):
         return True
     return False
 
@@ -1845,12 +1846,60 @@ def _expire_local_say(text: str) -> str | None:
     return _speak_expire(tool_expire_list({"days": 21}))
 
 
+_PUT_ROOM = re.compile(
+    r"\b(?:go(?:es)?|put|live|belong|keep|store)\s+"
+    r"(?:them |these |those |it |this )?"
+    r"(?:in(?:to)?(?:\s+the)?)\s+"
+    r"(fridge|refrigerator|freezer|pantry|bathroom|garage|laundry|closet|kitchen)\b",
+    re.I,
+)
+_SET_QTY = re.compile(
+    r"\b(?:show|have|set|keep)\b.{0,48}?\b(\d{1,4})\b",
+    re.I,
+)
+
+
+def _stock_item_name(text: str, cut_at: int | None = None) -> str:
+    raw = (text or "")[: cut_at if cut_at is not None else None]
+    raw = re.split(r"\b(close those|those|them|and make sure|and show)\b", raw, maxsplit=1, flags=re.I)[0]
+    return raw.strip(" .,;:!?")[:120]
+
+
+def _stock_local_say(text: str):
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    if asked_to_list(raw):
+        return None
+    room_m = _PUT_ROOM.search(raw)
+    qty_m = _SET_QTY.search(raw)
+    if not room_m and not qty_m:
+        return None
+    name = _stock_item_name(raw, room_m.start() if room_m else None)
+    if len(name) < 3:
+        return None
+    args = {"q": name, "action": "place"}
+    if room_m:
+        args["place"] = room_m.group(1)
+    if qty_m:
+        args["action"] = "set"
+        args["amount"] = qty_m.group(1)
+    from app.utils.ask_confirm import hold_writes, should_hold_tool
+
+    if should_hold_tool("inventory", args):
+        return hold_writes([{"tool": "inventory", "args": args}])
+    result = tool_inventory(args)
+    if result.get("need") or result.get("error"):
+        return str(result.get("hint") or result.get("error") or "")
+    return _speak_result("inventory", result) or None
+
+
 def _local_house_say(text: str) -> str | None:
     t = (text or "").strip().lower()
     if not t:
         return None
     if re.search(
-        r"\b(add|save|create|new|delete|remove|share|oil|note|spec|filter|tire|battery|expir|set|trip|sort|organize|organise)\b",
+        r"\b(add|save|create|new|delete|remove|share|oil|note|spec|filter|tire|battery|expir|set|trip|sort|organize|organise|freezer|fridge|go in|put )\b",
         t,
     ):
         return None
@@ -1989,6 +2038,15 @@ def _speak_result(tool: str, r: dict) -> str:
             for e in r["entries"]
             if isinstance(e, dict)
         )
+    if r.get("did") in ("moved", "set", "restock", "place") or r.get("place"):
+        name = r.get("name") or "That"
+        loc = r.get("place") or ""
+        qty = r.get("qty")
+        bit = f"{name} is in {loc}" if loc else name
+        if qty is not None and str(qty) != "":
+            bit += f". {qty} on hand"
+        href = r.get("href") or ""
+        return f"{bit}. {href}".strip()
     if r.get("ok") and (r.get("href") or r.get("title") or r.get("name")):
         did = r.get("did") or "Saved"
         return f"{did} {r.get('title') or r.get('name') or ''}".strip() + (f" {r.get('href')}" if r.get("href") else "")
@@ -3058,6 +3116,28 @@ def tool_inventory(args: dict) -> dict:
             place = guess_item_home(item.name, household=household).get("place") or ""
         except Exception:
             place = ""
+    if place:
+        try:
+            from app.utils.places import snap_location
+
+            household = getattr(current_user, "household", None) if current_user else None
+            place = snap_location(place, household) or place
+        except Exception:
+            pass
+        if place and (g.default_location or "").strip().lower() != place.lower():
+            g.default_location = place
+    if action == "place":
+        db.session.commit()
+        href = _path("items.detail", item_id=item.id) or f"/items/{item.id}"
+        return {
+            "ok": True,
+            "id": item.id,
+            "name": item.name,
+            "qty": qty_label(g.quantity),
+            "place": g.default_location or place,
+            "did": "moved",
+            "href": href,
+        }
     if action == "need":
         flag_need_more(g, item, current_user.id)
         db.session.commit()
@@ -3076,6 +3156,7 @@ def tool_inventory(args: dict) -> dict:
         "id": item.id,
         "name": item.name,
         "qty": qty_label(g.quantity),
+        "place": g.default_location or place or "",
         "did": action,
         "href": _path("items.detail", item_id=item.id),
     }
@@ -3616,6 +3697,18 @@ def run_ask(
         history.append({"role": "assistant", "text": expire_say})
         _save_history(history)
         return {"ok": True, "say": expire_say, "did": [], "vault_locked": False}
+    stock_say = None if has_photo else _stock_local_say(text)
+    if stock_say:
+        payload = (
+            stock_say
+            if isinstance(stock_say, dict)
+            else {"ok": True, "say": stock_say, "did": [], "vault_locked": False}
+        )
+        history = _history()
+        history.append({"role": "user", "text": text})
+        history.append({"role": "assistant", "text": payload.get("say") or ""})
+        _save_history(history)
+        return payload
     local = None if has_photo else _local_house_say(text)
     if local:
         history = _history()

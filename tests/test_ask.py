@@ -156,6 +156,8 @@ class LocalHouseTests(unittest.TestCase):
         self.assertEqual(usual_store_place("Peanut Butter"), "Pantry")
         self.assertEqual(usual_store_place("whole milk"), "Fridge")
         self.assertEqual(usual_store_place("ice cream"), "Freezer")
+        self.assertEqual(usual_store_place("El Monterey Beef & Bean Burritos"), "Freezer")
+        self.assertEqual(usual_store_place("Coffee Mate FV Creamer"), "Fridge")
 
     def test_sort_inventory_is_not_a_list(self):
         self.assertIsNone(_local_house_say("sort all the items in the inventory"))
@@ -166,7 +168,14 @@ class LocalHouseTests(unittest.TestCase):
         self.assertFalse(asked_to_list("start a trip in my black tundra", "vehicles"))
         self.assertFalse(asked_to_list("can you update my inventory", "inventory"))
         self.assertFalse(asked_to_list("the oil for my tundra", "vehicles"))
+        self.assertFalse(
+            asked_to_list(
+                "El Monterey burritos go in the freezer and show in the inventory 2 of these",
+                "inventory",
+            )
+        )
         self.assertTrue(asked_to_list("open my inventory", "inventory"))
+        self.assertTrue(asked_to_list("show me the inventory", "inventory"))
         self.assertTrue(asked_to_list("show me the vehicles", "vehicles"))
         self.assertTrue(asked_to_list("what's in my inventory", "inventory"))
         self.assertTrue(asked_to_list("can you look up what tools i have", "tools"))
@@ -1471,6 +1480,43 @@ class AskHttpTests(unittest.TestCase):
             from app.builddb.table_item_logs import ItemLog
 
             self.assertIsNone(ItemLog.query.filter_by(item_id=item_id, kind="trip").first())
+
+    def test_named_food_goes_in_a_room_without_dumping(self):
+        self.admin = f"ask_put_{self.suffix}"
+        self._register(self.admin, household=f"AskPut {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        item_id = self._grocery("El Monterey Beef & Bean Burritos")
+        token = self._csrf(self.client.get("/").data)
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("put in freezer should not dump inventory")
+
+        msg = (
+            "El Monterey Beef & Bean Burritos close those go in the freezer "
+            "and make sure we show in the inventory 2 of these"
+        )
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            first = self.client.post(
+                "/ask/message",
+                json={"message": msg},
+                headers={"X-CSRF-Token": token},
+            )
+        data = first.get_json() or {}
+        say = data.get("say") or ""
+        self.assertNotIn("Inventory in this house", say)
+        if data.get("confirm"):
+            with patch("app.utils.ask.complete", side_effect=fail_if_called):
+                first = self._yes(token)
+            say = (first.get_json() or {}).get("say") or ""
+        self.assertNotIn("Inventory in this house", say)
+        self.assertRegex(say.lower(), r"freezer")
+        self.assertIn("2", say)
+        with self.app.app_context():
+            from app.builddb.table_grocery_items import GroceryItem
+
+            g = GroceryItem.query.filter_by(item_id=item_id).first()
+            self.assertEqual((g.default_location or "").lower(), "freezer")
+            self.assertEqual(int(g.quantity or 0), 2)
 
     def test_sort_inventory_files_rooms_not_a_dump(self):
         self.admin = f"ask_sort_{self.suffix}"
