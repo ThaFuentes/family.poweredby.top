@@ -56,8 +56,8 @@ ROOM_META = dict(
     **{
         "vault": {
             "title": "Vault",
-            "hint": "This thread is passwords and bills in the vault. Unlock with this login’s password first.",
-            "placeholder": "What’s my Netflix login? Add a card for the water bill.",
+            "hint": "Local-only lookups for saved vault cards. Unlock on the vault page first; add and edit cards there.",
+            "placeholder": "What’s my Netflix login?",
         },
         "people": {
             "title": "People",
@@ -132,7 +132,7 @@ _ROOM_RULES_BASE = {
 ROOM_RULES = dict(
     _ROOM_RULES_BASE,
     **{
-        "vault": "This thread is the vault. Unlock with vault_unlock first, then list, open, or save cards. Never print secrets unless they asked for that card.",
+        "vault": "This thread is local-only. Vault card lookup is handled by the app, never by an AI provider. Unlock on /vault/ first. Add or edit cards on the vault page.",
         "people": "This thread is people: member_add, member_list, member_role, member_password, member_remove, and person_update for name/email/phone changes.",
         "notes": "This thread is notes: note_save to add or update, find to locate, note_delete to remove. Household notes show to everyone.",
         "reminders": "This thread is reminders: reminder_save to add, reminder_list to show open ones, reminder_done to mark one done, due for the combined view.",
@@ -217,7 +217,7 @@ def help_text(room: str | None = None) -> str:
         "“put coffee creamer on the basket from Sam’s” · “take paper towels off the basket”\n"
         "“add Sam as a member” · “change Riley’s email to …” · “set Sam to admin”\n"
         "“save a note: spare key is in the kitchen drawer” · “delete the grill cover note”\n"
-        "“what’s my Netflix login?” (vault must be unlocked)\n"
+        "“what’s my Netflix login?” (vault must be unlocked; chat never sends secrets to AI or saves them in its transcript)\n"
         "“search online for …” — looks it up on the web and cites the source\n\n"
         "Rooms keep threads apart so messages do not mix:\n"
         + "\n".join(
@@ -243,7 +243,7 @@ def _speak_member_list(result: dict) -> str:
 def _speak_vault_list(result: dict) -> str:
     entries = result.get("entries") or []
     if not entries:
-        return "Vault is empty or locked. Unlock it first at /vault/ or paste your password in chat."
+        return "Vault is empty or locked. Unlock it on /vault/ first. Never paste your login password in chat."
     return "Vault:\n" + "\n".join(f"· {e}" for e in entries)
 
 

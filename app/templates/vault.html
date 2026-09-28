@@ -19,7 +19,9 @@
 {% if not opened %}
 <div class="card vault-lock">
   <p class="muted">Your Family OS username and password. Then tap a card to see the login, bill, or shareable info.</p>
+  {% if resume_ask_vault %}<p class="muted">After signing in, Ask will return here to finish the vault lookup.</p>{% endif %}
   <form method="post" action="{{ url_for('vault.unlock') }}" autocomplete="off">
+    {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
     <label>Username</label>
     <input name="username" required autocomplete="off" autocapitalize="off" placeholder="your username">
     <label>Password</label>

@@ -1,0 +1,24 @@
+HostM update commands
+=====================
+
+Run these in the HostM shell. The application directory is:
+/home/ua882038/public_html/family.poweredby.top
+
+First check for local changes. Do not overwrite them; resolve or back them up before switching branches.
+
+    cd /home/ua882038/public_html/family.poweredby.top
+    git status --short
+    git fetch origin task/family-ask-vault-local
+
+If this branch is not already checked out locally:
+
+    git switch --track -c task/family-ask-vault-local origin/task/family-ask-vault-local
+
+If it is already checked out locally:
+
+    git switch task/family-ask-vault-local
+    git pull --ff-only origin task/family-ask-vault-local
+
+Git may ask for GitHub HTTPS credentials if the repository is private. Enter your GitHub username when asked for a username and a valid, unexpired PAT only at the password prompt. Do not put a PAT in the remote URL, shell command, or this file.
+
+Keep the HostM-only .env, .htaccess, passenger_wsgi.py, and uploads/ data intact. Review git status after the update. No restart/deploy command is included; use the host's established app-restart procedure only if needed.

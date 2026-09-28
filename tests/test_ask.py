@@ -52,11 +52,13 @@ class ChatFlagTests(unittest.TestCase):
 
 
 class ParseTests(unittest.TestCase):
-    def test_tool_json(self):
-        turn = _parse_turn('{"tool":"vault_save","args":{"title":"Netflix","login":"a"}}')
-        self.assertEqual(turn["kind"], "tool")
-        self.assertEqual(turn["tool"], "vault_save")
-        self.assertEqual(turn["args"]["title"], "Netflix")
+    def test_vault_tools_are_not_model_calls(self):
+        from app.utils.ask import TOOLS
+
+        for tool in ("vault_unlock", "vault_list", "vault_open", "vault_save"):
+            turn = _parse_turn('{"tool":"%s","args":{"password":"never-send"}}' % tool)
+            self.assertNotEqual(turn.get("kind"), "tool", tool)
+            self.assertNotIn(tool, TOOLS)
 
     def test_say_json(self):
         turn = _parse_turn('{"say":"Milk is in the fridge. /items/3"}')
@@ -90,8 +92,6 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(turn["tool"], "reminder_save")
         turn = _parse_turn('{"tool":"inventory","args":{"q":"milk","action":"restock"}}')
         self.assertEqual(turn["tool"], "inventory")
-        turn = _parse_turn('{"tool":"vault_unlock","args":{"password":"x"}}')
-        self.assertEqual(turn["tool"], "vault_unlock")
         turn = _parse_turn('{"tool":"vehicle_save","args":{"vin":"1HGCM82633A004352"}}')
         self.assertEqual(turn["tool"], "vehicle_save")
         turn = _parse_turn('{"tool":"house","args":{"kind":"tools"}}')
@@ -379,80 +379,6 @@ class AskHttpTests(unittest.TestCase):
         home = self.client.get("/")
         self.assertNotIn(b'id="ask-root"', home.data)
 
-    def test_ask_creates_vault_card_when_unlocked(self):
-        self.admin = f"ask_v_{self.suffix}"
-        self._register(self.admin, household=f"AskV {self.suffix}", name="Pat")
-        self._put_key(chat=True)
-        page = self.client.get("/vault/")
-        token = self._csrf(page.data)
-        self.client.post(
-            "/vault/unlock",
-            data={"username": self.admin, "password": "FamilyTest1!", "csrf_token": token},
-            headers={"X-CSRF-Token": token},
-            follow_redirects=True,
-        )
-        replies = [
-            (True, '{"tool":"vault_save","args":{"kind":"password","title":"Netflix house","login":"family@house.test","secret":"WatchIt-99","url":"https://netflix.com"}}'),
-            (True, '{"say":"Saved Netflix house in the vault. /vault/"}'),
-        ]
-
-        def fake_complete(*args, **kwargs):
-            return replies.pop(0)
-
-        token = self._csrf(self.client.get("/").data)
-        with patch("app.utils.ask.complete", side_effect=fake_complete):
-            resp = self.client.post(
-                "/ask/message",
-                json={"message": "Create a Netflix password family@house.test WatchIt-99"},
-                headers={"X-CSRF-Token": token},
-            )
-        self.assertEqual(resp.status_code, 200, resp.data)
-        self.assertTrue((resp.get_json() or {}).get("confirm"))
-        with patch("app.utils.ask.complete", side_effect=lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("yes is local"))):
-            resp = self._yes(token)
-        data = resp.get_json()
-        self.assertTrue(data.get("ok"))
-        self.assertIn("Netflix", data.get("say") or "")
-        with self.app.app_context():
-            from app.builddb.table_vault_entries import VaultEntry
-            from app.utils.password_vault import open_fields
-
-            row = VaultEntry.query.order_by(VaultEntry.id.desc()).first()
-            self.assertIsNotNone(row)
-            opened = open_fields(row)
-            self.assertEqual(opened["title"], "Netflix house")
-            self.assertEqual(opened["login"], "family@house.test")
-            self.assertEqual(opened["secret"], "WatchIt-99")
-            self.assertNotIn("WatchIt-99", row.secret or "")
-
-    def test_vault_save_refuses_while_locked(self):
-        self.admin = f"ask_l_{self.suffix}"
-        self._register(self.admin, household=f"AskL {self.suffix}", name="Pat")
-        self._put_key(chat=True)
-        replies = [
-            (True, '{"tool":"vault_save","args":{"title":"Bank","login":"pat","secret":"nope"}}'),
-            (True, '{"say":"Vault is locked. Open /vault/ first."}'),
-        ]
-
-        def fake_complete(*args, **kwargs):
-            return replies.pop(0)
-
-        token = self._csrf(self.client.get("/").data)
-        with patch("app.utils.ask.complete", side_effect=fake_complete):
-            resp = self.client.post(
-                "/ask/message",
-                json={"message": "Save a bank password"},
-                headers={"X-CSRF-Token": token},
-            )
-        self.assertEqual(resp.status_code, 200, resp.data)
-        self.assertTrue((resp.get_json() or {}).get("confirm"))
-        with patch("app.utils.ask.complete", side_effect=lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("yes is local"))):
-            resp = self._yes(token)
-        data = resp.get_json()
-        self.assertTrue(data.get("ok"))
-        self.assertTrue(data.get("vault_locked"))
-        self.assertIn("/vault/", data.get("say") or "")
-
     def test_ask_creates_bill_schedule_and_tool(self):
         self.admin = f"ask_w_{self.suffix}"
         self._register(self.admin, household=f"AskW {self.suffix}", name="Pat")
@@ -490,44 +416,6 @@ class AskHttpTests(unittest.TestCase):
             drill = Item.query.filter_by(name="DeWalt drill", item_type="tool").first()
             self.assertIsNotNone(drill)
             self.assertEqual(drill.tool.serial_number, "SN-441")
-
-    def test_ask_unlocks_vault_with_password(self):
-        self.admin = f"ask_u_{self.suffix}"
-        self._register(self.admin, household=f"AskU {self.suffix}", name="Pat")
-        self._put_key(chat=True)
-        replies = [
-            (True, '{"tool":"vault_unlock","args":{"password":"FamilyTest1!"}}'),
-            (True, '{"tool":"vault_save","args":{"kind":"password","title":"Wifi","login":"house","secret":"Blue-Sky"}}'),
-            (True, '{"say":"Wifi is in the vault."}'),
-        ]
-
-        def fake_complete(*args, **kwargs):
-            return replies.pop(0)
-
-        token = self._csrf(self.client.get("/").data)
-        with patch("app.utils.ask.complete", side_effect=fake_complete):
-            resp = self.client.post(
-                "/ask/message",
-                json={"message": "Unlock with FamilyTest1! and save wifi house Blue-Sky"},
-                headers={"X-CSRF-Token": token},
-            )
-        self.assertEqual(resp.status_code, 200, resp.data)
-        self.assertTrue((resp.get_json() or {}).get("confirm"), resp.get_json())
-        with patch("app.utils.ask.complete", side_effect=lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("yes is local"))):
-            resp = self._yes(token)
-        data = resp.get_json()
-        self.assertTrue(data.get("ok"), data)
-        self.assertFalse(data.get("vault_locked"))
-        with self.app.app_context():
-            from app.builddb.table_vault_entries import VaultEntry
-            from app.utils.password_vault import open_fields
-
-            from app.builddb.table_users import User
-
-            uid = User.query.filter_by(username=self.admin).first().id
-            row = VaultEntry.query.filter_by(created_by=uid).order_by(VaultEntry.id.desc()).first()
-            self.assertIsNotNone(row)
-            self.assertEqual(open_fields(row)["title"], "Wifi")
 
     def _jpeg_b64(self):
         import base64
@@ -1822,6 +1710,94 @@ class AskHttpTests(unittest.TestCase):
         self.assertIn("Oil change", say)
         self.assertIn("Ranch Tundra", say)
         self.assertIn("overdue", say)
+
+    def test_missing_oil_schedule_offers_then_saves_six_month_reminder(self):
+        from datetime import date
+
+        from app.utils.oil import add_months
+
+        self.admin = f"ask_oil_due_offer_{self.suffix}"
+        self._register(self.admin, household=f"AskOilDueOffer {self.suffix}", name="Pat")
+        self._put_key(chat=False)
+        item_id = self._vehicle("Work Tundra")
+        token = self._csrf(self.client.get("/").data)
+
+        with patch("app.utils.ask.complete", side_effect=AssertionError("oil due checks are local")):
+            offer = self.client.post(
+                "/ask/message",
+                json={"message": "is the oil due on my Work Tundra?"},
+                headers={"X-CSRF-Token": token},
+            )
+        data = offer.get_json() or {}
+        self.assertTrue(data.get("confirm"), data)
+        self.assertIn("No oil-change due date is saved", data.get("say") or "")
+        self.assertIn(add_months(date.today(), 6).strftime("%B %-d, %Y"), data.get("say") or "")
+        with self.app.app_context():
+            from app.builddb.table_reminders import Reminder
+            from app.builddb.table_users import User
+
+            hid = User.query.filter_by(username=self.admin).first().household_id
+            self.assertEqual(Reminder.query.filter_by(household_id=hid, linked_item_id=item_id, type="oil_change").count(), 0)
+
+        with patch("app.utils.ask.complete", side_effect=AssertionError("confirmation is local")), patch(
+            "app.utils.notify.announce_reminder"
+        ):
+            confirmed = self._yes(token)
+        self.assertTrue((confirmed.get_json() or {}).get("ok"), confirmed.get_json())
+        with self.app.app_context():
+            from app.builddb.table_reminders import Reminder
+            from app.builddb.table_users import User
+
+            hid = User.query.filter_by(username=self.admin).first().household_id
+            row = Reminder.query.filter_by(household_id=hid, linked_item_id=item_id, type="oil_change").first()
+            self.assertIsNotNone(row)
+            self.assertEqual(row.due_at.date(), add_months(date.today(), 6))
+            self.assertEqual(row.recurrence, "180d")
+
+    def test_confirmation_updates_undated_legacy_oil_reminder(self):
+        from app.builddb.builddb import db
+        from app.builddb.table_reminders import Reminder
+        from app.builddb.table_users import User
+
+        self.admin = f"ask_oil_due_update_{self.suffix}"
+        self._register(self.admin, household=f"AskOilDueUpdate {self.suffix}", name="Pat")
+        self._put_key(chat=False)
+        item_id = self._vehicle("Old Tundra")
+        with self.app.app_context():
+            hid = User.query.filter_by(username=self.admin).first().household_id
+            legacy = Reminder(
+                household_id=hid,
+                title="Oil change — Old Tundra",
+                type="custom",
+                due_at=None,
+                status="open",
+            )
+            db.session.add(legacy)
+            db.session.commit()
+            legacy_id = legacy.id
+        token = self._csrf(self.client.get("/").data)
+
+        with patch("app.utils.ask.complete", side_effect=AssertionError("oil due checks are local")):
+            offer = self.client.post(
+                "/ask/message",
+                json={"message": "when is the oil due for Old Tundra?"},
+                headers={"X-CSRF-Token": token},
+            )
+        data = offer.get_json() or {}
+        self.assertTrue(data.get("confirm"), data)
+        self.assertIn("Update reminder", data.get("say") or "")
+
+        with patch("app.utils.ask.complete", side_effect=AssertionError("confirmation is local")), patch(
+            "app.utils.notify.announce_reminder"
+        ):
+            confirmed = self._yes(token)
+        self.assertTrue((confirmed.get_json() or {}).get("ok"), confirmed.get_json())
+        with self.app.app_context():
+            row = Reminder.query.filter_by(household_id=hid, id=legacy_id).first()
+            self.assertEqual(row.type, "oil_change")
+            self.assertEqual(row.linked_item_id, item_id)
+            self.assertIsNotNone(row.due_at)
+            self.assertEqual(row.recurrence, "180d")
 
     def test_log_oil_change_then_asks_reminder_choice(self):
         from datetime import date

@@ -20,6 +20,7 @@
   var mode = root.getAttribute("data-mode") || "fab";
   var cacheKey = "family-ask-log:" + room;
   var historyLoaded = false;
+  var historyEpoch = 0;
 
   function csrfToken() {
     var m = document.querySelector('meta[name="csrf-token"]');
@@ -56,6 +57,20 @@
     return /model is busy|timed out|could not reach|request failed/i.test(say || "");
   }
 
+  function isSensitiveAsk(text) {
+    text = String(text || "").trim();
+    var roomOnly = room === "vault";
+    var vaultMention = /\b(?:vault|vault card)\b/i.test(text);
+    var pastedSecret = /\b(?:my|our|their)\b.{0,30}\b(?:password|passcode|pass\s*phrase|login|username|pin)\b.{0,50}\b(?:is|=|:)\b|\b(?:password|passcode|pass\s*phrase|pin)\s*(?:is|=|:)\s*\S+/i.test(text);
+    var passwordHelp = /\b(?:how\s+(?:do|can|to)|help\s+me|steps?\s+to)\b.{0,70}\b(?:reset|change|update|recover|forgot|forget|create|choose|make)\b.{0,50}\b(?:password|passcode|login|account)\b|\b(?:reset|change|update|recover|forgot|forget|create|choose|make)\b.{0,50}\b(?:password|passcode|login|account)\b|\b(?:good|strong|secure|safe)\s+(?:password|passcode)\b|\bwhat\s+makes?\b/i.test(text);
+    var credentialLookup = !passwordHelp && (
+      /\b(?:what(?:'s|\s+is)?|show|tell\s+me|give\s+me|get|find|retrieve|look\s+up|open|check|copy|read)\b.{0,70}\b(?:password|passcode|pass\s*phrase|secret|credential|login|username|account\s+number|2fa|two[- ]factor|verification\s+code|pin)\b/i.test(text) &&
+      /\b(?:my|our|their)\b.{0,35}\b(?:password|passcode|pass\s*phrase|secret|credential|login|username|account\s+number|2fa|two[- ]factor|verification\s+code|pin)\b|\b(?:password|passcode|pass\s*phrase|secret|credential|login|username|account\s+number|2fa|two[- ]factor|verification\s+code|pin)\b.{0,35}\b(?:for|on|to|of)\s+[A-Za-z0-9][A-Za-z0-9 ._'-]{1,40}|\b[A-Za-z][A-Za-z0-9 ._'-]{1,40}\s+(?:password|passcode|login|username|PIN)\b/i.test(text)
+    );
+    var tokenOnly = /^[A-Za-z0-9!@#$%^&*()_+\-=\[\]{};':\",./?]{10,128}$/.test(text) && /[A-Za-z]/.test(text) && /\d/.test(text);
+    return roomOnly || vaultMention || pastedSecret || credentialLookup || tokenOnly;
+  }
+
   function addConfirm(el, on) {
     if (!el || !on) return;
     var row = document.createElement("div");
@@ -77,10 +92,10 @@
     el.appendChild(row);
   }
 
-  function addBubble(role, text, imageUrl, retry, confirm) {
+  function addBubble(role, text, imageUrl, retry, confirm, options) {
     if (!log) return null;
     var el = document.createElement("div");
-    el.className = "ask-bubble " + role;
+    el.className = "ask-bubble " + role + (options && options.volatile ? " volatile" : "");
     var body = document.createElement("div");
     body.className = "ask-text";
     body.innerHTML = linkify(text);
@@ -168,6 +183,7 @@
   }
 
   function cacheClear() {
+    historyEpoch += 1;
     try { window.localStorage.removeItem(cacheKey); } catch (e) {}
   }
 
@@ -176,7 +192,7 @@
     var out = [];
     Array.prototype.forEach.call(log.children, function (el) {
       var cls = el.className || "";
-      if (cls.indexOf("pending") >= 0 || cls.indexOf("err") >= 0) return;
+      if (cls.indexOf("pending") >= 0 || cls.indexOf("err") >= 0 || cls.indexOf("volatile") >= 0) return;
       var role = /\bme\b/.test(cls) ? "user" : "assistant";
       var textEl = el.querySelector(".ask-text");
       var text = ((textEl && (textEl.innerText || textEl.textContent)) || el.innerText || el.textContent || "")
@@ -199,15 +215,19 @@
 
   function loadHistory(force) {
     if (!force && historyLoaded && log && log.childElementCount) return;
-    if (!log || !log.childElementCount) {
+    if (room === "vault") cacheClear();
+    if (room !== "vault" && (!log || !log.childElementCount)) {
       var cached = cacheRead();
       if (cached && cached.length) paintTurns(cached);
     }
+    if (room === "vault") return;
+    var requestEpoch = historyEpoch;
     fetch("/ask/history?room=" + encodeURIComponent(room), {
       headers: { Accept: "application/json", "X-Requested-With": "fetch" },
     })
       .then(function (res) { return res.json(); })
       .then(function (data) {
+        if (requestEpoch !== historyEpoch) return;
         var turns = (data && data.turns) || [];
         if (historyLoaded && log && log.childElementCount && turns.length < turnsFromLog().length) {
           return;
@@ -217,7 +237,7 @@
         historyLoaded = true;
       })
       .catch(function () {
-        historyLoaded = true;
+        if (requestEpoch === historyEpoch) historyLoaded = true;
       });
   }
 
@@ -237,16 +257,17 @@
     panel.classList.toggle("is-open", !!on);
     openBtn.hidden = on;
     openBtn.setAttribute("aria-expanded", on ? "true" : "false");
-    root.classList.toggle("ask-on", on);
+    root.classList.toggle("ask-on", !!on);
     if (on) {
       if (!log || !log.childElementCount) loadHistory(true);
       if (input) {
         try { input.focus(); } catch (e) {}
       }
-    } else {
+    } else if (room !== "vault") {
       cacheWrite(turnsFromLog());
     }
   }
+
   if (mode === "desk") {
     setOpen(true);
     loadHistory(true);
@@ -314,8 +335,14 @@
     text = (text || "").trim();
     imageUrl = imageUrl || "";
     if (!text && !imageUrl) return;
+    var sensitive = isSensitiveAsk(text);
     if (!again) {
-      addBubble("me", text || "Photo", imageUrl);
+      if (sensitive) {
+        if (log) log.innerHTML = "";
+        cacheClear();
+      } else {
+        addBubble("me", text || "Photo", imageUrl);
+      }
       if (input) input.value = "";
       setPreview("");
       if (fileInput) fileInput.value = "";
@@ -329,7 +356,7 @@
       body.image = imageUrl;
       body.image_mime = "image/jpeg";
     }
-    var retry = { text: text, image: imageUrl };
+    var retry = sensitive ? null : { text: text, image: imageUrl };
     fetch("/ask/message", {
       method: "POST",
       headers: {
@@ -349,6 +376,16 @@
         var data = out.data || {};
         var say = (data.say || data.error || "").trim() || "Couldn’t get an answer. Try “what tools do I have.”";
         if (pending) pending.remove();
+        if (data.clear_history || data.volatile) {
+          if (log) log.innerHTML = "";
+          cacheClear();
+          if (data.redirect_url) {
+            window.location.assign(data.redirect_url);
+            return;
+          }
+          addBubble(data.ok ? "them" : "them err", say, "", null, false, { volatile: true });
+          return;
+        }
         addBubble(data.ok ? "them" : "them err", say, "", !data.ok && canRetry(say) ? retry : null, data.ok && data.confirm);
         if (data.vault_locked) addBubble("them", "Open /vault/ with this login, then ask again.");
         if (data.ok) cacheWrite(turnsFromLog());

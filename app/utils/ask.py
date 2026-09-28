@@ -1,7 +1,7 @@
-"""Household Ask: talk to the household AI and let it look up or do work.
+"""Household Ask: one chat for saved-household work and open-ended AI help.
 
-Uses the household BYOK key only. Kids never see it. Vault reads and writes
-need the vault unlocked for this login.
+Uses the household BYOK key only. Kids never see it. Vault lookups stay local
+and require this login's vault to be unlocked.
 """
 from __future__ import annotations
 
@@ -42,10 +42,6 @@ TOOLS = (
     "item_remove",
     "item_update",
     "lookup",
-    "vault_unlock",
-    "vault_list",
-    "vault_open",
-    "vault_save",
     "note_save",
     "basket_add",
     "basket_match",
@@ -82,7 +78,6 @@ TOOLS = (
 )
 
 WRITE_TOOLS = (
-    "vault_save",
     "note_save",
     "basket_add",
     "basket_match",
@@ -94,7 +89,6 @@ WRITE_TOOLS = (
     "inventory",
     "tool_save",
     "vehicle_save",
-    "vault_unlock",
     "place",
     "member_add",
     "member_role",
@@ -135,11 +129,6 @@ The say field is spoken English only. Never put JSON, tool names, or raw tool re
 {"tool":"lookup","args":{"upc":"012345678905"}}
 {"tool":"lookup","args":{"vin":"1HGCM82633A004352"}}
 {"tool":"lookup","args":{"plate":"ABC1234"}}
-{"tool":"vault_unlock","args":{"password":"their Family OS password","username":""}}
-{"tool":"vault_list","args":{"q":"netflix"}}
-{"tool":"vault_open","args":{"id":12}}
-{"tool":"vault_save","args":{"kind":"password","title":"Netflix","login":"a","secret":"x","url":"https://netflix.com","phone":"","account_no":"","two_factor":"app","call_info":"","details":"","share":"personal"}}
-{"tool":"vault_save","args":{"kind":"billing","title":"City water","account_no":"W-1","phone":"555","url":"","login":"","secret":"","share":"personal"}}
 {"tool":"note_save","args":{"title":"Grill cover","body":"…","share":"household","id":null}}
 {"tool":"basket_add","args":{"names":["coffee creamer","paper towels"],"store":"Sam's"}}
 {"tool":"basket_match","args":{"item_id":55,"entry_id":12}}
@@ -192,12 +181,10 @@ expire_save writes a use-by date on food. expire_list says what is going bad soo
 If they say sort / organize / put inventory in rooms, call inventory_sort. That files groceries into Fridge, Pantry, and the other rooms. Do not dump the inventory list. only_empty 1 (default) fills items with no room yet. only_empty 0 re-files everything.
 If they name one food and a room (“burritos go in the freezer”) call inventory with action place. If they want a count (“show 2 of these”) call inventory action set with amount. Never dump the whole inventory for that.
 item_remove takes a tool, vehicle, or grocery out of the house. Call it with the exact name. Prefer a grocery when they named food (protein bars, milk). Never remove a vehicle unless they named that truck or said truck/car. The tool asks for a yes before it deletes. Do not remove vault cards this way.
-vault kind: password, billing, info. share: personal or household.
-two_factor: none, sms, app, email, hardware, other.
 reminder type: bill, oil_change, filter, custom. every: 30d, 90d, 180d, 365d, 3000mi, 5000mi, 50h, or monthly/yearly.
 
 If they name a store run (Sam's, Costco) put those names on the basket with store set — no barcode yet. When they later scan a product that fits (french vanilla creamer vs coffee creamer), call basket_match so it links and comes off the list.
-If vault is locked, call vault_unlock when they gave the password, else tell them to open /vault/ or paste the password.
+Vault credentials are never model tools. Vault lookups are handled locally by the app after this login reauthenticates on /vault/. Never ask them to paste their Family OS login password in chat.
 Look up a UPC/VIN before creating a tool, vehicle, or grocery when they gave a code.
 A saved vehicle or tool already has its year, make, model, color, VIN, plate, serial, and oil. Call item_inspect or vehicle_card before you ask for any of those.
 Trips: start a trip with trip_save action start (odometer + from/to). End it with action end and the new miles. That updates the truck's miles and the Log tab. "I'm home with 81650 miles" is an end.
@@ -1594,7 +1581,13 @@ def _apply_pending_research() -> dict | None:
     if not has_request_context():
         return None
     pending = session.pop(SESSION_RESEARCH_PENDING, None)
-    if not isinstance(pending, dict) or not pending.get("item_id"):
+    if not isinstance(pending, dict):
+        return None
+    if pending.get("source") == "vin_builtin":
+        from app.utils.ask_vin import apply_pending_vin
+
+        return apply_pending_vin(pending)
+    if not pending.get("item_id"):
         return None
     if not (can("maintain") or can("edit_meta")):
         return {
@@ -1999,6 +1992,8 @@ def _confirm_pending(text: str) -> dict | None:
     raw = (text or "").strip()
     research_pending = session.get(SESSION_RESEARCH_PENDING) if has_request_context() else None
     if isinstance(research_pending, dict):
+        if _SAVE_THAT.match(raw) and research_pending.get("source") == "vin_builtin":
+            return {"ok": True, "say": "I’ve staged the VIN and guide details. Allow the save?", "confirm": True, "did": [], "vault_locked": False}
         if _NO_ADD.match(raw):
             session.pop(SESSION_RESEARCH_PENDING, None)
             return {
@@ -2304,6 +2299,10 @@ def _remember_reply(text: str) -> dict | None:
     if not match:
         return None
     pending = session.get(SESSION_RESEARCH_PENDING) if has_request_context() else None
+    if isinstance(pending, dict) and pending.get("source") == "vin_builtin":
+        if pending.get("item_id"):
+            return _apply_pending_research()
+        return {"ok": True, "say": "I’ve staged the VIN and guide details. Allow the save?", "confirm": True, "did": [], "vault_locked": False}
     if isinstance(pending, dict) and pending.get("item_id"):
         requested_target = _remember_target(match.group(1))
         if not isinstance(requested_target, dict) and getattr(requested_target, "id", None) == pending.get("item_id"):
@@ -3344,7 +3343,11 @@ def _is_due_ask(t: str) -> bool:
         t,
     ):
         return True
-    if re.search(r"\boil\b", t) and re.search(r"\b(?:is|are|when\s+is|what(?:'s| is)?)\b.{0,40}\bdue\b", t):
+    if re.search(
+        r"\b(?:is|are|when\s+is|when\s+will|will)\b.{0,35}\b(?:the\s+)?(?:engine\s+)?oil(?:\s+change)?\b.{0,45}\b(?:due|needed)\b"
+        r"|\b(?:engine\s+)?oil(?:\s+change)?\b.{0,40}\b(?:is\s+)?(?:due|needed)\b",
+        t,
+    ):
         return True
     return False
 
@@ -5231,14 +5234,6 @@ def run_tool(name: str, args: dict | None) -> dict:
             return tool_person_update(args)
         if key == "lookup":
             return tool_lookup(args)
-        if key == "vault_unlock":
-            return tool_vault_unlock(args)
-        if key == "vault_list":
-            return tool_vault_list(args.get("q") or "")
-        if key == "vault_open":
-            return tool_vault_open(args.get("id") or args.get("entry_id"))
-        if key == "vault_save":
-            return tool_vault_save(args)
         if key == "note_save":
             return tool_note_save(args)
         if key == "basket_add":
@@ -5595,6 +5590,38 @@ def run_ask(
     if household is None or int(getattr(household, "id", 0) or 0) != int(getattr(current_user, "household_id", 0) or 0):
         return {"ok": False, "error": "AI stays in this household."}
     ai_ready = ask_ready(household, current_user)
+    # Credential requests are intercepted before any model call or transcript
+    # write. Ordinary password help remains part of the general AI conversation.
+    from app.utils.ask_vault import is_vault_request, local_vault_say
+
+    pasted_secret = not is_vault_request(text, _room()) and bool(
+        re.fullmatch(r"[A-Za-z0-9!@#$%^&*()_+\-=\[\]{};':\",./?]{10,128}", text)
+        and re.search(r"[A-Za-z]", text)
+        and re.search(r"\d", text)
+    )
+    if pasted_secret:
+        from flask import has_request_context as _has_request_context
+        from flask import session as _flask_session
+
+        if _has_request_context():
+            _flask_session.pop(_sess_key(), None)
+            _clear_turns()
+            if _room() != "vault":
+                clear_history("vault")
+        clear_ask_photo()
+        return {
+            "ok": True,
+            "say": "That looks like a password or access code. I did not send or save it. To unlock the vault, enter your sign-in details on /vault/.",
+            "did": [],
+            "vault_locked": False,
+            "volatile": True,
+            "sensitive": True,
+            "clear_history": True,
+        }
+    vault_reply = local_vault_say(text, _room(), has_photo=has_photo)
+    if vault_reply is not None:
+        clear_ask_photo()
+        return vault_reply
     if has_photo:
         from app.utils.ai import get_ai_config
 
@@ -5630,18 +5657,42 @@ def run_ask(
         history.append({"role": "assistant", "text": say})
         _save_history(history)
         return gated
+    oil_due_result = None
+    from app.utils.ask_oil_due import handle_pending_reply
+
+    oil_reply = None if has_photo else handle_pending_reply(text)
+    if oil_reply:
+        history = _history()
+        history.extend([
+            {"role": "user", "text": text},
+            {"role": "assistant", "text": oil_reply.get("say") or ""},
+        ])
+        _save_history(history)
+        return oil_reply
     # Local fast paths: household data and commands answered without the model.
     # Each handler returns str (a say), dict (a full payload), or None to pass the
     # turn on. Handlers run lazily in order — first match answers, everything else
     # falls through to the model. Keep the order: confirms/replies first, then
     # saved-spec answers (fluid, oil, vehicle), then command handlers, then due/list.
+    from app.utils.ask_vin import vin_fluid_say
+    from app.utils.ask_oil_due import oil_due_answer
+
+    def due_answer():
+        nonlocal oil_due_result
+        if has_photo or oil_due_result is not None:
+            return oil_due_result
+        oil_due_result = oil_due_answer(text)
+        return oil_due_result
+
     local_handlers = (
         lambda: None if has_photo else _confirm_pending(text),
         lambda: None if has_photo else _remember_reply(text),
         lambda: None if has_photo else _fluid_saved_say(text),
+        lambda: None if has_photo else vin_fluid_say(text),
         lambda: None if has_photo else _fluid_unsaved_say(text),
         lambda: None if has_photo else _fluids_overview_say(text),
         lambda: None if has_photo else _oil_local_say(text),
+        due_answer,
         lambda: None if has_photo else _stored_vehicle_say(text),
         lambda: None if has_photo else _trip_local_say(text),
         lambda: None if has_photo else _sort_local_say(text),
@@ -5786,6 +5837,7 @@ def run_ask(
     if not last_say:
         last_say = (
             _speak_tool_notes(tool_notes)
+            or (due_answer() if not has_photo else None)
             or _fluid_saved_say(text)
             or _oil_local_say(text)
             or _expire_local_say(text)
@@ -5823,5 +5875,5 @@ def run_ask(
         "say": last_say,
         "did": did,
         "confirm": confirm_ui,
-        "vault_locked": any((n.get("result") or {}).get("need") == "vault_unlock" for n in tool_notes),
+        "vault_locked": False,
     }

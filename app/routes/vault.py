@@ -366,8 +366,10 @@ def _render_index(*, draft=None):
         remaining=reauth_remaining() if opened else 0,
         remaining_min=max(1, (reauth_remaining() + 59) // 60) if opened else 0,
         reauth_minutes=REAUTH_SECONDS // 60,
+        resume_ask_vault=bool(session.get("ask_resume_vault")),
         vault_keep=opened,
         draft=draft or {},
+        next_url=request.args.get("next") if request.args.get("next") == "/ask/vault" else "",
     )
 
 
@@ -393,7 +395,12 @@ def unlock():
         return redirect(url_for("vault.index"))
     mark_reauth()
     flash("Vault open. It stays open while you use it.", "success")
+    next_path = request.form.get("next") or ""
+    resume_vault = bool(session.pop("ask_resume_vault", False))
+    if next_path == "/ask/vault" or resume_vault:
+        return redirect(url_for("ask.room", room="vault"))
     return redirect(url_for("vault.index"))
+
 
 
 @vault_bp.route("/stay", methods=["POST"])
