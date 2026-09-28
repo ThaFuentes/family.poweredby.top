@@ -5,6 +5,7 @@ are tried, in order, when the one before them is down.
 """
 from __future__ import annotations
 
+import re
 import secrets
 import time
 
@@ -217,7 +218,7 @@ def _write_rows(household, rows: list[dict], default_id: str, *, chat_on: bool, 
         default_id = next((r["id"] for r in rows if r.get("on")), rows[0]["id"] if rows else "")
     main = next((r for r in rows if r["id"] == default_id), None)
     settings = dict(household.settings_json or {})
-    settings["ai"] = {
+    rebuilt = {
         "provider": main["provider"] if main else blob.get("provider") or DEFAULT_PROVIDER,
         "model": (main.get("model") if main else "") or "",
         "api_key": (main.get("api_key") if main else "") or "",
@@ -228,6 +229,15 @@ def _write_rows(household, rows: list[dict], default_id: str, *, chat_on: bool, 
         "default_id": default_id,
         "ask_confirm": normalize_ask_confirm(blob.get("ask_confirm")),
     }
+    # This blob is rebuilt from scratch, so anything not listed above is lost on every
+    # key / chat / confirm save. Carry the agent's name and persona through, or saving
+    # an API key silently renamed the house's agent back to "Ask".
+    for passthrough in ("agent_name", "agent_persona"):
+        if blob.get(passthrough):
+            rebuilt[passthrough] = blob[passthrough]
+        else:
+            blob.pop(passthrough, None)
+    settings["ai"] = rebuilt
     household.settings_json = settings
     flag_modified(household, "settings_json")
     db.session.commit()
@@ -492,6 +502,53 @@ def household_key_action(
     if action == "update" and row and (api_key or "").strip():
         refresh_key_models(household, key_id=key_id, stale_only=False, force=True)
     return household_config(household)
+
+
+AGENT_NAME_RE = re.compile(r"[^A-Za-z0-9 '&.!-]")
+
+
+def normalize_agent_name(raw) -> str:
+    """The chat agent's name: 1–24 chars of letters, numbers, spaces, a few marks."""
+    text = re.sub(r"\s+", " ", str(raw or "")).strip()
+    text = AGENT_NAME_RE.sub("", text)
+    return text[:24]
+
+
+def normalize_persona(raw) -> str:
+    """Free-text “details” for the agent, kept tight."""
+    return " ".join(str(raw or "").split())[:400]
+
+
+def agent_identity(household) -> dict:
+    """Name + persona for Ask in this house. Defaults: name “Ask”, no persona."""
+    blob = _ai_blob(household)
+    return {
+        "name": normalize_agent_name(blob.get("agent_name")) or "Ask",
+        "persona": normalize_persona(blob.get("agent_persona")),
+    }
+
+
+def set_household_agent(household, *, name: str | None = None, persona: str | None = None) -> dict:
+    """Rename the chat agent or change its details. Empty name resets to Ask."""
+    settings = dict(household.settings_json or {})
+    ai = dict(settings.get("ai") or {})
+    if name is not None:
+        clean = normalize_agent_name(name)
+        if clean:
+            ai["agent_name"] = clean
+        else:
+            ai.pop("agent_name", None)
+    if persona is not None:
+        clean_persona = normalize_persona(persona)
+        if clean_persona:
+            ai["agent_persona"] = clean_persona
+        else:
+            ai.pop("agent_persona", None)
+    settings["ai"] = ai
+    household.settings_json = settings
+    flag_modified(household, "settings_json")
+    db.session.commit()
+    return agent_identity(household)
 
 
 def set_household_ask_confirm(household, mode: str) -> dict:

@@ -418,8 +418,27 @@ class FamilySecurityTests(unittest.TestCase):
         )
         self.assertEqual(added.status_code, 200)
         self.assertIn(b"Motorcraft 130A", added.data)
-        self.assertIn(b"AutoZone", added.data)
-        self.assertIn(b"Just replaced the alternator", added.data)
+        # The calmer systems view shows the newest part on the tile; store and
+        # notes live on the part's sheet.
+        with self.app.app_context():
+            from app.builddb.table_vehicle_parts import VehiclePart
+
+            part = (
+                VehiclePart.query.filter_by(
+                    vehicle_item_id=truck_id, name="Motorcraft 130A"
+                )
+                .order_by(VehiclePart.id.desc())
+                .first()
+            )
+            self.assertIsNotNone(part)
+            self.assertEqual((part.source or ""), "AutoZone")
+            part_id = part.id
+        sheet = self.client.get(
+            f"/items/{truck_id}/parts/sheet?system=electrical&part={part_id}"
+        )
+        self.assertEqual(sheet.status_code, 200)
+        self.assertIn(b"AutoZone", sheet.data)
+        self.assertIn(b"Just replaced the alternator", sheet.data)
         rad = self.client.post(
             f"/items/{truck_id}/parts",
             data={
@@ -436,7 +455,24 @@ class FamilySecurityTests(unittest.TestCase):
         )
         self.assertEqual(rad.status_code, 200)
         self.assertIn(b"Spectra radiator", rad.data)
-        self.assertIn(b"RockAuto", rad.data)
+        with self.app.app_context():
+            from app.builddb.table_vehicle_parts import VehiclePart
+
+            part = (
+                VehiclePart.query.filter_by(
+                    vehicle_item_id=truck_id, name="Spectra radiator"
+                )
+                .order_by(VehiclePart.id.desc())
+                .first()
+            )
+            self.assertIsNotNone(part)
+            self.assertEqual((part.source or ""), "RockAuto")
+            part_id = part.id
+        sheet = self.client.get(
+            f"/items/{truck_id}/parts/sheet?system=cooling&part={part_id}"
+        )
+        self.assertEqual(sheet.status_code, 200)
+        self.assertIn(b"RockAuto", sheet.data)
         # photo route
         with self.app.app_context():
             from app.builddb.table_photo_notes import PhotoNote
@@ -495,7 +531,9 @@ class FamilySecurityTests(unittest.TestCase):
             self.assertNotIn(b"Internal Server Error", r.data)
         home = self.client.get("/")
         body = home.data.decode("utf-8", "replace")
-        self.assertIn("What this household needs", body)
+        # The old "What this household needs" subtitle was replaced by the
+        # dashboard copy; needs cards render when there is something to do.
+        self.assertIn("Your dashboard", body)
         self.assertIn("House", body)
         self.assertIn('action="/find/"', body)
         find = self.client.get("/find/?q=milk")
@@ -506,7 +544,11 @@ class FamilySecurityTests(unittest.TestCase):
         self.assertIn(b"Systems", house.data)
         self.assertIn(b"HVAC", house.data)
         members = self.client.get("/members/")
-        self.assertIn(b"Where things live", members.data)
+        self.assertIn(b"People", members.data)
+        # “Where things live” moved to the This house sheet on the tile page.
+        house_sheet = self.client.get("/members/sheet/house")
+        self.assertEqual(house_sheet.status_code, 200)
+        self.assertIn(b"Where things live", house_sheet.data)
         plat = self.client.get("/platform/login")
         self.assertEqual(plat.status_code, 200)
         self.assertNotIn(b"Bootstrap token", plat.data)

@@ -976,7 +976,13 @@ def tool_oil_save(args: dict | None = None) -> dict:
     if not (can("maintain") or can("edit_meta")):
         return _denied("update the oil record")
     from app.utils.ask import _history, _last_assistant, _path, _pick_named_item
-    from app.utils.oil import normalize_oil_payload, oil_payload_has_fields, save_item_oil
+    from app.utils.oil import (
+        apply_fluids_payload,
+        get_fluids,
+        normalize_oil_payload,
+        oil_payload_has_fields,
+        save_item_oil,
+    )
 
     q = _trim(args.get("item") or args.get("q") or args.get("name") or args.get("vehicle"), 200)
     if not q:
@@ -996,13 +1002,24 @@ def tool_oil_save(args: dict | None = None) -> dict:
             "need": ["needs"],
             "hint": "Say the oil it needs, such as 5W-30 full synthetic, 6 qt. That text is what gets written into the form.",
         }
+    # A fluids-only payload (rear_diff / transmission / …) must not leak the
+    # conversation fallback into the ENGINE-oil fields.
+    _engine_keys = (
+        "needs", "oil_needs", "capacity", "oil_capacity", "in_it", "oil_type",
+        "filter", "filter_type", "last_date", "last_miles", "last_hours",
+        "interval_miles", "interval_months", "interval_hours",
+        "next_date", "next_miles", "next_hours",
+    )
+    if not any(str(payload.get(k) or "").strip() for k in _engine_keys):
+        payload = {k: v for k, v in payload.items() if k in ("fluid", "fluids", "value")}
     try:
         save_item_oil(item, payload, clear=False)
     except ValueError:
         return {"ok": False, "error": f"{item.name} does not keep an oil record."}
-    db.session.commit()
     host = item.vehicle or item.tool
-    return {
+    fluid_keys = apply_fluids_payload(host, payload)
+    db.session.commit()
+    out = {
         "ok": True,
         "id": item.id,
         "name": item.name,
@@ -1016,6 +1033,12 @@ def tool_oil_save(args: dict | None = None) -> dict:
         "href": (_path("items.detail", item_id=item.id) or f"/items/{item.id}") + "?tab=overview",
         "did": "saved",
     }
+    fluids = get_fluids(host)
+    if fluids:
+        out["fluids"] = fluids
+    if fluid_keys:
+        out["fluids_saved"] = fluid_keys
+    return out
 
 
 def tool_log_save(args: dict | None = None) -> dict:

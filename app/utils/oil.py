@@ -1,4 +1,9 @@
-"""Oil the machine needs, what is in it, and when the next change is due."""
+"""Oil the machine needs, what is in it, and when the next change is due.
+
+Also the other fluids (rear diff, transmission, coolant…): they live in the
+vehicle/tool extra_data JSON under key "fluids" — no migration needed — because
+the oil_needs column is engine oil only.
+"""
 from __future__ import annotations
 
 import calendar
@@ -68,6 +73,139 @@ def _put(record, attr: str, raw, *, clear: bool, kind: str, cap: int = 200):
         setattr(record, attr, parsed)
         return
     setattr(record, attr, _text(raw, cap) or None)
+
+
+# Non-engine fluids. The oil_needs / oil_type columns are ENGINE oil only.
+# Keys are canonical; phrases map to them in fluid_key().
+FLUID_LABELS: dict[str, str] = {
+    "rear_diff": "Rear differential",
+    "front_diff": "Front differential",
+    "transmission": "Transmission",
+    "transfer_case": "Transfer case",
+    "coolant": "Coolant",
+    "brake_fluid": "Brake fluid",
+    "power_steering": "Power steering",
+}
+
+# Order matters: the front patterns run before the rear ones so "front diff" never
+# lands on rear_diff. A bare "diff"/"gear oil" is the rear axle by default — that is
+# what people mean by it on a truck. Keep this the ONLY place a phrase becomes a key;
+# ask.py asks fluid_key() instead of keeping a second copy of these words.
+_FLUID_PATTERNS: tuple[tuple[str, re.Pattern], ...] = (
+    (
+        "front_diff",
+        re.compile(
+            r"\bfront\s*(?:dif{1,2}(?:erential)?|axle|end)\b"
+            r"|\bfront\b.{0,14}\bgear\s*oil\b"
+            r"|\bfront\s+end\b.{0,14}\b(?:oil|fluid|fluid\b)",
+            re.I,
+        ),
+    ),
+    (
+        "rear_diff",
+        re.compile(
+            r"\brear\s*(?:dif{1,2}(?:erential)?|axle|end)\b"
+            r"|\bback\s*end\b"
+            r"|\brear\b.{0,14}\bgear\s*oil\b"
+            r"|\bgear\s*(?:oil|fluid)\b"
+            r"|\bring\s*(?:and|&)\s*pinion\b"
+            r"|\baxle\s*(?:oil|fluid|lube|grease)\b"
+            # Bare "dif"/"diff"/"differential" — the common case (and "dif" with one
+            # f is how people actually type it). Runs last on purpose.
+            r"|\bdif{1,2}(?:erential)?\b",
+            re.I,
+        ),
+    ),
+    ("transfer_case", re.compile(r"\btransfer\s*case\b|\b4wd\s+fluid\b|\bfour.?wheel.?drive\s+fluid\b", re.I)),
+    ("transmission", re.compile(r"\btrans(?:mission|axle)?\b|\batf\b|\btrans\s*(?:fluid|oil)\b", re.I)),
+    ("coolant", re.compile(r"\bcoolant\b|\bantifreeze\b|\bradiator\s*fluid\b", re.I)),
+    ("brake_fluid", re.compile(r"\bbrake\s*fluid\b", re.I)),
+    ("power_steering", re.compile(r"\bpower\s*steering\b(?:\s*fluid)?", re.I)),
+)
+
+
+def fluid_key(phrase: str) -> str:
+    """"rear diff" / "gear oil in the back end" … → canonical fluid key. Empty when engine oil."""
+    raw = (phrase or "").strip().lower()
+    if not raw or re.search(r"\b(?:engine|motor)\s+oil\b|\b\d{1,2}\s*w-\s*\d{2}\b", raw):
+        return ""
+    for key, pat in _FLUID_PATTERNS:
+        if pat.search(raw):
+            return key
+    return ""
+
+
+def fluid_label(key: str) -> str:
+    """'rear_diff' → 'Rear differential'. Falls back to a tidied-up key."""
+    return FLUID_LABELS.get((key or "").strip(), (key or "").replace("_", " ").title())
+
+
+def fluid_asked(phrase: str) -> tuple[str, str]:
+    """(key, label) for a non-engine fluid ask. ("", "") for engine oil or no match.
+
+    Every caller goes through here so a "what fluid" question can never be mistaken
+    for an engine-oil question (or the other way round).
+    """
+    key = fluid_key(phrase)
+    return (key, fluid_label(key)) if key else ("", "")
+
+
+def get_fluids(host) -> dict:
+    """Saved non-engine fluid specs: {"rear_diff": "75W-90 GL-5", …}."""
+    extra = getattr(host, "extra_data", None)
+    if not isinstance(extra, dict):
+        return {}
+    fluids = extra.get("fluids")
+    if not isinstance(fluids, dict):
+        return {}
+    return {k: str(v or "").strip()[:200] for k, v in fluids.items() if str(v or "").strip() and k in FLUID_LABELS}
+
+
+def set_fluid(host, key: str, value: str) -> bool:
+    """Save one fluid spec into extra_data. Empty value clears it."""
+    key = (key or "").strip()
+    if key not in FLUID_LABELS:
+        return False
+    extra = dict(host.extra_data) if isinstance(host.extra_data, dict) else {}
+    fluids = dict(extra.get("fluids")) if isinstance(extra.get("fluids"), dict) else {}
+    text = str(value or "").strip()[:200]
+    if text:
+        fluids[key] = text
+    else:
+        fluids.pop(key, None)
+    extra["fluids"] = fluids
+    # Reassign (not mutate in place) so ORM change detection picks it up.
+    host.extra_data = extra
+    return True
+
+
+def apply_fluids_payload(host, data: dict) -> list[str]:
+    """Write fluid specs from an oil_save payload. Returns the keys saved."""
+    data = data or {}
+    saved = []
+    single = data.get("fluid") or data.get("fluid_key")
+    if single:
+        key = fluid_key(str(single)) or str(single).strip().lower().replace(" ", "_")
+        value = data.get("value") or data.get("spec") or data.get("needs") or ""
+        if set_fluid(host, key, str(value)):
+            saved.append(key)
+    many = data.get("fluids")
+    if isinstance(many, dict):
+        for name, value in many.items():
+            key = fluid_key(str(name)) or str(name).strip().lower().replace(" ", "_")
+            if set_fluid(host, key, str(value or "")):
+                saved.append(key)
+    return saved
+
+
+def fluid_payload_has_fields(data: dict) -> bool:
+    data = data or {}
+    if data.get("fluid") or data.get("fluids"):
+        return True
+    for key in FLUID_LABELS:
+        if not _blank(data.get(key)):
+            return True
+    return False
 
 
 def apply_vehicle_oil(vehicle, data: dict, *, clear: bool = False) -> None:
@@ -170,6 +308,17 @@ def fields_from_text(text: str) -> dict:
 
 def normalize_oil_payload(data: dict | None, extra_text: str = "") -> dict:
     src = dict(data or {})
+    # A fluids-only payload (rear_diff / transmission / …) is complete as-is:
+    # never mine the conversation for engine-oil fields, or plan sentences
+    # like “I'll save the oil spec on…” end up in needs.
+    _engine_hints = (
+        "needs", "oil_needs", "oil", "spec", "capacity", "oil_capacity",
+        "in_it", "oil_type", "filter", "filter_type", "last_date", "last_miles",
+        "last_hours", "interval_miles", "interval_months", "interval_hours",
+        "next_date", "next_miles", "next_hours",
+    )
+    if fluid_payload_has_fields(src) and all(_blank(src.get(k)) for k in _engine_hints):
+        return src
     needs = src.get("needs") or src.get("oil_needs") or src.get("oil") or src.get("spec") or ""
     if _blank(needs):
         for key in ("text", "body", "reply", "answer", "details", "kind"):
@@ -209,7 +358,7 @@ def oil_payload_has_fields(data: dict) -> bool:
         "next_miles",
         "next_hours",
     )
-    return any(not _blank(data.get(k)) for k in keys)
+    return any(not _blank(data.get(k)) for k in keys) or fluid_payload_has_fields(data)
 
 
 def save_item_oil(item, data: dict, *, clear: bool = False) -> str:

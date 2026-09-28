@@ -71,3 +71,17 @@ touch tmp/restart.txt
 Do **not** overwrite host-only files: `passenger_wsgi.py`, `.htaccess`, `.env`, `uploads/`.
 
 After HostM succeeds: revoke the PAT at https://github.com/settings/tokens
+
+## HostM domains
+
+Same host user `ua882038`. Paths for the other PoweredBy.top apps:
+
+| Domain | Laptop | GitHub | HostM path | Branch |
+|---|---|---|---|---|
+| `family.poweredby.top` | `/home/clarkkent/pyprojects/family.poweredby.top` | `ThaFuentes/family.poweredby.top` | `/home/ua882038/public_html/family.poweredby.top` | `main` |
+| `apt.poweredby.top` | `/home/clarkkent/pyprojects/apt.poweredby.top` | `ThaFuentes/apartments` | `/home/ua882038/public_html/apt.poweredby.top` | `main` |
+| `ufo.poweredby.top` | `/home/clarkkent/pyprojects/ahos` | `ThaFuentes/ufo.poweredby.top` | `/home/ua882038/public_html/ufo.poweredby.top` | `main` |
+| `aegis.poweredby.top` | `/home/clarkkent/pyprojects/aegis.poweredby.top` | `ThaFuentes/Aegis` | `/home/ua882038/public_html/aegis.poweredby.top` | `redesign/landing-aminos-honeypot` |
+| `aegisx.poweredby.top` | `/home/clarkkent/pyprojects/aegisx.poweredby.top` | `ThaFuentes/AEGISX` | `/home/ua882038/public_html/aegisx.poweredby.top` | `redesign/landing-aminos-honeypot` |
+| `ax.poweredby.top` | `/home/clarkkent/pyprojects/ax.poweredby.top` | `ThaFuentes/AX` | `/home/ua882038/public_html/ax.poweredby.top` | `redesign/landing-aminos-honeypot` and `main` |
+| `poweredby.top` | `/home/clarkkent/pyprojects/poweredby.top` | `ThaFuentes/AEGISX` | `/home/ua882038/public_html/poweredby.top` | push `HEAD:poweredby-top` |

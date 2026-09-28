@@ -206,13 +206,20 @@ def create_app():
             ask_path = ""
         try:
             if getattr(current_user, "is_authenticated", False) and _role_of() != "child":
-                from app.utils.ask import ask_ready as _ask_ready
+                from app.utils.ask import ask_chat_allowed as _ask_chat_allowed
 
-                ask_open = _ask_ready(hh, current_user)
+                ask_open = _ask_chat_allowed(hh, current_user)
                 ask_embed = bool(ask_open) and not ask_path.startswith("/ask")
         except Exception:
             ask_open = False
             ask_embed = False
+        agent_name = "Ask"
+        try:
+            from app.utils.ask import ask_identity as _ask_identity
+
+            agent_name = _ask_identity(hh).get("name") or "Ask"
+        except Exception:
+            agent_name = "Ask"
         return {
             "SITE_MODE": "family",
             "SITE_NAME": "Family OS",
@@ -228,6 +235,7 @@ def create_app():
             "ask_embed": ask_embed,
             "ask_room": ask_room,
             "ask_room_meta": ask_room_meta,
+            "agent_name": agent_name,
         }
 
     from app.utils.thumbs import item_thumb_url as _item_thumb_filter

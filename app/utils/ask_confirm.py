@@ -174,6 +174,17 @@ def plan_line(tool: str, args: dict | None = None) -> str:
         args.get("name") or args.get("title") or args.get("q") or args.get("item") or args.get("what"),
         120,
     )
+    if tool == "item_update":
+        fields = [
+            key.replace("_", " ")
+            for key in (
+                "name", "category", "notes", "make", "model", "year", "color", "trim",
+                "vin", "plate", "engine", "transmission", "fuel_type", "tire_size",
+                "battery_type", "type", "serial", "power_source", "location", "place",
+            )
+            if args.get(key) is not None
+        ]
+        return f"I’ll update {name or 'that item'}: {', '.join(fields) or 'the requested details'}."
     if tool == "item_remove":
         from app.utils.ask import _pick_for_remove
 
@@ -239,6 +250,14 @@ def plan_line(tool: str, args: dict | None = None) -> str:
         return f"I’ll add {names or 'those'} to the basket."
     if tool == "reminder_save":
         return f"I’ll add a reminder for {name or 'that'}."
+    if tool == "reminder_done":
+        return f"I’ll mark {name or 'that reminder'} done."
+    if tool == "basket_remove":
+        return f"I’ll take {name or 'that'} off the basket."
+    if tool == "note_delete":
+        return f"I’ll delete the note {name or 'that'}."
+    if tool == "person_update":
+        return f"I’ll update {args.get('username') or 'that person'}."
     if tool == "oil_save":
         return f"I’ll save the oil spec on {name or 'that machine'}."
     if tool == "log_save":
@@ -298,6 +317,9 @@ def _speak(tool: str, result: dict) -> str:
     if result.get("need") or result.get("error"):
         return str(result.get("hint") or result.get("error") or "Could not do that.")
     spoken = _speak_result(tool, result)
+    if not spoken and (result.get("did") or result.get("title") or result.get("name")):
+        did = result.get("did") or "Done"
+        spoken = f"{did} {result.get('title') or result.get('name') or ''}".strip()
     return spoken or str(result.get("did") or result.get("say") or "Done.")
 
 
@@ -372,20 +394,100 @@ def cancel_held() -> dict:
     }
 
 
+_RENAME = re.compile(
+    r"^\s*(?:i['’]?ll )?(?:call you|your name is|your name should be|rename you|you are|you're)\s+(.{1,40}?)\s*[.!]?\s*$",
+    re.I,
+)
+_SET_PERSONA = re.compile(
+    r"^\s*(?:your (?:details|persona|description) (?:are|is)|about you)[:\s]+(.{1,400}?)\s*[.!]?\s*$",
+    re.I,
+)
+# “call you Jarvis from now on” — the qualifier rides at the END of the name, so
+# stripping it only from the front left the name saved as “Jarvis from now on”.
+_NAME_SOFTENER_LEAD = re.compile(
+    r"^(?:(?:just |simply |really )?(?:the |a ))?"
+    r"(?:(?:from now on|going forward|henceforth|from now|starting now|starting today|now)\s+)?",
+    re.I,
+)
+_NAME_SOFTENER_TAIL = re.compile(
+    r"(?:\s*,?\s*(?:from now on|going forward|henceforth|from now|starting now|"
+    r"starting today|for now|please|ok|okay|thanks|thank you|now))+[\s.!]*$",
+    re.I,
+)
+
+
+def _clean_agent_name(phrase: str) -> str:
+    """"Jarvis from now on" / "just the Jarvis" / "Jarvis, thanks" → "Jarvis"."""
+    out = _NAME_SOFTENER_TAIL.sub("", (phrase or "").strip())
+    out = _NAME_SOFTENER_LEAD.sub("", out.strip())
+    return out.strip(" \t\"'“”.,!?")
+
+
+def _apply_rename(raw: str) -> dict | None:
+    """“Call you Jarvis” / “your details are …” — the house renames its agent."""
+    from app.utils.ask import ask_identity
+    from app.utils.household_ai import set_household_agent
+
+    m = _RENAME.match(raw)
+    persona_m = _SET_PERSONA.match(raw)
+    if not m and not persona_m:
+        return None
+    household = getattr(current_user, "household", None)
+    if household is None:
+        return None
+    if m:
+        # Drop softeners on both ends: “call you Jarvis from now on” → Jarvis.
+        name = _clean_agent_name(m.group(1))
+        if not name:
+            return None
+        identity = set_household_agent(household, name=name)
+        say = f"Done — call me {identity['name']}."
+        if persona_m:
+            set_household_agent(household, persona=persona_m.group(1))
+            say = f"Done — call me {identity['name']}, and I noted the details."
+        elif identity.get("persona"):
+            say = f"Done — call me {identity['name']}."
+        return {"ok": True, "say": say, "did": [], "vault_locked": False, "agent": identity}
+    identity = set_household_agent(household, persona=persona_m.group(1))
+    return {
+        "ok": True,
+        "say": f"Noted. {identity['persona'][:160]}",
+        "did": [],
+        "vault_locked": False,
+        "agent": identity,
+    }
+
+
 def handle_reply(text: str) -> dict | None:
     raw = (text or "").strip()
     if not raw:
         return None
     pending = session.get(SESSION_WRITE_PENDING) if has_request_context() else None
     has_pending = isinstance(pending, dict) and pending.get("items")
+    if not has_pending:
+        # Rename / persona only when no plan is waiting — never swallow a yes/no.
+        renamed = _apply_rename(raw)
+        if renamed:
+            return renamed
     if has_pending:
         if _NO.search(raw):
             return cancel_held()
         if _ALLOW_MODE.search(raw):
             set_mode("allow")
             done = apply_held()
-            extra = " Running free from now on for simple work."
-            done["say"] = ((done.get("say") or "").rstrip() + extra).strip()
+            # “Always allow” on a waiting plan also means yes to it — an add or a
+            # delete that is still asking must not be left hanging.
+            try:
+                from app.utils.ask import _confirm_pending
+
+                extra = _confirm_pending("yes")
+                if isinstance(extra, dict) and extra.get("say"):
+                    done["say"] = ((done.get("say") or "") + "\n" + extra["say"]).strip()
+                    done["did"] = list(done.get("did") or []) + list(extra.get("did") or [])
+            except Exception:
+                pass
+            extra_say = " Running free from now on for simple work."
+            done["say"] = ((done.get("say") or "").rstrip() + extra_say).strip()
             done["ask_confirm"] = "allow"
             return done
         if _ASK_MODE.search(raw):
@@ -402,7 +504,18 @@ def handle_reply(text: str) -> dict | None:
         raw,
         re.I,
     ):
-        return set_mode("allow")
+        done = set_mode("allow")
+        # An add/delete may still be waiting on this same reply — treat it as yes.
+        try:
+            from app.utils.ask import _confirm_pending
+
+            extra = _confirm_pending("yes")
+            if isinstance(extra, dict) and extra.get("say"):
+                done["say"] = ((done.get("say") or "") + "\n" + extra["say"]).strip()
+                done["did"] = list(done.get("did") or []) + list(extra.get("did") or [])
+        except Exception:
+            pass
+        return done
     if re.match(r"^\s*(always ask|ask(?: me)? first|start asking|confirm first)\b", raw, re.I):
         return set_mode("ask")
     return None

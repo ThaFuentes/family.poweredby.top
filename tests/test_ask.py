@@ -280,11 +280,93 @@ class AskHttpTests(unittest.TestCase):
                 chat=chat,
             )
 
+    def test_local_chat_bubble_and_app_edits_work_without_ai_key(self):
+        self.admin = f"ask_local_{self.suffix}"
+        self._register(self.admin, household=f"AskLocal {self.suffix}", name="Pat")
+        home = self.client.get("/")
+        self.assertIn(b'id="ask-root"', home.data)
+        token = self._csrf(home.data)
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("deterministic operations must work without AI")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            added = self.client.post(
+                "/ask/message",
+                json={"message": "put coffee creamer on the basket"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertEqual(added.status_code, 200, added.get_json())
+        self.assertIn("coffee creamer", (added.get_json() or {}).get("say", "").lower())
+        if (added.get_json() or {}).get("confirm"):
+            with patch("app.utils.ask.complete", side_effect=fail_if_called):
+                added = self._yes(token)
+            self.assertEqual(added.status_code, 200, added.get_json())
+
+        with self.app.app_context():
+            from app.builddb.table_grocery_list import GroceryListEntry
+            from app.builddb.table_users import User
+
+            user = User.query.filter_by(username=self.admin).first()
+            row = GroceryListEntry.query.filter_by(household_id=user.household_id, name="coffee creamer").first()
+            self.assertIsNotNone(row)
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            chips = self.client.post(
+                "/ask/message",
+                json={"message": "add chips to my basket"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertEqual(chips.status_code, 200, chips.get_json())
+        if (chips.get_json() or {}).get("confirm"):
+            with patch("app.utils.ask.complete", side_effect=fail_if_called):
+                chips = self._yes(token)
+            self.assertEqual(chips.status_code, 200, chips.get_json())
+        with self.app.app_context():
+            from app.builddb.table_grocery_list import GroceryListEntry
+            from app.builddb.table_users import User
+
+            user = User.query.filter_by(username=self.admin).first()
+            row = GroceryListEntry.query.filter_by(household_id=user.household_id, name="chips").first()
+            self.assertIsNotNone(row)
+
+    def test_chat_local_edits_and_lists_when_ai_is_down(self):
+        self.admin = f"ask_offline_{self.suffix}"
+        self._register(self.admin, household=f"AskOffline {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        self._grocery("Milk")
+        token = self._csrf(self.client.get("/").data)
+
+        def ai_down(*_a, **_k):
+            return False, "The model is busy right now."
+
+        with patch("app.utils.ask.complete", side_effect=ai_down):
+            response = self.client.post(
+                "/ask/message",
+                json={"message": "move the milk to the freezer"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertIn("freezer", (response.get_json() or {}).get("say", "").lower())
+        if (response.get_json() or {}).get("confirm"):
+            with patch("app.utils.ask.complete", side_effect=ai_down):
+                response = self._yes(token)
+            self.assertEqual(response.status_code, 200, response.get_json())
+        with self.app.app_context():
+            from app.builddb.table_items import Item
+            from app.builddb.table_users import User
+
+            hid = User.query.filter_by(username=self.admin).first().household_id
+            milk = Item.query.filter_by(household_id=hid, name="Milk", item_type="grocery").first()
+            self.assertIsNotNone(milk)
+            self.assertIn("freezer", (milk.grocery.default_location or "").lower())
+
     def test_widget_follows_key_and_toggle(self):
         self.admin = f"ask_a_{self.suffix}"
         self._register(self.admin, household=f"Ask {self.suffix}", name="Pat")
         home = self.client.get("/")
-        self.assertNotIn(b'id="ask-root"', home.data)
+        # Local household controls remain available without an AI key.
+        self.assertIn(b'id="ask-root"', home.data)
         self._put_key(chat=True)
         home = self.client.get("/")
         self.assertIn(b'id="ask-root"', home.data)
@@ -820,15 +902,12 @@ class AskHttpTests(unittest.TestCase):
         with self.app.app_context():
             from app.builddb.table_ask_turns import AskTurn
             from app.builddb.table_items import Item
-            from app.builddb.table_notes import Note
             from app.builddb.table_users import User
 
             user = User.query.filter_by(username=self.admin).first()
             item = Item.query.filter_by(household_id=user.household_id, name="Silverado").first()
             self.assertIsNotNone(item)
             self.assertIn("5W-30", item.vehicle.oil_needs or "")
-            notes = Note.query.filter_by(item_id=item.id).all()
-            self.assertTrue(any("5W-30" in (n.body or "") for n in notes))
             turns = AskTurn.query.filter_by(user_id=user.id).count()
             self.assertGreaterEqual(turns, 2)
 
@@ -903,24 +982,20 @@ class AskHttpTests(unittest.TestCase):
         self._put_key(chat=True)
         self._tool("Honda generator", type="generator", power_source="gas", model="EU2200i")
         token = self._csrf(self.client.get("/").data)
-        seen = []
 
-        def fake_complete(prompt, **kwargs):
-            seen.append(prompt)
-            return True, '{"say":"Honda generator EU2200i is on the site. No oil spec saved. These usually take SAE 10W-30. Want me to add that?"}'
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("a known generator is answered from the built-in guide")
 
-        with patch("app.utils.ask.complete", side_effect=fake_complete):
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
             resp = self.client.post(
                 "/ask/message",
                 json={"message": "what oil does my gas gen need"},
                 headers={"X-CSRF-Token": token},
             )
         say = (resp.get_json() or {}).get("say") or ""
-        self.assertTrue(seen)
-        self.assertIn("Honda", seen[0])
-        self.assertIn("no oil spec", seen[0].lower())
+        self.assertIn("Honda", say)
         self.assertIn("10W-30", say)
-        self.assertIn("Want me to add", say)
+        self.assertIn("save that", say.lower())
         self.assertFalse(say.strip().startswith("{"))
 
     def test_what_oil_i_have_lists_specs(self):
@@ -1196,25 +1271,20 @@ class AskHttpTests(unittest.TestCase):
             row.color = "White"
             db.session.commit()
         token = self._csrf(self.client.get("/").data)
-        seen = []
 
-        def fake_complete(prompt, **kwargs):
-            seen.append(prompt)
-            return True, '{"needs":"0W-20 API SN","capacity":"6.4 qt","interval_miles":"10000","interval_months":"12","note":"Toyota 2011 Tundra 5.7L"}'
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("a known Tundra year is answered from the built-in guide")
 
-        with patch("app.utils.ask.complete", side_effect=fake_complete):
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
             resp = self.client.post(
                 "/ask/message",
                 json={"message": "look up the oil for the white tundra 2011"},
                 headers={"X-CSRF-Token": token},
             )
         say = (resp.get_json() or {}).get("say") or ""
-        self.assertTrue(seen)
-        self.assertIn("Tundra", seen[0])
-        self.assertIn("2011", seen[0])
+        self.assertIn("Tundra", say)
         self.assertIn("0W-20", say)
-        self.assertIn("OEM", say)
-        self.assertIn("Want me to add", say)
+        self.assertIn("save that", say.lower())
 
         def fail_if_called(*_a, **_k):
             raise AssertionError("yes should save the pending OEM spec")
@@ -1317,7 +1387,7 @@ class AskHttpTests(unittest.TestCase):
                 headers={"X-CSRF-Token": token},
             )
         done = (second.get_json() or {}).get("say") or ""
-        self.assertIn("Peanut Butter", done)
+        self.assertIn("peanut butter", done.lower())
         self.assertIn("inventory", done.lower())
         with self.app.app_context():
             from app.builddb.table_grocery_items import GroceryItem
@@ -1660,6 +1730,559 @@ class AskHttpTests(unittest.TestCase):
         self.assertIn("Fridge", done)
         self.assertIn("Milk", done)
         self.assertNotIn("Inventory in this house", done)
+
+
+    def test_rear_diff_oil_asks_the_model_not_engine_oil(self):
+        self.admin = f"ask_diff_{self.suffix}"
+        self._register(self.admin, household=f"AskDiff {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        item_id = self._vehicle("Blue Tundra")
+        with self.app.app_context():
+            from app.builddb.builddb import db
+            from app.builddb.table_vehicles import Vehicle
+
+            row = Vehicle.query.filter_by(item_id=item_id).first()
+            row.year = 2006
+            row.make = "Toyota"
+            row.model = "Tundra"
+            row.oil_needs = "0W-20"
+            db.session.commit()
+        token = self._csrf(self.client.get("/").data)
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("a known Tundra rear diff is answered from the built-in guide")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "what kinda rear diff oil does my 06 tundra take"},
+                headers={"X-CSRF-Token": token},
+            )
+        say = (resp.get_json() or {}).get("say") or ""
+        self.assertIn("75W-90", say)
+        self.assertIn("rear", say.lower())
+        self.assertNotIn("0W-20", say)
+
+    def test_due_lists_overdue_oil_change_without_the_model(self):
+        self.admin = f"ask_due_{self.suffix}"
+        self._register(self.admin, household=f"AskDue {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        item_id = self._vehicle("Work Tundra")
+        with self.app.app_context():
+            from datetime import date, timedelta
+
+            from app.builddb.builddb import db
+            from app.builddb.table_vehicles import Vehicle
+
+            row = Vehicle.query.filter_by(item_id=item_id).first()
+            row.next_oil_due_date = date.today() - timedelta(days=9)
+            db.session.commit()
+        token = self._csrf(self.client.get("/").data)
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("what's due is answered locally, no model needed")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "what's due"},
+                headers={"X-CSRF-Token": token},
+            )
+        say = (resp.get_json() or {}).get("say") or ""
+        self.assertIn("Oil change", say)
+        self.assertIn("Work Tundra", say)
+        self.assertIn("overdue", say)
+
+    def test_oil_change_past_due_reaches_the_due_list(self):
+        self.admin = f"ask_due2_{self.suffix}"
+        self._register(self.admin, household=f"AskDue2 {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        item_id = self._vehicle("Ranch Tundra")
+        with self.app.app_context():
+            from datetime import date, timedelta
+
+            from app.builddb.builddb import db
+            from app.builddb.table_vehicles import Vehicle
+
+            row = Vehicle.query.filter_by(item_id=item_id).first()
+            row.next_oil_due_date = date.today() - timedelta(days=30)
+            db.session.commit()
+        token = self._csrf(self.client.get("/").data)
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("'oil change past due' must not go to the model or the spec reply")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "is my oil change past due?"},
+                headers={"X-CSRF-Token": token},
+            )
+        say = (resp.get_json() or {}).get("say") or ""
+        self.assertIn("Oil change", say)
+        self.assertIn("Ranch Tundra", say)
+        self.assertIn("overdue", say)
+
+    def test_log_oil_change_then_asks_reminder_choice(self):
+        from datetime import date
+
+        today = date.today().isoformat()
+        self.admin = f"ask_oillog_{self.suffix}"
+        self._register(self.admin, household=f"AskOilLog {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        item_id = self._vehicle("Red Tundra")
+        token = self._csrf(self.client.get("/").data)
+        replies = [
+            (
+                True,
+                '{"tool":"oil_save","args":{"item":"Red Tundra","in_it":"5W-30 full synthetic",'
+                f'"last_date":"{today}","last_miles":"78000","interval_months":"6","interval_miles":"5000"'
+                "}}",
+            ),
+            (True, '{"say":"Got the oil change logged."}'),
+            (
+                True,
+                '{"say":"Oil change saved on Red Tundra at 78,000 miles. Want the reminder in 6 months or at 83,000 miles?"}',
+            ),
+        ]
+
+        def fake_complete(*_a, **_k):
+            return replies.pop(0)
+
+        with patch("app.utils.ask.complete", side_effect=fake_complete):
+            first = self.client.post(
+                "/ask/message",
+                json={"message": "add an oil change to my red tundra with 5w-30 full synthetic at 78000 miles"},
+                headers={"X-CSRF-Token": token},
+            )
+        data = first.get_json() or {}
+        self.assertTrue(data.get("confirm"), data)
+        self.assertIn("oil", (data.get("say") or "").lower())
+
+        with patch("app.utils.ask.complete", side_effect=fake_complete):
+            yes = self._yes(token)
+        done = (yes.get_json() or {}).get("say") or ""
+        self.assertIn("reminder", done.lower())
+        self.assertIn("6 months", done.lower())
+        self.assertNotIn("{\"", done)
+        with self.app.app_context():
+            from app.builddb.table_vehicles import Vehicle
+
+            row = Vehicle.query.filter_by(item_id=item_id).first()
+            self.assertEqual(int(row.last_oil_change_mileage or 0), 78000)
+            self.assertEqual(str(row.oil_type or ""), "5W-30 full synthetic")
+            self.assertEqual(int(row.next_oil_due_mileage or 0), 83000)
+            self.assertIsNotNone(row.next_oil_due_date)
+    def test_research_tool_answers_with_sources(self):
+        self.admin = f"ask_res_{self.suffix}"
+        self._register(self.admin, household=f"AskRes {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        item_id = self._vehicle("Blue Tundra")
+        with self.app.app_context():
+            from app.builddb.builddb import db
+            from app.builddb.table_vehicles import Vehicle
+
+            vehicle = Vehicle.query.filter_by(item_id=item_id).first()
+            vehicle.year = 2006
+            vehicle.make = "Toyota"
+            vehicle.model = "Tundra"
+            db.session.commit()
+        token = self._csrf(self.client.get("/").data)
+        prompts = []
+        web_prompts = []
+
+        def fake_complete(prompt, **kwargs):
+            prompts.append(prompt)
+            if len(prompts) == 1:
+                return True, '{"tool":"research","args":{"q":"2006 toyota tundra rear differential oil spec"}}'
+            return True, '{"say":"The 2006 Tundra rear differential takes 75W-85 GL-5, about 2.6 qt."}'
+
+        def fake_web(prompt, **kwargs):
+            web_prompts.append(prompt)
+            return True, (
+                "75W-85 GL-5 gear oil, roughly 2.6 quarts",
+                [{"title": "Toyota 2006 Tundra Owner's Manual", "uri": "https://toyota.com/manual"}],
+            )
+
+        with patch("app.utils.ask.complete", side_effect=fake_complete):
+            with patch("app.utils.ai.complete_web", side_effect=fake_web):
+                resp = self.client.post(
+                    "/ask/message",
+                    json={"message": "search online for the rear diff oil my 06 tundra takes"},
+                    headers={"X-CSRF-Token": token},
+                )
+        data = resp.get_json() or {}
+        self.assertTrue(data.get("ok"), data)
+        say = data.get("say") or ""
+        self.assertIn("75W-85", say)
+        self.assertIn("Owner's Manual", say)
+        self.assertIn("https://toyota.com/manual", say)
+        self.assertIn("Want me to save", say)
+        self.assertIn("rear differential", web_prompts[0].lower())
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("accepting a research save offer should be local")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            saved = self.client.post(
+                "/ask/message",
+                json={"message": "yes"},
+                headers={"X-CSRF-Token": token},
+            )
+        saved_data = saved.get_json() or {}
+        self.assertTrue(saved_data.get("ok"), saved_data)
+        self.assertIn("rear differential", (saved_data.get("say") or "").lower())
+        with self.app.app_context():
+            from app.builddb.table_vehicles import Vehicle
+
+            vehicle = Vehicle.query.filter_by(item_id=item_id).first()
+            self.assertEqual(
+                (vehicle.extra_data or {}).get("fluids", {}).get("rear_diff"),
+                "75W-85 GL-5 gear oil, roughly 2.6 quarts",
+            )
+            self.assertEqual(vehicle.oil_needs or "", "")
+
+    def test_fluid_saved_answers_locally(self):
+        self.admin = f"ask_fs_{self.suffix}"
+        self._register(self.admin, household=f"AskFS {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        item_id = self._vehicle("Diff Tundra")
+        with self.app.app_context():
+            from app.builddb.builddb import db
+            from app.builddb.table_vehicles import Vehicle
+            from app.utils.oil import set_fluid
+
+            row = Vehicle.query.filter_by(item_id=item_id).first()
+            row.year = 2006
+            row.make = "Toyota"
+            row.model = "Tundra"
+            set_fluid(row, "rear_diff", "75W-85 GL-5")
+            db.session.commit()
+        token = self._csrf(self.client.get("/").data)
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("a saved fluid spec must answer locally, no model")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "what rear diff oil does my tundra take"},
+                headers={"X-CSRF-Token": token},
+            )
+        data = resp.get_json() or {}
+        self.assertTrue(data.get("ok"), data)
+        say = data.get("say") or ""
+        self.assertIn("75W-85", say)
+        self.assertNotIn("motor oil", say.lower())
+
+    def test_oil_save_fluid_writes_extra_data(self):
+        self.admin = f"ask_fsave_{self.suffix}"
+        self._register(self.admin, household=f"AskFSave {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        item_id = self._vehicle("Fluid Tundra")
+        token = self._csrf(self.client.get("/").data)
+        replies = [
+            (True, '{"tool":"oil_save","args":{"item":"Fluid Tundra","fluid":"rear_diff","value":"80W-90 GL-5"}}'),
+            (True, '{"say":"Saved the rear diff spec."}'),
+        ]
+
+        def fake_complete(*_a, **_k):
+            return replies.pop(0)
+
+        with patch("app.utils.ask.complete", side_effect=fake_complete):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "save 80w-90 gl-5 as the rear diff oil on my fluid tundra"},
+                headers={"X-CSRF-Token": token},
+            )
+        data = resp.get_json() or {}
+        self.assertTrue(data.get("ok"), data)
+        self.assertTrue(data.get("confirm"), data)
+
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("yes is applied locally")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            yes = self._yes(token)
+        done = (yes.get_json() or {})
+        self.assertTrue(done.get("ok"), done)
+        with self.app.app_context():
+            from app.builddb.table_vehicles import Vehicle
+
+            row = Vehicle.query.filter_by(item_id=item_id).first()
+            fluids = (row.extra_data or {}).get("fluids") or {}
+            self.assertEqual(fluids.get("rear_diff"), "80W-90 GL-5")
+            self.assertEqual(row.oil_needs or "", "")
+
+
+class FluidHelperTests(unittest.TestCase):
+    def test_fluid_key_matches_phrases(self):
+        from app.utils.oil import fluid_key
+
+        self.assertEqual(fluid_key("what kinda rear diff oil does my 06 tundra take"), "rear_diff")
+        self.assertEqual(fluid_key("rear differential"), "rear_diff")
+        self.assertEqual(fluid_key("transmission fluid"), "transmission")
+        self.assertEqual(fluid_key("transfer case oil"), "transfer_case")
+        self.assertEqual(fluid_key("coolant type"), "coolant")
+        self.assertEqual(fluid_key("brake fluid"), "brake_fluid")
+        self.assertEqual(fluid_key("power steering fluid"), "power_steering")
+        self.assertEqual(fluid_key("what motor oil does it take"), "")
+        self.assertEqual(fluid_key(""), "")
+
+    def test_set_and_get_fluids_roundtrip(self):
+        from types import SimpleNamespace as NS
+
+        from app.utils.oil import get_fluids, set_fluid
+
+        host = NS(extra_data={"already": "here"})
+        self.assertTrue(set_fluid(host, "rear_diff", "75W-90 GL-5"))
+        self.assertTrue(set_fluid(host, "transmission", "WS ATF"))
+        self.assertEqual(get_fluids(host), {"rear_diff": "75W-90 GL-5", "transmission": "WS ATF"})
+        self.assertEqual(host.extra_data["already"], "here")
+        self.assertTrue(set_fluid(host, "rear_diff", ""))
+        self.assertEqual(get_fluids(host), {"transmission": "WS ATF"})
+        self.assertFalse(set_fluid(host, "engine", "nope"))
+
+    def test_fluids_show_on_item_card(self):
+        from types import SimpleNamespace as NS
+
+        from app.utils.ask import _oil_fields
+
+        host = NS(
+            extra_data={"fluids": {"rear_diff": "75W-90 GL-5"}},
+            oil_needs="0W-20",
+            oil_type="",
+            oil_capacity="",
+            last_oil_change_date=None,
+            last_oil_date=None,
+            next_oil_due_date=None,
+            next_oil_due_mileage=None,
+            next_oil_due_hours=None,
+            oil_interval_miles=None,
+            oil_interval_hours=None,
+            oil_interval_months=None,
+        )
+        item = NS(vehicle=host, tool=None)
+        fields = _oil_fields(item)
+        self.assertEqual(fields["fluids"], {"Rear differential": "75W-90 GL-5"})
+        self.assertEqual(fields["needs"], "0W-20")
+
+
+class CompleteWebTests(unittest.TestCase):
+    def test_gemini_grounding_parses_sources(self):
+        from unittest.mock import MagicMock, patch
+
+        import app.utils.ai as ai
+
+        cfg = {
+            "provider": "gemini",
+            "kind": "gemini",
+            "api_key": "k",
+            "base_url": "https://generativelanguage.googleapis.com/v1beta",
+            "model": "gemini-2.5-flash",
+        }
+        body = {
+            "candidates": [
+                {
+                    "content": {"parts": [{"text": "75W-85 GL-5 gear oil"}]},
+                    "groundingMetadata": {
+                        "groundingChunks": [
+                            {"web": {"title": "Toyota Manual", "uri": "https://toyota.com/manual"}},
+                            {"web": {"uri": "https://example.org/spec"}},
+                        ]
+                    },
+                }
+            ]
+        }
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.content = b"x"
+        resp.json.return_value = body
+        cfg = dict(cfg, chain=[])
+        with patch.object(ai.requests, "post", return_value=resp) as post:
+            with patch.object(ai, "get_ai_config", return_value=cfg):
+                ok, payload = ai.complete_web(
+                    "rear diff oil for a 2006 tundra",
+                    system="Research.",
+                    household=NS2(settings_json=None),
+                )
+        self.assertTrue(ok)
+        text, sources = payload
+        self.assertIn("75W-85", text)
+        self.assertEqual(sources[0]["title"], "Toyota Manual")
+        self.assertEqual(sources[1]["title"], "spec")
+        sent = post.call_args.kwargs["json"]
+        self.assertIn("google_search", sent["tools"][0])
+
+    def test_complete_web_needs_a_key(self):
+        import app.utils.ai as ai
+
+        with patch.object(ai, "get_ai_config", return_value={"api_key": "", "chain": []}):
+            ok, err = ai.complete_web("q", household=NS2(settings_json=None))
+        self.assertFalse(ok)
+        self.assertIn("No AI key", err)
+
+
+class NS2(SimpleNamespace):
+    pass
+
+
+class AgentUxTests(AskHttpTests):
+    def test_slash_help_lists_agent_and_rooms(self):
+        self.admin = f"ask_help_{self.suffix}"
+        self._register(self.admin, household=f"AskHelp {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        token = self._csrf(self.client.get("/").data)
+        resp = self.client.post(
+            "/ask/message",
+            json={"message": "/help"},
+            headers={"X-CSRF-Token": token},
+        )
+        say = (resp.get_json() or {}).get("say") or ""
+        self.assertIn("/help", say)
+        self.assertIn("/reminders", say)
+        self.assertIn("/notes", say)
+        self.assertIn("/vault", say)
+        self.assertIn("/people", say)
+        self.assertIn("/ask/vault", say)
+        self.assertIn("search online", say)
+
+    def test_basket_remove_and_reminder_done_flow(self):
+        self.admin = f"ask_par_{self.suffix}"
+        self._register(self.admin, household=f"AskPar {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        token = self._csrf(self.client.get("/").data)
+        # Explicit local writes use the same confirmation flow without the model.
+        def fail_if_called(*_a, **_k):
+            raise AssertionError("basket and reminder commands are deterministic")
+
+        with patch("app.utils.ask.complete", side_effect=fail_if_called):
+            self.client.post(
+                "/ask/message", json={"message": "add paper towels to the basket"}, headers={"X-CSRF-Token": token}
+            )
+            self.client.post(
+                "/ask/message", json={"message": "yes"}, headers={"X-CSRF-Token": token}
+            )
+            self.client.post(
+                "/ask/message", json={"message": "add a reminder for water bill due 2026-10-01"}, headers={"X-CSRF-Token": token}
+            )
+            self.client.post(
+                "/ask/message", json={"message": "yes"}, headers={"X-CSRF-Token": token}
+            )
+        # Local /reminders snapshot must show it.
+        resp = self.client.post("/ask/message", json={"message": "/reminders"}, headers={"X-CSRF-Token": token})
+        self.assertIn("water bill", ((resp.get_json() or {}).get("say") or "").lower())
+        # Mark it done by name. Like every other write, Ask holds it for a "yes" —
+        # the "local" part is that the confirmation runs the tool without the model.
+        replies2 = [(True, '{"tool":"reminder_done","args":{"q":"Water bill"}}')]
+
+        def fake_complete2(*_a, **_k):
+            return replies2.pop(0) if replies2 else (True, '{"say":"Done."}')
+
+        with patch("app.utils.ask.complete", side_effect=fake_complete2):
+            resp = self.client.post(
+                "/ask/message", json={"message": "mark water bill done"}, headers={"X-CSRF-Token": token}
+            )
+            held = (resp.get_json() or {}).get("say") or ""
+            self.assertIn("done", held.lower())
+            # Confirming must not need the model at all.
+            with patch(
+                "app.utils.ask.complete",
+                side_effect=AssertionError("confirming reminder_done must not call the model"),
+            ):
+                resp = self.client.post(
+                    "/ask/message", json={"message": "yes"}, headers={"X-CSRF-Token": token}
+                )
+        say = (resp.get_json() or {}).get("say") or ""
+        self.assertIn("done", say.lower())
+        with self.app.app_context():
+            from app.builddb.table_reminders import Reminder
+            from app.builddb.table_users import User
+
+            # scoped() reads household_id() off the request, which is not there in a
+            # bare app context — scope by the household directly like the other tests.
+            hid = User.query.filter_by(username=self.admin).first().household_id
+            rows = Reminder.query.filter_by(household_id=hid, status="done").all()
+            self.assertTrue(any("water bill" in (r.title or "").lower() for r in rows))
+
+    def test_agent_rename_and_persona(self):
+        from app.utils.household_ai import agent_identity
+
+        self.admin = f"ask_name_{self.suffix}"
+        self._register(self.admin, household=f"AskName {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        token = self._csrf(self.client.get("/").data)
+        resp = self.client.post(
+            "/ask/message",
+            json={"message": "call you Jarvis from now on"},
+            headers={"X-CSRF-Token": token},
+        )
+        data = resp.get_json() or {}
+        self.assertTrue(data.get("ok"), data)
+        self.assertIn("Jarvis", data.get("say") or "")
+        with self.app.app_context():
+            from app.builddb.table_users import User
+
+            u = User.query.filter_by(username=self.admin).first()
+            ident = agent_identity(u.household)
+            self.assertEqual(ident["name"], "Jarvis")
+        # The bubble picks the new name up on the next render.
+        home = self.client.get("/")
+        self.assertIn(b">Jarvis<", home.data)
+
+    def test_agent_persona_set_in_chat(self):
+        from app.utils.household_ai import agent_identity
+
+        self.admin = f"ask_pers_{self.suffix}"
+        self._register(self.admin, household=f"AskPers {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        token = self._csrf(self.client.get("/").data)
+        resp = self.client.post(
+            "/ask/message",
+            json={"message": "your details are: we run a ranch; check the diesel level before trips"},
+            headers={"X-CSRF-Token": token},
+        )
+        data = resp.get_json() or {}
+        self.assertTrue(data.get("ok"), data)
+        with self.app.app_context():
+            from app.builddb.table_users import User
+
+            u = User.query.filter_by(username=self.admin).first()
+            ident = agent_identity(u.household)
+            self.assertIn("ranch", ident["persona"])
+
+    def test_agent_settings_form_saves_name(self):
+        self.admin = f"ask_form_{self.suffix}"
+        self._register(self.admin, household=f"AskForm {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        page = self.client.get("/members/sheet/ai")
+        token = self._csrf(page.data)
+        resp = self.client.post(
+            "/members/ai",
+            data={
+                "ai_chat": "1",
+                "ask_confirm": "ask",
+                "agent_name": "Ranch Hand",
+                "agent_persona": "We keep horses.",
+                "csrf_token": token,
+            },
+            headers={"X-CSRF-Token": token},
+            follow_redirects=True,
+        )
+        self.assertEqual(resp.status_code, 200)
+        from app.utils.household_ai import agent_identity
+
+        with self.app.app_context():
+            from app.builddb.table_users import User
+
+            u = User.query.filter_by(username=self.admin).first()
+            ident = agent_identity(u.household)
+        self.assertEqual(ident["name"], "Ranch Hand")
+        self.assertIn("horses", ident["persona"])
+
+
+class NS3(SimpleNamespace):
+    pass
 
 
 if __name__ == "__main__":

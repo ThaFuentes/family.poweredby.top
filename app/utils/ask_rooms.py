@@ -12,6 +12,10 @@ ROOMS = (
     "tools",
     "basket",
     "due",
+    "vault",
+    "people",
+    "notes",
+    "reminders",
 )
 
 ROOM_META = {
@@ -47,6 +51,32 @@ ROOM_META = {
     },
 }
 
+ROOM_META = dict(
+    ROOM_META,
+    **{
+        "vault": {
+            "title": "Vault",
+            "hint": "This thread is passwords and bills in the vault. Unlock with this login’s password first.",
+            "placeholder": "What’s my Netflix login? Add a card for the water bill.",
+        },
+        "people": {
+            "title": "People",
+            "hint": "This thread is people in the house — add, change details, roles, passwords.",
+            "placeholder": "Add Sam as a member. Change Riley’s email.",
+        },
+        "notes": {
+            "title": "Notes",
+            "hint": "This thread is notes — save, update, find, or delete them.",
+            "placeholder": "Save a note: spare key is in the kitchen drawer.",
+        },
+        "reminders": {
+            "title": "Reminders",
+            "hint": "This thread is reminders — add, list, or mark them done.",
+            "placeholder": "Add a reminder for the water bill on the 1st. What reminders are open?",
+        },
+    }
+)
+
 ROOM_ALIASES = {
     "house": "house",
     "home": "house",
@@ -72,14 +102,25 @@ ROOM_ALIASES = {
     "list": "basket",
     "shopping": "basket",
     "due": "due",
-    "reminders": "due",
-    "reminder": "due",
+    "reminders": "reminders",
+    "reminder": "reminders",
     "bills": "due",
     "expire": "due",
     "expires": "due",
+    "vault": "vault",
+    "passwords": "vault",
+    "login": "vault",
+    "logins": "vault",
+    "people": "people",
+    "person": "people",
+    "family": "people",
+    "member": "people",
+    "members": "people",
+    "notes": "notes",
+    "note": "notes",
 }
 
-ROOM_RULES = {
+_ROOM_RULES_BASE = {
     "house": "This is the house thread. Prefer find and item_inspect. Point them at /ask/vehicles or /ask/inventory when the talk is only that area.",
     "vehicles": "This thread is vehicles only. Inspect trucks and cars here, start and end trips, log miles. Do not dump inventory, the basket, or tools unless they ask.",
     "inventory": "This thread is inventory only. Counts, use-by dates, restock, and the pantry. Do not dump the vehicle list.",
@@ -87,6 +128,16 @@ ROOM_RULES = {
     "basket": "This thread is the shopping basket. Add names, match scans, list what is on it.",
     "due": "This thread is due dates: bills, oil changes, reminders, and food going bad. Use expire_list and due.",
 }
+
+ROOM_RULES = dict(
+    _ROOM_RULES_BASE,
+    **{
+        "vault": "This thread is the vault. Unlock with vault_unlock first, then list, open, or save cards. Never print secrets unless they asked for that card.",
+        "people": "This thread is people: member_add, member_list, member_role, member_password, member_remove, and person_update for name/email/phone changes.",
+        "notes": "This thread is notes: note_save to add or update, find to locate, note_delete to remove. Household notes show to everyone.",
+        "reminders": "This thread is reminders: reminder_save to add, reminder_list to show open ones, reminder_done to mark one done, due for the combined view.",
+    }
+)
 
 
 def normalize_room(value: str | None) -> str:
@@ -132,25 +183,47 @@ def room_from_path(path: str | None) -> str:
 
 def help_text(room: str | None = None) -> str:
     here = room_meta(room)
+    agent = "Ask"
+    try:
+        from flask_login import current_user
+
+        from app.utils.ask import ask_identity
+
+        if getattr(current_user, "is_authenticated", False):
+            agent = ask_identity(getattr(current_user, "household", None)).get("name") or "Ask"
+    except Exception:
+        agent = "Ask"
     return (
-        "Ask looks this house up and does the work: tools, vehicles, inventory, oil, "
-        "use-by dates, notes, basket, bills. Vault still needs this login’s password.\n\n"
+        f"{agent} looks this house up and does the work: tools, vehicles, inventory, oil, "
+        "use-by dates, notes, basket, bills, reminders, people, and the vault "
+        "(the vault still needs this login’s password). Local saved-data reads and supported edits work without AI; online research, photos, and open-ended chat need a household AI key.\n\n"
         "Slash commands list what is already saved — no wait for the model:\n"
-        "/help\n"
-        "/vehicles\n"
-        "/inventory\n"
-        "/tools\n"
-        "/basket\n"
-        "/due\n"
-        "/oil\n\n"
+        "/help — this list\n"
+        "/vehicles — trucks and cars on the site\n"
+        "/inventory — food and stock\n"
+        "/tools — tools and generators\n"
+        "/basket — the shopping list\n"
+        "/due — reminders, oil changes, and food going bad\n"
+        "/oil — oil specs saved on machines\n"
+        "/reminders — open reminders\n"
+        "/notes — saved notes\n"
+        "/vault — what is in the vault (unlock first)\n"
+        "/people — who is in this house\n"
+        "/allow and /confirm — switch run-free and ask-first\n\n"
+        "Things to say:\n"
+        "“what rear diff oil does my tundra take” — specs from the built-in OEM guide (works with no AI key), research online when the guide does not know\n"
+        "“log an oil change on the tundra at 81,200 with 5W-30” — writes the log, then asks about the reminder\n"
+        "“add a reminder for the water bill on the 1st” · “mark the water bill done”\n"
+        "“put coffee creamer on the basket from Sam’s” · “take paper towels off the basket”\n"
+        "“add Sam as a member” · “change Riley’s email to …” · “set Sam to admin”\n"
+        "“save a note: spare key is in the kitchen drawer” · “delete the grill cover note”\n"
+        "“what’s my Netflix login?” (vault must be unlocked)\n"
+        "“search online for …” — looks it up on the web and cites the source\n\n"
         "Rooms keep threads apart so messages do not mix:\n"
-        "/ask/ — House\n"
-        "/ask/vehicles — Vehicles\n"
-        "/ask/inventory — Inventory\n"
-        "/ask/tools — Tools\n"
-        "/ask/basket — Basket\n"
-        "/ask/due — Due\n"
-        "/ask/help — this list\n\n"
+        + "\n".join(
+            f"/ask/{key} — {ROOM_META[key]['title']}" for key in ROOMS if key != "house"
+        )
+        + "\n\n"
         "Trips: “start a trip in my blue tundra with 81200 miles from Odessa to Lubbock” "
         "then “I’m home with 81650 miles.” That writes the day on the truck’s Log tab and updates miles.\n\n"
         "Writes show a plan first. Allow, don’t, “always allow” (simple work runs free), or “always ask.” "
@@ -158,6 +231,20 @@ def help_text(room: str | None = None) -> str:
         "Sort inventory: “sort the inventory” files food into Fridge, Pantry, and the other rooms. It does not dump the list.\n\n"
         f"You are in {here['title']}. {here['hint']}"
     )
+
+
+def _speak_member_list(result: dict) -> str:
+    people = result.get("people") or []
+    if not people:
+        return "No people saved yet. /members/"
+    return "People:\n" + "\n".join(f"· {p}" for p in people) + "\n/members/"
+
+
+def _speak_vault_list(result: dict) -> str:
+    entries = result.get("entries") or []
+    if not entries:
+        return "Vault is empty or locked. Unlock it first at /vault/ or paste your password in chat."
+    return "Vault:\n" + "\n".join(f"· {e}" for e in entries)
 
 
 def slash_name(text: str) -> str | None:
@@ -201,6 +288,38 @@ def local_list(kind: str) -> str:
         )
         going = _speak_expire(tool_expire_list({"days": 21}))
         return head + "\n\n" + going
+    if key == "reminders":
+        from app.utils.ask import tool_reminder_list
+
+        rows = (tool_reminder_list({}) or {}).get("lines") or []
+        if not rows:
+            return "No open reminders. Say “add a reminder for …” to add one."
+        return "Open reminders:\n" + "\n".join(f"· {ln}" for ln in rows) + "\n/reminders/"
+    if key == "notes":
+        try:
+            from app.builddb.table_notes import Note
+            from app.utils.household import scoped
+
+            rows = (
+                scoped(Note)
+                .order_by(Note.id.desc())
+                .limit(20)
+                .all()
+            )
+        except Exception:
+            rows = []
+        if not rows:
+            return "No notes saved. Say “save a note: …” to add one."
+        return "Notes:\n" + "\n".join(f"· {n.title or 'note'} · /notes/" for n in rows) + "\n/notes/"
+    if key == "people":
+        from app.utils.ask import tool_member_list
+
+        return _speak_member_list(tool_member_list({}))
+    if key == "vault":
+        from app.utils.ask import tool_vault_list
+
+        body = _speak_vault_list(tool_vault_list(""))
+        return body + "\n/vault/"
     return help_text(key)
 
 

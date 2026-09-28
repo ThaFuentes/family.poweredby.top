@@ -21,6 +21,7 @@ from app.utils.permissions import can, role_of
 SESSION_HISTORY = "family_ask_history"
 SESSION_HITS = "family_ask_hits"
 SESSION_OIL_PENDING = "family_ask_oil_pending"
+SESSION_RESEARCH_PENDING = "family_ask_research_pending"
 SESSION_EXPIRE_PENDING = "family_ask_expire_pending"
 SESSION_ITEM_PENDING = "family_ask_item_pending"
 SESSION_REMOVE_PENDING = "family_ask_remove_pending"
@@ -39,6 +40,7 @@ TOOLS = (
     "vehicle_card",
     "item_inspect",
     "item_remove",
+    "item_update",
     "lookup",
     "vault_unlock",
     "vault_list",
@@ -48,6 +50,14 @@ TOOLS = (
     "basket_add",
     "basket_match",
     "reminder_save",
+    "reminder_list",
+    # These four are implemented in run_tool and advertised in the system prompt.
+    # Leaving them out of TOOLS made _parse_turn throw the model's call away, so
+    # “mark the water bill done” came back as “I didn’t catch that.”
+    "reminder_done",
+    "basket_remove",
+    "note_delete",
+    "person_update",
     "inventory",
     "tool_save",
     "vehicle_save",
@@ -64,6 +74,7 @@ TOOLS = (
     "legal_save",
     "oil_save",
     "oil_lookup",
+    "research",
     "expire_list",
     "expire_save",
     "expire_guess",
@@ -76,6 +87,10 @@ WRITE_TOOLS = (
     "basket_add",
     "basket_match",
     "reminder_save",
+    "reminder_done",
+    "note_delete",
+    "basket_remove",
+    "person_update",
     "inventory",
     "tool_save",
     "vehicle_save",
@@ -91,6 +106,7 @@ WRITE_TOOLS = (
     "legal_save",
     "oil_save",
     "item_remove",
+    "item_update",
     "expire_save",
     "expire_guess",
     "inventory_sort",
@@ -108,6 +124,7 @@ The say field is spoken English only. Never put JSON, tool names, or raw tool re
 {"tool":"find","args":{"q":"batteries"}}
 {"tool":"item_inspect","args":{"q":"gas gen"}}
 {"tool":"item_remove","args":{"q":"old drill"}}
+{"tool":"item_update","args":{"q":"blue tundra","name":"Family truck","make":"Toyota","model":"Tundra","year":"2006"}}
 {"tool":"house","args":{"kind":"tools"}}
 {"tool":"house","args":{"kind":"vehicles"}}
 {"tool":"vehicle_card","args":{"q":"2006 tundra"}}
@@ -128,6 +145,12 @@ The say field is spoken English only. Never put JSON, tool names, or raw tool re
 {"tool":"basket_match","args":{"item_id":55,"entry_id":12}}
 {"tool":"basket_match","args":{"q":"french vanilla creamer"}}
 {"tool":"reminder_save","args":{"title":"City water","type":"bill","due":"2026-10-01","every":"30d"}}
+{"tool":"reminder_list","args":{"kind":"bill"}}
+{"tool":"reminder_done","args":{"q":"City water"}}
+{"tool":"basket_remove","args":{"q":"paper towels"}}
+{"tool":"note_delete","args":{"title":"Grill cover"}}
+{"tool":"person_update","args":{"username":"sam","name":"Samuel"}}
+{"tool":"item_update","args":{"q":"blue tundra","name":"Family truck"}}
 {"tool":"inventory","args":{"q":"milk","action":"restock","amount":1,"place":"fridge"}}
 {"tool":"inventory","args":{"q":"Frosted Flakes","action":"create","upc":"016000275273","amount":1,"place":"pantry"}}
 {"tool":"tool_save","args":{"name":"DeWalt drill","type":"drill","model":"DCD771","serial":"","barcode":"","notes":""}}
@@ -142,7 +165,9 @@ The say field is spoken English only. Never put JSON, tool names, or raw tool re
 {"tool":"log_save","args":{"item":"Silverado","kind":"miles","reading":"81200","notes":""}}
 {"tool":"trip_save","args":{"item":"blue tundra","action":"start","reading":"81200","origin":"Odessa","dest":"Lubbock"}}
 {"tool":"trip_save","args":{"item":"blue tundra","action":"end","reading":"81650"}}
-{"tool":"oil_save","args":{"item":"Honda generator","needs":"SAE 10W-30","capacity":"20 oz","in_it":"","last_date":"","interval_hours":"50","interval_months":"6"}}
+{"tool":"oil_save","args":{"item":"Honda generator","needs":"SAE 10W-30","capacity":"20 oz","in_it":"","last_date":"2026-09-25","last_miles":"78000","interval_hours":"50","interval_months":"6"}}
+{"tool":"oil_save","args":{"item":"2006 Tundra","fluid":"rear_diff","value":"75W-90 GL-5"}}
+{"tool":"oil_save","args":{"item":"2006 Tundra","fluids":{"transmission":"WS ATF","coolant":"Toyota SLLC"}}}
 {"tool":"oil_lookup","args":{"q":"white tundra 2011"}}
 {"tool":"expire_list","args":{"days":21}}
 {"tool":"expire_guess","args":{}}
@@ -154,9 +179,13 @@ The say field is spoken English only. Never put JSON, tool names, or raw tool re
 place what: tool, part, grocery, vehicle, house, note, legal.
 A photo with a barcode, VIN, or serial: read the code, then place or lookup. No code: identify the tool or part and place it. Do not invent codes.
 Oil: inspect the named vehicle or tool first (gas gen, mower, white tundra 2011). If oil_needs is filled, tell them that spec. If it is empty, call oil_lookup using the saved year/make/model/VIN so the OEM spec is looked up, tell them that spec, and ask if you should oil_save it. Do not ask them to look it up or to paste a VIN.
+Fluids: the saved oil_needs and in_it fields are ENGINE oil only. For rear/front differential, gear oil, transmission, transfer case, brake fluid, coolant, or power steering, answer for the fluid they named using the saved year/make/model/VIN and the OEM spec — call research when you are not sure of the spec. Never answer a differential or transmission question with the engine oil spec, and never answer one by only showing the vehicle card — say the fluid spec they asked for. item_inspect cards carry a fluids object ("Rear differential", "Transmission", …) with any specs already saved. Save a non-engine fluid with oil_save using fluid (rear_diff, front_diff, transmission, transfer_case, coolant, brake_fluid, power_steering) + value, or fluids for several at once — never put a diff/trans/coolant spec in needs.
+Logging an oil change: they name the oil and the miles → oil_save with item, needs, in_it (what was poured), last_date (today if they said just/did it), last_miles (the miles they gave), and interval_months / interval_miles when they say them; then log_save kind miles reading at those miles (kind hours on a tool). Today's date is on your system line — use it for date math. While a write waits for Allow, just confirm the plan — no follow-up questions yet. Once they allow and the tools return ok, say what was saved, then ask: “Want the reminder in 6 months or at X miles?” Wait for their choice before reminder_save (type oil_change; every 180d for time with due = today + 6 months, or every 3000mi/5000mi for miles). If they want both, save two reminders.
 needs is the Oil it needs field. in_it is what was poured. Do not say the oil was added unless oil_save returns a needs value.
+Built-in guide: this site knows OEM specs for common trucks, SUVs, and small equipment (Tundra, Tacoma, Silverado, Sierra, F-150, Super Duty, Ram, Civic, Accord, Pilot, 4Runner, generators, mowers, pressure washers). When oil_lookup returns source builtin or the local answer already gave the spec, say that spec as the OEM answer — do not web-research it again and do not contradict it. If the machine is not in the guide, use research as usual.
 If they say add that, save that, yes, or put that on a vehicle, tool, or the house, save your previous reply on that item with note_save. When the reply is an oil spec, also oil_save with needs set to that spec.
 Adding a person: call member_add only when you have a name and username. If either is missing, ask. Role member, admin, or child. Password may be blank.
+More you can do here: reminder_list shows open reminders (kind bill, oil_change, filter, custom) and reminder_done marks one done by name or id. basket_remove takes an item off the basket by name. note_delete deletes a note by title — only their own notes, or any household note when they are admin. person_update changes a person's name, email, phone, or role. item_update edits a saved item's name, notes, category, and known vehicle/tool details; q must identify one saved item. research looks a fact up on the open web and cites where it came from.
 When member_add returns a password, say the username and password once so they can copy it.
 inventory action: restock, used, set, need, create. create only when they asked to add a new named product. Put/move/“that are in the pantry” is place on a saved item — never create. If you do not know whether it is food, a tool, or a truck, ask. Do not guess inventory.
 expire_save writes a use-by date on food. expire_list says what is going bad soon and how many food rows have no date. expire_guess writes typical shelf life on those undated rows when they say add generic expirations.
@@ -182,16 +211,25 @@ def _utcnow():
     return datetime.utcnow()
 
 
-def ask_ready(household=None, user=None) -> bool:
+def ask_chat_allowed(household=None, user=None) -> bool:
+    """Ask's local app controls work without a model key; children stay excluded."""
     u = user if user is not None else current_user
-    h = household
-    if h is None:
-        h = getattr(u, "household", None)
-    if not getattr(u, "is_authenticated", False):
+    h = household if household is not None else getattr(u, "household", None)
+    if not getattr(u, "is_authenticated", False) or role_of(u) == "child" or h is None:
         return False
-    if role_of(u) == "child":
+    try:
+        from app.utils.household_ai import chat_on
+
+        return bool(chat_on(h))
+    except Exception:
         return False
-    return ask_available(h, u)
+
+
+def ask_ready(household=None, user=None) -> bool:
+    """Whether the household has an enabled AI key for research/open-ended chat."""
+    u = user if user is not None else current_user
+    h = household if household is not None else getattr(u, "household", None)
+    return ask_chat_allowed(h, u) and ask_available(h, u)
 
 
 def _trim(value, cap: int) -> str:
@@ -463,6 +501,11 @@ _VEHICLE_STOP = {
     "finding", "kinda", "kind", "into", "onto", "delete", "remove", "removed",
     "home", "miles", "mile", "trip", "trips", "start", "starting", "begin",
     "ending", "odometer", "odo",
+    # Fluid words describe the fluid, not the machine — a match must never
+    # depend on the truck being named "rear" or "diff".
+    "rear", "dif", "diff", "differential", "diffs", "front", "trans", "transmission",
+    "axle", "end", "back", "fluid", "fluids", "gear", "coolant", "antifreeze",
+    "brake", "steering", "power", "transfer", "case", "atf", "does", "need",
 }
 
 
@@ -665,15 +708,22 @@ def _oil_fields(item) -> dict:
     host = getattr(item, "vehicle", None) or getattr(item, "tool", None)
     if host is None:
         return {}
+    from app.utils.oil import FLUID_LABELS, get_fluids
+
+    fluids = get_fluids(host)
     return {
         "needs": getattr(host, "oil_needs", None) or "",
         "in_it": getattr(host, "oil_type", None) or "",
         "capacity": getattr(host, "oil_capacity", None) or "",
         "last": str(getattr(host, "last_oil_change_date", None) or getattr(host, "last_oil_date", None) or ""),
         "next": str(getattr(host, "next_oil_due_date", None) or ""),
+        "next_miles": str(getattr(host, "next_oil_due_mileage", None) or ""),
+        "next_hours": str(getattr(host, "next_oil_due_hours", None) or ""),
         "interval_miles": getattr(host, "oil_interval_miles", None) or "",
         "interval_hours": getattr(host, "oil_interval_hours", None) or "",
         "interval_months": getattr(host, "oil_interval_months", None) or "",
+        # Non-engine fluids saved via oil_save (rear_diff, transmission…).
+        "fluids": {FLUID_LABELS[k]: v for k, v in fluids.items() if k in FLUID_LABELS},
     }
 
 
@@ -747,8 +797,21 @@ def _speak_card(card: dict) -> str:
         bits.append(f"in it {in_it}")
     elif card.get("kind") in ("tool", "vehicle") or "needs" in card or "oil_needs" in card:
         bits.append("no oil spec saved")
+    fluids = card.get("fluids") or {}
+    if isinstance(fluids, dict):
+        for fname, fspec in fluids.items():
+            if fname and fspec:
+                bits.append(f"{str(fname).lower()} {fspec}")
     if card.get("capacity"):
         bits.append(card["capacity"])
+    if card.get("last"):
+        bits.append(f"last oil {card['last']}")
+    if card.get("next"):
+        bits.append(f"next oil due {card['next']}")
+    if card.get("next_miles"):
+        bits.append(f"next oil at {card['next_miles']} miles")
+    if card.get("next_hours"):
+        bits.append(f"next oil at {card['next_hours']} hours")
     if card.get("expires"):
         bits.append(f"use by {card['expires']}")
     if card.get("qty"):
@@ -792,6 +855,306 @@ def _all_oil_say() -> str:
     return "\n".join(parts)
 
 
+# Fluids that are NOT engine oil: the phrases live in app/utils/oil.py (fluid_key)
+# so there is exactly one list. The saved oil_needs/in_it fields only hold engine oil,
+# so a differential / transmission / coolant question must never be answered with them.
+_ENGINE_WORDS = re.compile(r"\b(?:engine|motor)\s+oil\b|\bviscosity\b|\b\d{1,2}\s*W-\s*\d{2}\b", re.I)
+# "search online" / "look it up on the web" must reach the research tool.
+# A built-in spec is the answer for a plain question, not for an explicit web search.
+_LIVE_LOOKUP = re.compile(
+    r"\b(?:search|google|research)\b.{0,30}\b(?:online|web|internet)\b"
+    r"|\bsearch\s+online\b"
+    r"|\blook\s+(?:it\s+)?up\s+online\b",
+    re.I,
+)
+
+
+def _wants_live_lookup(text: str) -> bool:
+    return bool(_LIVE_LOOKUP.search(text or ""))
+
+
+# Commands, due-date talk, and logging are not "what oil does it take" lookups.
+_OIL_ACTION = re.compile(
+    r"\b(?:add|log(?:ged)?|record(?:ed)?|change(?:d|s)?|replace(?:d)?|swap(?:ped)?|"
+    r"pour(?:ed)?|fill(?:ed)?|topped\s+up|service(?:d)?|save|set|schedule|"
+    r"remind(?:er|ers)?|due|overdue|past\s+due|last\s+(?:oil\s+)?change|did|just)\b",
+    re.I,
+)
+
+
+def _fluid_saved_say(text: str) -> str | None:
+    """"what rear diff oil does the tundra take" when a spec is already saved → answer locally."""
+    from app.utils.oil import fluid_asked
+
+    raw = (text or "").strip()
+    if not raw or _OIL_ACTION.search(raw) or _wants_live_lookup(raw):
+        return None
+    key, label = fluid_asked(raw)
+    if not key:
+        return None
+    rows = _oil_targets(raw)
+    if len(rows) != 1:
+        return None
+    spec = (_oil_fields(rows[0]).get("fluids") or {}).get(label)
+    if not spec:
+        return None
+    # Answer ONLY the fluid they asked about. The engine oil spec lives in the same
+    # card, and putting it first made "rear diff" read back as the motor oil.
+    return _fluid_say(rows[0], label, spec)
+
+
+def _fluids_overview_say(text: str) -> str | None:
+    """"what fluids does the tundra take" — every fluid on file for one machine.
+
+    Runs after the specific-fluid handlers so a named fluid always wins over the
+    full list. Without it, this question fell through to the model every time.
+    """
+    from app.utils.oil import fluid_asked
+
+    raw = (text or "").strip()
+    if not raw or _OIL_ACTION.search(raw) or _wants_live_lookup(raw) or fluid_asked(raw)[0]:
+        return None
+    if not re.search(r"\b(?:all\s+)?fluids?\b", raw, re.I):
+        return None
+    rows = _oil_targets(raw)
+    if len(rows) != 1:
+        return None
+    item = rows[0]
+    fields = _oil_fields(item)
+    if not (fields.get("needs") or fields.get("in_it") or fields.get("fluids")):
+        # Nothing saved. The built-in OEM guide can still answer without an AI key.
+        table = _fluid_table_overview(item)
+        if table:
+            return table
+        return None
+    return _speak_oil(item)
+
+
+def _fluid_say(item, label: str, spec: str) -> str:
+    """One fluid, one line. Never mix in the engine oil spec."""
+    card = _item_card(item)
+    who = " ".join(
+        str(card.get(k) or "") for k in ("year", "make", "model", "color", "type") if card.get(k)
+    ).strip()
+    head = f"{card.get('name') or 'item'} · {who}" if who else (card.get("name") or "item")
+    href = card.get("href") or ""
+    return f"{head} — {label}: {spec}" + (f" · {href}" if href else "")
+
+
+def _fluid_unsaved_say(text: str) -> str | None:
+    """A named fluid with nothing saved on that machine.
+
+    With an AI key configured this returns None on purpose: the model does the OEM
+    lookup and offers to save it, which is what the rear-diff path is built around.
+    Without a key there is nobody to look it up, so say so instead of handing back a
+    bare vehicle card. Either way the engine-oil spec is never the answer.
+    """
+    from app.utils.oil import fluid_asked
+
+    raw = (text or "").strip()
+    if not raw or _OIL_ACTION.search(raw) or _wants_live_lookup(raw):
+        return None
+    key, label = fluid_asked(raw)
+    if not key:
+        return None
+    rows = _oil_targets(raw)
+    if not rows:
+        return None
+    if len(rows) > 1:
+        # Two trucks and no name in the sentence — ask, never guess.
+        names = ", ".join(r.name for r in rows[:6])
+        return f"Which vehicle's {label.lower()}? {names}"
+    item = rows[0]
+    if (_oil_fields(item).get("fluids") or {}).get(label):
+        return None  # _fluid_saved_say already answers this one.
+    card = _item_card(item)
+    who = " ".join(
+        str(card.get(k) or "") for k in ("year", "make", "model", "color", "type") if card.get(k)
+    ).strip()
+    head = f"{card.get('name') or 'item'} · {who}" if who else (card.get("name") or "item")
+    # Built-in OEM guide first — no AI key, no wait. Saved specs were checked above;
+    # the table is the fallback so “what rear diff oil does my 06 tundra take” gets
+    # the rear-diff answer, not the engine oil and not a dead end.
+    hit = _fluid_table_answer(item, label, key)
+    if hit:
+        return hit
+    if _ask_has_ai():
+        return None
+    return (
+        f"No {label.lower()} saved on {head}. "
+        f"Add an AI key in Household and I can look up the {label.lower()} spec."
+    )
+
+
+def _fluid_table_answer(item, label: str, key: str = "") -> str | None:
+    """Built-in spec for one non-engine fluid, with an offer to save it locally."""
+    try:
+        from app.utils.fluid_specs import answer_for
+
+        hit = answer_for(item, label)
+    except Exception:
+        return None
+    if not hit or hit.get("all"):
+        return None
+    href = (_item_card(item).get("href")) or f"/items/{item.id}"
+    note = f" ({hit['note']})" if hit.get("note") else ""
+    _stash_pending_fluids(item, {key or label: hit["spec"]})
+    return (
+        f"{label} on {item.name}: {hit['spec']}{note}. "
+        f"Say \"save that\" and I'll write it on the item. {href}"
+    )
+
+
+def _stash_pending_fluids(item, fluids: dict, engine: dict | None = None) -> None:
+    """Queue a built-in-guide save so “save that” / “yes” writes it with no AI."""
+    if not has_request_context() or not item:
+        return
+    clean = {}
+    for name, value in (fluids or {}).items():
+        if str(name or "").strip() and str(value or "").strip():
+            clean[str(name).strip()] = str(value).strip()[:200]
+    if not clean and not engine:
+        return
+    session[SESSION_RESEARCH_PENDING] = {
+        "item_id": item.id,
+        "name": item.name,
+        "fluids": clean,
+        "engine": engine or {},
+        "source": "builtin",
+    }
+    session.pop(SESSION_OIL_PENDING, None)
+    session.pop(SESSION_EXPIRE_PENDING, None)
+
+
+def _fluid_table_overview(item) -> str | None:
+    """Whole-card answer from the built-in OEM guide when nothing is saved yet."""
+    try:
+        from app.utils.fluid_specs import fluids_overview_for
+
+        spec = fluids_overview_for(item)
+    except Exception:
+        return None
+    if not spec:
+        return None
+    href = (_item_card(item).get("href")) or f"/items/{item.id}"
+    bits = []
+    order = (
+        ("needs", "engine oil"),
+        ("transmission", "transmission"),
+        ("transfer_case", "transfer case"),
+        ("rear_diff", "rear differential"),
+        ("front_diff", "front differential"),
+        ("coolant", "coolant"),
+        ("brake_fluid", "brake fluid"),
+        ("power_steering", "power steering"),
+    )
+    for key, spoken in order:
+        val = str(spec.get(key) or "").strip()
+        if val:
+            bits.append(f"{spoken}: {val}")
+    if not bits:
+        return None
+    note = f" {spec['note']}" if spec.get("note") else ""
+    _stash_pending_fluids(
+        item,
+        {spoken: spec.get(key) for key, spoken in order[1:]},
+        engine={
+            "needs": spec.get("needs") or "",
+            "capacity": spec.get("capacity") or "",
+            "interval_miles": spec.get("interval_miles") or "",
+            "interval_months": spec.get("interval_months") or "",
+            "interval_hours": spec.get("interval_hours") or "",
+        },
+    )
+    return (
+        f"Built-in guide for {item.name} (nothing saved yet):\n"
+        + "\n".join(f"· {b}" for b in bits)
+        + note
+        + f"\nSay \"save that\" and I'll write the specs on the item. {href}"
+    )
+
+
+def _oil_table_say(item) -> str | None:
+    """Engine oil from the built-in OEM guide when AI research is unavailable."""
+    try:
+        from app.utils.fluid_specs import engine_oil_for
+
+        oem = engine_oil_for(item)
+    except Exception:
+        return None
+    if not oem or not oem.get("needs"):
+        return None
+    bits = [f"Built-in guide: {item.name} takes {oem['needs']}"]
+    if oem.get("capacity"):
+        bits.append(f"about {oem['capacity']} with a filter")
+    if oem.get("filter"):
+        bits.append(f"filter {oem['filter']}")
+    if oem.get("interval_miles"):
+        bits.append(f"every {oem['interval_miles']} miles")
+    elif oem.get("interval_hours"):
+        bits.append(f"every {oem['interval_hours']} hours")
+    if oem.get("interval_months") and not oem.get("interval_miles"):
+        bits.append(f"or {oem['interval_months']} months")
+    if oem.get("note"):
+        bits.append(oem["note"])
+    href = (_item_card(item).get("href")) or f"/items/{item.id}"
+    _stash_pending_fluids(
+        item,
+        {},
+        engine={
+            "needs": oem.get("needs") or "",
+            "capacity": oem.get("capacity") or "",
+            "interval_miles": oem.get("interval_miles") or "",
+            "interval_months": oem.get("interval_months") or "",
+            "interval_hours": oem.get("interval_hours") or "",
+        },
+    )
+    return " ".join(bits) + f". Say \"save that\" and I'll write it on the item. {href}"
+
+
+def _ask_has_ai() -> bool:
+    """Is there a household key to research with? Never raises."""
+    try:
+        household = getattr(current_user, "household", None)
+        return bool(ask_available(household, current_user))
+    except Exception:
+        return False
+
+
+def _other_fluid_phrase(text: str) -> str:
+    """"rear differential" / "transmission" … when the ask is not engine oil.
+
+    Delegates to oil.fluid_key so this can never disagree with the key the save
+    path writes under — a second copy of these words is what used to let a
+    "rear diff" question slip through as an engine-oil question.
+    """
+    from app.utils.oil import fluid_asked
+
+    raw = text or ""
+    if _ENGINE_WORDS.search(raw):
+        return ""
+    return fluid_asked(raw)[1]
+
+
+# Fluid words in the ask. When the typed words match no machine at all and the
+# household keeps exactly one vehicle, "what rear dif oil does IT take" means
+# that vehicle — the same way "what oil does it take" already does.
+_FLUID_WORD_RE = re.compile(
+    r"\b(?:dif{1,2}(?:erential)?|axle|trans(?:mission)?|transfer\s*case|coolant|"
+    r"antifreeze|brake\s*fluid|power\s*steering|gear\s*oil|rear|front)\b",
+    re.I,
+)
+
+
+def _sole_household_vehicle():
+    """The one vehicle when the house has exactly one, else None."""
+    try:
+        rows = _find_items("", "vehicle", limit=2)
+    except Exception:
+        return None
+    return rows[0] if len(rows) == 1 else None
+
+
 def _oil_targets(text: str) -> list:
     raw = text or ""
     rows = _matching_machines(raw)
@@ -806,6 +1169,12 @@ def _oil_targets(text: str) -> list:
             if named:
                 return named
         return tools
+    # Pronoun asks ("does it take", "what about the rear dif") with no machine
+    # word: a lone vehicle in the house IS the machine they mean.
+    if _FLUID_WORD_RE.search(raw) or re.search(r"\bit\b", raw, re.I):
+        only = _sole_household_vehicle()
+        if only is not None:
+            return [only]
     return []
 
 
@@ -820,7 +1189,14 @@ def _oil_overview(text: str) -> bool:
 
 def _oil_local_say(text: str) -> str | None:
     raw = (text or "").strip()
-    if not re.search(r"\boil\b", raw, re.I):
+    if not re.search(r"\boil\b", raw, re.I) or _wants_live_lookup(raw):
+        return None
+    # "add an oil change with these miles", "when is it due" → not a spec lookup.
+    # Let the model (or the due path) handle it instead of replying with the saved spec.
+    if _OIL_ACTION.search(raw):
+        return None
+    # Rear diff / transmission / coolant → the saved engine-oil spec is the WRONG answer.
+    if _other_fluid_phrase(raw):
         return None
     rows = _oil_targets(raw)
     if not rows:
@@ -831,6 +1207,11 @@ def _oil_local_say(text: str) -> str | None:
     if len(rows) == 1 and with_oil:
         return _speak_oil(rows[0])
     if len(rows) == 1:
+        # Built-in OEM guide first: instant, free, works with no key. AI research
+        # stays the fallback for machines the table does not know.
+        tabled = _oil_table_say(rows[0])
+        if tabled:
+            return tabled
         researched = _oil_research_say(rows[0])
         if researched:
             return researched
@@ -847,22 +1228,45 @@ def _oil_local_say(text: str) -> str | None:
 
 def _oil_inspect_note(text: str) -> dict | None:
     raw = (text or "").strip()
-    if not re.search(r"\boil\b", raw, re.I):
+    fluid = _other_fluid_phrase(raw)
+    # A named non-engine fluid counts even without the word "oil" — “what coolant does
+    # the tundra take” needs the same engine-oil-is-the-wrong-answer warning.
+    if not re.search(r"\boil\b", raw, re.I) and not fluid:
         return None
     rows = _oil_targets(raw)
     if len(rows) != 1:
         return None
     item = rows[0]
     oil = _oil_fields(item)
-    if oil.get("needs") or oil.get("in_it"):
+    action = bool(_OIL_ACTION.search(raw))
+    if (oil.get("needs") or oil.get("in_it")) and not fluid and not action:
         return None
+    if fluid:
+        hint = (
+            f"They asked about {fluid} — the saved oil_needs field is ENGINE oil only. "
+            f"Answer for the {fluid} using this machine's year/make/model/VIN (OEM spec). "
+            "Do not answer with the engine oil spec and do not just show the vehicle card. "
+            "If you look it up, offer to oil_save it with that wording."
+        )
+    elif action:
+        hint = (
+            "They are logging an oil change or asking about due dates — do exactly what they asked: "
+            "oil_save with in_it (what was poured), needs, last_date, last_miles (the miles they gave) "
+            "and interval_months/interval_miles when said, then log_save kind miles at that reading. "
+            "After that is saved, ask whether they want the reminder in 6 months or at X miles."
+        )
+    else:
+        hint = (
+            "No oil spec is saved. Look up the OEM spec from year/make/model/VIN — research for the "
+            "open web, oil_lookup for engine oil — tell them, and ask if you should oil_save it."
+        )
     return {
         "tool": "item_inspect",
         "result": {
             "ok": True,
             "card": _item_card(item),
-            "oil_saved": False,
-            "hint": "No oil spec is saved. Look up the OEM spec from year/make/model/VIN, tell them, and ask if you should oil_save it.",
+            "oil_saved": bool(oil.get("needs") or oil.get("in_it")),
+            "hint": hint,
         },
     }
 
@@ -998,6 +1402,45 @@ def tool_oil_lookup(args: dict | None = None) -> dict:
     card = _item_card(item)
     if oil.get("needs") or oil.get("in_it"):
         return {"ok": True, "saved": True, "card": card, "oil_saved": True, "href": card.get("href") or ""}
+    # Built-in OEM guide first — instant and free. AI research only for machines
+    # the table does not know.
+    try:
+        from app.utils.fluid_specs import engine_oil_for
+
+        tabled = engine_oil_for(item)
+    except Exception:
+        tabled = None
+    if tabled and tabled.get("needs"):
+        _stash_pending_fluids(
+            item,
+            {},
+            engine={
+                "needs": tabled.get("needs") or "",
+                "capacity": tabled.get("capacity") or "",
+                "interval_miles": tabled.get("interval_miles") or "",
+                "interval_months": tabled.get("interval_months") or "",
+                "interval_hours": tabled.get("interval_hours") or "",
+            },
+        )
+        return {
+            "ok": True,
+            "saved": False,
+            "card": card,
+            "oil_saved": False,
+            "oem": {
+                "needs": tabled.get("needs") or "",
+                "capacity": tabled.get("capacity") or "",
+                "interval_miles": tabled.get("interval_miles") or "",
+                "interval_months": tabled.get("interval_months") or "",
+                "interval_hours": tabled.get("interval_hours") or "",
+                "note": tabled.get("note") or "",
+                "name": card.get("name") or item.name,
+                "href": card.get("href") or "",
+            },
+            "source": "builtin",
+            "href": card.get("href") or "",
+            "hint": "Say the spec and ask if they want it saved with oil_save.",
+        }
     spec = _lookup_oem_oil(item)
     if not spec.get("needs"):
         return {
@@ -1017,6 +1460,109 @@ def tool_oil_lookup(args: dict | None = None) -> dict:
         "oem": spec,
         "href": spec.get("href") or "",
         "hint": "Ask if they want this saved with oil_save.",
+    }
+
+
+def _research_say(topic: str, spec: dict, sources: list) -> str:
+    """Household English for a researched answer, with sources and a useful save offer."""
+    spec = spec if isinstance(spec, dict) else {}
+    head = str(spec.get("answer") or "").strip() or "Here is what I found."
+    if len(head) > 700:
+        head = head[:697].rstrip() + "…"
+    bits = [head]
+    citations = []
+    for source in (sources or []):
+        if not isinstance(source, dict):
+            continue
+        title = str(source.get("title") or "").strip()
+        uri = str(source.get("uri") or "").strip()
+        citation = title or uri
+        if title and uri:
+            citation += f" ({uri})"
+        if citation and citation not in citations:
+            citations.append(citation)
+        if len(citations) >= 3:
+            break
+    if citations:
+        bits.append("Sources: " + "; ".join(citations))
+    offer = spec.get("save_offer")
+    if isinstance(offer, dict) and offer.get("name") and offer.get("fluid"):
+        bits.append(
+            f"Want me to save this as the {str(offer['fluid']).lower()} spec on {offer['name']}?"
+        )
+    return "\n".join(b for b in bits if b)
+
+
+def tool_research(args: dict | None = None) -> dict:
+    """Look something up on the open web with the household AI key (search grounding).
+
+    For facts this site cannot know: OEM fluid specs, part numbers, how-to steps.
+    Returns the answer plus the source titles so the reply can cite them.
+    """
+    from app.utils.ai import complete_web
+
+    topic = _trim(args.get("q") or args.get("topic") or args.get("question"), 400)
+    if not topic:
+        return {"ok": False, "need": ["q"], "hint": "What should I look up online?"}
+    context = _trim(args.get("context"), 300)
+    ask = topic + (f"\nMachine: {context}" if context else "")
+    ok, payload = complete_web(
+        ask,
+        system=(
+            "Research this for a household manual. Use the search results, not memory. "
+            'Answer in plain English JSON: {"answer": "the spec or steps", "sources": ["title 1", "title 2"]}. '
+            "If the results do not say, say so in answer — do not guess."
+        ),
+        max_tokens=700,
+        timeout=45,
+        household=getattr(current_user, "household", None),
+    )
+    if not ok:
+        return {"ok": False, "error": payload or "Web search is not available on this AI key."}
+    answer, sources = payload if isinstance(payload, tuple) and len(payload) == 2 else (payload, [])
+    text = str(answer or "").strip()
+    if not text:
+        return {"ok": False, "error": "The search came back empty. Try different words."}
+    sources = [s for s in (sources or []) if isinstance(s, dict)]
+    save_offer = None
+    if sources and not text.lower().startswith("(unverified"):
+        try:
+            from app.utils.oil import fluid_asked
+
+            request_text = getattr(g, "ask_message", "") if has_request_context() else ""
+            request_text = request_text or topic
+            fluid, fluid_name = fluid_asked(" ".join((request_text, topic, context)))
+            targets = _oil_targets(request_text)
+            if fluid and len(targets) == 1 and targets[0].item_type in ("vehicle", "tool"):
+                item = targets[0]
+                if not (_oil_fields(item).get("fluids") or {}).get(fluid_name):
+                    value = " ".join(text.split())[:200]
+                    if value:
+                        save_offer = {"name": item.name, "fluid": fluid_name}
+                        session[SESSION_RESEARCH_PENDING] = {
+                            "item_id": item.id,
+                            "name": item.name,
+                            "fluid": fluid,
+                            "fluid_name": fluid_name,
+                            "value": value,
+                        }
+        except Exception:
+            save_offer = None
+    say = _research_say(topic, {"answer": text, "save_offer": save_offer}, sources)
+    research = {"answer": text[:2000], "sources": sources, "say": say}
+    if save_offer:
+        research["save_offer"] = save_offer
+    return {
+        "ok": True,
+        "q": topic,
+        "answer": text[:2000],
+        "sources": sources,
+        "say": say,
+        "hint": (
+            "Say the answer in your own words and name where it came from. "
+            "For a sourced fluid spec, include the save offer when one is present."
+        ),
+        "research": research,
     }
 
 
@@ -1041,6 +1587,83 @@ _ITEM_WHERE = re.compile(
     re.I,
 )
 _NO_ADD = re.compile(r"^\s*(no|nope|cancel|never mind|don't|do not)\b", re.I)
+
+
+def _apply_pending_research() -> dict | None:
+    """Save a sourced non-engine fluid spec after the user accepts the offer."""
+    if not has_request_context():
+        return None
+    pending = session.pop(SESSION_RESEARCH_PENDING, None)
+    if not isinstance(pending, dict) or not pending.get("item_id"):
+        return None
+    if not (can("maintain") or can("edit_meta")):
+        return {
+            "ok": False,
+            "say": "You cannot update that vehicle or tool record.",
+            "did": [],
+            "vault_locked": False,
+        }
+    from app.utils.ask_do import tool_oil_save
+
+    # Built-in-guide save: one fluid, several fluids, and/or the engine-oil card.
+    # AI research saves keep the older single fluid/value shape below.
+    if pending.get("source") == "builtin":
+        fluids = pending.get("fluids") if isinstance(pending.get("fluids"), dict) else {}
+        engine = pending.get("engine") if isinstance(pending.get("engine"), dict) else {}
+        payload = {"item": str(pending["item_id"]), "confirmed": True}
+        if fluids:
+            payload["fluids"] = dict(fluids)
+        if engine.get("needs"):
+            payload["needs"] = engine["needs"]
+            for key in ("capacity", "interval_miles", "interval_months", "interval_hours"):
+                if engine.get(key):
+                    payload[key] = engine[key]
+        if not fluids and not engine.get("needs"):
+            return None
+        result = tool_oil_save(payload)
+        if not result.get("ok"):
+            return {
+                "ok": False,
+                "say": result.get("hint") or result.get("error") or "I couldn’t save that spec.",
+                "did": [],
+                "vault_locked": False,
+            }
+        href = result.get("href") or f"/items/{pending['item_id']}?tab=overview"
+        who = result.get("name") or pending.get("name") or "the item"
+        bits = []
+        if engine.get("needs"):
+            bits.append(f"engine oil {engine['needs']}")
+        for name in fluids:
+            bits.append(str(name).lower().replace("_", " "))
+        saved = ", ".join(bits) if bits else "the spec"
+        return {
+            "ok": True,
+            "say": f"Saved on {who}: {saved}. {href}",
+            "did": ["oil"],
+            "vault_locked": False,
+        }
+    result = tool_oil_save(
+        {
+            "item": str(pending["item_id"]),
+            "fluid": pending.get("fluid"),
+            "value": pending.get("value"),
+            "confirmed": True,
+        }
+    )
+    if not result.get("ok"):
+        return {
+            "ok": False,
+            "say": result.get("hint") or result.get("error") or "I couldn’t save that fluid spec.",
+            "did": [],
+            "vault_locked": False,
+        }
+    href = result.get("href") or f"/items/{pending['item_id']}?tab=overview"
+    return {
+        "ok": True,
+        "say": f"Saved the {str(pending.get('fluid_name') or 'fluid').lower()} spec on {result.get('name') or pending.get('name')}. {href}",
+        "did": ["oil"],
+        "vault_locked": False,
+    }
 
 
 def _apply_pending_oil() -> dict | None:
@@ -1146,7 +1769,9 @@ def _stash_pending_item(payload: dict) -> None:
     session.pop(SESSION_OIL_PENDING, None)
 
 
-def _ask_where_to_add(name: str, *, upc: str = "", amount=1, place: str = "", where_text: str = "") -> dict:
+def _ask_where_to_add(
+    name: str, *, upc: str = "", amount=1, place: str = "", where_text: str = "", auto_file: bool = False
+) -> dict:
     if _looks_like_command(name):
         return {
             "ok": False,
@@ -1203,7 +1828,9 @@ def _ask_where_to_add(name: str, *, upc: str = "", amount=1, place: str = "", wh
     if guess.get("kind") == "grocery" and guess.get("place"):
         from app.utils.ask_confirm import confirm_mode
 
-        if confirm_mode() == "allow":
+        # A real UPC is identity — same as a scan, so file it instead of asking
+        # where. Typed adds with no code still get the "Add it to pantry?" plan.
+        if confirm_mode() == "allow" or (auto_file and upc):
             created = _create_from_pending(guess)
             if created.get("ok"):
                 return created
@@ -1370,6 +1997,22 @@ def _apply_pending_item(text: str) -> dict | None:
 
 def _confirm_pending(text: str) -> dict | None:
     raw = (text or "").strip()
+    research_pending = session.get(SESSION_RESEARCH_PENDING) if has_request_context() else None
+    if isinstance(research_pending, dict):
+        if _NO_ADD.match(raw):
+            session.pop(SESSION_RESEARCH_PENDING, None)
+            return {
+                "ok": True,
+                "say": "Okay, I left that spec off the vehicle.",
+                "did": [],
+                "vault_locked": False,
+            }
+        if _YES_ADD.match(raw):
+            return _apply_pending_research()
+        if not _SAVE_THAT.match(raw):
+            # A new request replaces the save offer; a later unrelated “yes” must
+            # never apply stale web research to the household.
+            session.pop(SESSION_RESEARCH_PENDING, None)
     if _GENERIC_EXPIRE.search(raw):
         result = tool_expire_guess()
         session.pop(SESSION_EXPIRE_PENDING, None)
@@ -1457,6 +2100,9 @@ def _stored_vehicle_say(text: str) -> str | None:
 def asked_to_list(text: str, kind: str | None = None) -> bool:
     """Only dump a list when they asked to see it — not “show 2 in inventory.”"""
     t = (text or "").strip().lower()
+    # Slash commands are the clearest list request there is: /vehicles == “vehicles”.
+    if t.startswith("/"):
+        t = t.lstrip("/").split("/", 1)[0].strip()
     if not t:
         return False
     if t in ("tools", "vehicles", "cars", "trucks", "basket", "inventory", "pantry", "groceries"):
@@ -1657,6 +2303,14 @@ def _remember_reply(text: str) -> dict | None:
     match = _SAVE_THAT.match(text or "")
     if not match:
         return None
+    pending = session.get(SESSION_RESEARCH_PENDING) if has_request_context() else None
+    if isinstance(pending, dict) and pending.get("item_id"):
+        requested_target = _remember_target(match.group(1))
+        if not isinstance(requested_target, dict) and getattr(requested_target, "id", None) == pending.get("item_id"):
+            return _apply_pending_research()
+        session.pop(SESSION_RESEARCH_PENDING, None)
+        if isinstance(requested_target, dict):
+            return requested_target
     prior = _last_assistant(_history())
     if not prior:
         return {
@@ -1681,7 +2335,12 @@ def _remember_reply(text: str) -> dict | None:
             asked = str(row.get("text"))
             break
     oil_data = {}
-    if re.search(r"\boil\b", f"{asked}\n{prior}", re.I):
+    from app.utils.oil import fluid_asked
+
+    fluid_key, _fluid_name = fluid_asked(f"{asked}\n{prior}")
+    # A rear-diff/transmission/coolant answer is not engine oil. If there is no
+    # explicit researched-fluid confirmation pending, keep it as a note only.
+    if not fluid_key and re.search(r"\boil\b", f"{asked}\n{prior}", re.I):
         oil_data = normalize_oil_payload({"text": prior})
     title = "Oil it needs" if oil_payload_has_fields(oil_data) else "From Ask"
     note = Note(
@@ -1710,11 +2369,14 @@ def _remember_reply(text: str) -> dict | None:
 
 
 _TRIP_START = re.compile(
-    r"\b(start|starting|begin|open)\b.{0,50}\btrip\b|\btrip\b.{0,40}\b(from|to)\b",
+    r"\b(start|starting|begin|open|log|set)\b.{0,50}\btrip\b"
+    r"|\btrip\b.{0,40}\b(from|to|start|starting|begin|reading|at)\b",
     re.I,
 )
 _TRIP_END = re.compile(
-    r"\b(i['’]?m\s+home|im\s+home|home\s+with|end(?:ing)?\s+(?:the\s+)?trip|trip\s+is\s+(?:over|done)|back\s+home)\b",
+    r"\b(i['’]?m\s+home|im\s+home|home\s+with|end(?:ing|ed)?\s+(?:the\s+|that\s+)?trip"
+    r"|(?:finish|finished|wrap\s+up|close|closed|stop)\s+(?:the\s+|that\s+)?trip"
+    r"|trip\s+is\s+(?:over|done|finished)|back\s+home)\b",
     re.I,
 )
 _TRIP_FROM_TO = re.compile(r"from\s+([^,\n]+?)\s+to\s+([^,\n]+?)(?:\s+with|\s+at|\s*$|,)", re.I)
@@ -1761,10 +2423,94 @@ def _trip_item_hint(text: str, *, ending: bool) -> str:
     return ""
 
 
+# “add an oil change … at 78000 miles” is a service log, not a mileage log. Without
+# these two guards the mile-log path swallowed every oil-change sentence, because the
+# number and the word “miles” are both right there.
+_MILE_LOG_BLOCK = re.compile(
+    r"\b(?:oil|motor\s+oil|oil\s+change|servic(?:e|ed|ing)|maintenance|tune[- ]?up|"
+    r"repair|filter|tires?|battery|reminder|appointment|due|schedule)\b",
+    re.I,
+)
+# The verb has to sit right next to the number, so "add 118000 miles" works but
+# "add an oil change to my tundra with 5W-30 at 78000 miles" does not.
+_MILE_LOG_ACTION = re.compile(
+    r"\b(?:i|we|you|the\s+truck|the\s+tundra)?\s*"
+    r"(?:drove|driv(?:e|ing)|ran|put\s+on|added|logged|tracked|add|log|record|note)\b"
+    r"(?:\s+(?:about|around|roughly|another|up|it|them)){0,3}\s*"
+    r"(?<![\d,])(?P<qty>\d{1,3}(?:,\d{3})+|\d{2,6})\s*(?:miles|mi)\b",
+    re.I,
+)
+_MILE_LOG_TAIL = re.compile(
+    r"\b(?P<pre>[a-z][\w\s'-]{0,50}?)\b(?P<odo>\d{1,3}(?:,\d{3})+|\d{4,7})\s*(?:miles|mi)\b\s*[.!]?\s*$",
+    re.I,
+)
+_MILE_LOG_ON = re.compile(
+    r"\b(?P<odo>\d{1,3}(?:,\d{3})+|\d{4,7})\b\s*(?:on|to|for)\s+(?P<pre>[a-z][\w\s'-]{0,50}?)\s*[.!]?\s*$",
+    re.I,
+)
+# “the tundra has 50000 miles” → the reading is right but the name came out as “the”.
+_MILE_ITEM_NOISE = re.compile(
+    r"\b(?:the|my|our|a|an|is|are|was|were|has|have|had|at|on|in|now|reads?|reading|shows?|shows)\b",
+    re.I,
+)
+
+
+def _clean_mile_item(raw: str) -> str:
+    words = [w for w in re.split(r"[\s]+", (raw or "").strip()) if w]
+    keep = [w for w in words if not _MILE_ITEM_NOISE.fullmatch(w)]
+    return " ".join(keep).strip(" .,'-")[:60]
+
+
+def _mile_log_parts(text: str) -> tuple[str, str]:
+    """('118000', 'tundra') for “drove 340 miles” / “118000 on the tundra”."""
+    m = _MILE_LOG_ACTION.search(text or "")
+    if m:
+        return (m.group("qty") or "").replace(",", ""), ""
+    for pat in (_MILE_LOG_ON, _MILE_LOG_TAIL):
+        m = pat.search(text or "")
+        if m:
+            return (m.group("odo") or "").replace(",", ""), _clean_mile_item(m.group("pre") or "")
+    return "", ""
+
+
+def _is_mile_log_ask(text: str) -> bool:
+    """"i drove 340 miles" / "118000 on the tundra" — a reading, not a trip start."""
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    if _TRIP_START.search(raw) or _TRIP_END.search(raw):
+        return False
+    # _OIL_ACTION alone is too blunt here — it matches “add”, “log” and “record”,
+    # which are exactly the verbs a real mileage log uses.
+    if _MILE_LOG_BLOCK.search(raw):
+        return False
+    reading, _item = _mile_log_parts(raw)
+    return reading.isdigit() and len(reading) >= 2
+
+
+def _mile_log_local_say(text: str) -> str | None:
+    """Log a mileage reading on a vehicle. Writes still go through the confirm gate."""
+    from app.utils.ask_confirm import hold_writes, should_hold_tool
+    from app.utils.ask_do import tool_log_save
+
+    reading, item_hint = _mile_log_parts(text or "")
+    if not (reading.isdigit() and len(reading) >= 2):
+        return None
+    args = {"item": item_hint or "the house", "kind": "miles", "reading": reading}
+    if should_hold_tool("log_save", args):
+        return hold_writes([{"tool": "log_save", "args": args}])
+    result = tool_log_save(args)
+    if result.get("need") or result.get("error"):
+        return str(result.get("hint") or result.get("error") or "")
+    return _speak_result("log_save", result) or None
+
+
 def _trip_local_say(text: str) -> str | None:
     raw = (text or "").strip()
     if not raw:
         return None
+    if _is_mile_log_ask(raw):
+        return _mile_log_local_say(raw)
     start = bool(_TRIP_START.search(raw))
     end = bool(_TRIP_END.search(raw))
     if not start and not end:
@@ -1808,9 +2554,12 @@ def _trip_local_say(text: str) -> str | None:
 
 
 _SORT_INV = re.compile(
-    r"\b(sort|organize|organise|arrange|file)\b.{0,50}\b(inventory|inventories|pantry|grocer(?:y|ies)?|food|items|rooms?)\b"
-    r"|\b(inventory|pantry|grocer(?:y|ies)?).{0,40}\b(sort|organize|organise|rooms?)\b"
-    r"|\bput\b.{0,40}\b(inventory|pantry|grocer(?:y|ies)?|items|food).{0,30}\brooms?\b"
+    r"\b(sort|organize|organise|arrange|file|tidy|clean\s+up)\b.{0,50}\b(inventory|inventories|pantry|grocer(?:y|ies)?|food|items?|rooms?)\b"
+    r"|\b(inventory|pantry|grocer(?:y|ies)?|food).{0,40}\b(sort|organize|organise|rooms?)\b"
+    r"|\bput\b.{0,40}\b(inventory|pantry|grocer(?:y|ies)?|items?|food).{0,30}\b(?:rooms?|away|somewhere)\b"
+    # “sort everything” / “put all the food away” name no room, so the noun was missing.
+    r"|\b(?:sort|organize|organise|arrange|file|tidy)\s+(?:all\s+|everything|it\s+all|them\s+all)\b"
+    r"|\bput\s+(?:all\s+|everything|it\s+all|them\s+all|the\s+food\s+away)\b"
     r"|\bsort all\b",
     re.I,
 )
@@ -1866,18 +2615,21 @@ def _expire_local_say(text: str) -> str | None:
 
 
 _STOCK_ROOMS = r"fridge|refrigerator|freezer|pantry|bathroom|garage|laundry|closet|kitchen|driveway"
+# “put the milk in the fridge” and “move the burritos to the freezer” are the same
+# request. Only “in/into” was accepted, so the “to” form silently fell through.
+_INTO = r"(?:in(?:to)?|to|on)"
 _MOVE_FROM_TO = re.compile(
-    r"\b(?:please\s+)*(?:put|move|place)\s+(?:the\s+)?"
+    r"\b(?:please\s+)*(?:put|move|place|shift|relocate)\s+(?:the\s+)?"
     r"(?P<item>.+?)"
     r"(?:\s+that\s+are|\s+that\s+is|\s+from)?"
-    r"\s+in(?:to)?(?:\s+the)?\s+(?P<src>" + _STOCK_ROOMS + r")"
-    r"\s+in(?:to)?(?:\s+the)?\s+(?P<dst>" + _STOCK_ROOMS + r")\b",
+    r"\s+" + _INTO + r"(?:\s+the)?\s+(?P<src>" + _STOCK_ROOMS + r")"
+    r"\s+" + _INTO + r"(?:\s+the)?\s+(?P<dst>" + _STOCK_ROOMS + r")\b",
     re.I,
 )
 _MOVE_TO = re.compile(
-    r"\b(?:please\s+)*(?:put|move|place|keep|store)\s+(?:the\s+|those\s+|these\s+)?"
+    r"\b(?:please\s+)*(?:put|move|place|keep|store|shift|relocate)\s+(?:the\s+|those\s+|these\s+|my\s+|our\s+)?"
     r"(?P<item>.+?)"
-    r"\s+in(?:to)?(?:\s+the)?\s+(?P<dst>" + _STOCK_ROOMS + r")\b",
+    r"\s+" + _INTO + r"(?:\s+the)?\s+(?P<dst>" + _STOCK_ROOMS + r")\b",
     re.I,
 )
 _GO_IN = re.compile(
@@ -1888,6 +2640,19 @@ _QTY_ON = re.compile(
     r"\b(?:make sure we |make sure )?(?:show|have|set|keep)\s+"
     r"(?:in(?:to)?\s+(?:the\s+)?inventory\s+)?"
     r"(?P<qty>\d{1,4})\s+(?:of\s+)?(?P<item>.+)",
+    re.I,
+)
+# “we're out of milk” / “throw out the bread” / “we finished the OJ” are stock
+# changes the site already knows how to make (the inventory "consume" action). One
+# item group so the branches can share it; hard deletes stay on item_remove.
+_DISCARD = re.compile(
+    r"\b(?:"
+    r"(?:toss|trash|discard|bin|dump|get rid of)\s+(?:the\s+|that\s+|those\s+|some\s+)?"
+    r"|(?:throw|toss|chuck|bin|flunk)\s+(?:out|away)\s+(?:the\s+|that\s+|those\s+|some\s+)?"
+    r"|(?:ran|running|we're|we are|we’ve|we have|we|i'm|i am|i)\s+(?:all\s+)?(?:out of|out)\s+(?:the\s+|all (?:the|of)\s+)?"
+    r"|(?:we’re|we are|we|i’m|i am|we|i)\s+(?:finished|used up|ate|broke)\s+(?:the\s+|all (?:the|of)\s+)?"
+    r")"
+    r"(?P<item>.+?)\s*[.!]?\s*$",
     re.I,
 )
 
@@ -1985,7 +2750,19 @@ def _parse_stock_jobs(text: str) -> list[dict]:
         item = re.sub(r"\b(and make sure we|and make sure|please)\b.*", "", item, flags=re.I).strip()
         if item.lower() not in ("these", "them", "it", "of these", "of them"):
             jobs.append({"q": item, "from": "", "place": "", "action": "set", "amount": qty.group("qty")})
-    return [j for j in jobs if (j.get("q") or "") and len(j.get("q") or "") >= 3]
+    if not jobs:
+        gone = _DISCARD.search(raw)
+        if gone:
+            name = _clean_stock_name(gone.group("item"))
+            if name and name.lower() not in ("it", "them", "these", "those", "the trash", "trash"):
+                # A clear verb (“we finished the OJ”) supports short names the move
+                # patterns would only produce by accident.
+                jobs.append({"q": name, "from": "", "place": "", "action": "used", "min_len": 2})
+    return [
+        j
+        for j in jobs
+        if (j.get("q") or "") and len(j.get("q") or "") >= int(j.get("min_len") or 3)
+    ]
 
 
 def _stock_local_say(text: str):
@@ -2031,10 +2808,591 @@ def _stock_local_say(text: str):
     return "\n".join(s for s in says if s) or None
 
 
+_LOCAL_NAME_NOISE = re.compile(r"\s+(?:please|thanks|thank you|for me|real quick)[.!?]*\s*$", re.I)
+
+
+def _clean_local_name(raw: str, *, cap: int = 200) -> str:
+    text = re.sub(r"\s+", " ", str(raw or "")).strip(" .,!?:;")
+    text = _LOCAL_NAME_NOISE.sub("", text).strip(" .,!?:;")
+    text = re.sub(r"^(?:the|my|our|a|an)\s+", "", text, flags=re.I)
+    return text[:cap]
+
+
+def _local_day(raw: str):
+    """Small, deterministic date reader for everyday reminder language."""
+    from datetime import date, timedelta
+    import calendar
+
+    text = (raw or "").strip().lower().rstrip(".!?")
+    today = date.today()
+    if not text:
+        return None
+    if text in ("today", "tonight"):
+        return today
+    if text == "tomorrow":
+        return today + timedelta(days=1)
+    if text in ("next week", "in a week", "one week from now"):
+        return today + timedelta(days=7)
+    if text in ("next month", "in a month"):
+        month = today.month % 12 + 1
+        year = today.year + (1 if month == 1 else 0)
+        return date(year, month, min(today.day, calendar.monthrange(year, month)[1]))
+    match = re.fullmatch(r"(?:in\s+)?(\d{1,3})\s+(day|days|week|weeks|month|months)", text)
+    if match:
+        count = int(match.group(1).replace(",", ""))
+        unit = match.group(2)
+        if unit.startswith("day"):
+            return today + timedelta(days=count)
+        if unit.startswith("week"):
+            return today + timedelta(days=7 * count)
+        month_index = today.month - 1 + count
+        year, month = today.year + month_index // 12, month_index % 12 + 1
+        return date(year, month, min(today.day, calendar.monthrange(year, month)[1]))
+    weekday_names = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+    weekday = re.fullmatch(r"(?:(this|next)\s+)?(" + "|".join(weekday_names) + r")", text)
+    if weekday:
+        target = weekday_names.index(weekday.group(2))
+        delta = (target - today.weekday()) % 7
+        if weekday.group(1) == "next":
+            delta += 7
+        elif delta == 0 and weekday.group(1) != "this":
+            delta = 7
+        return today + timedelta(days=delta)
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%B %d, %Y", "%b %d, %Y", "%B %d", "%b %d"):
+        try:
+            parsed = datetime.strptime(text, fmt).date()
+            if "%Y" not in fmt:
+                parsed = parsed.replace(year=today.year)
+                if parsed < today:
+                    parsed = parsed.replace(year=today.year + 1)
+            return parsed
+        except ValueError:
+            continue
+    return None
+
+
+def _local_recurrence(raw: str) -> tuple[str | None, str]:
+    text = (raw or "").strip().lower()
+    if not text:
+        return None, ""
+    aliases = {
+        "daily": "1d", "every day": "1d", "weekly": "7d", "every week": "7d",
+        "biweekly": "14d", "every other week": "14d", "monthly": "30d", "every month": "30d",
+        "quarterly": "90d", "every 3 months": "90d", "every three months": "90d",
+        "every 6 months": "180d", "every six months": "180d", "yearly": "365d",
+        "annually": "365d", "every year": "365d",
+    }
+    compact = re.sub(r"\s+", " ", text)
+    value = aliases.get(compact)
+    match = re.fullmatch(r"(?:every\s+)?([\d,]+)\s+(day|days|week|weeks|month|months|year|years|mile|miles|mi|hour|hours|h)", compact)
+    if match:
+        count = int(match.group(1).replace(",", ""))
+        unit = match.group(2)
+        if unit.startswith("day"):
+            value = f"{count}d"
+        elif unit.startswith("week"):
+            value = f"{count * 7}d"
+        elif unit.startswith("month"):
+            value = f"{count * 30}d"
+        elif unit.startswith("year"):
+            value = f"{count * 365}d"
+        elif unit in ("mile", "miles", "mi"):
+            value = f"{count}mi"
+        else:
+            value = f"{count}h"
+    supported = {"30d", "90d", "180d", "365d", "3000mi", "5000mi", "50h"}
+    if value in supported:
+        return value, ""
+    if value:
+        return None, "Ask can repeat reminders monthly, quarterly, every 6 months, yearly, every 3,000/5,000 miles, or every 50 hours. What interval should I use?"
+    return None, f"I couldn't read the repeat interval “{raw}”. Try monthly, every 3 months, every 6 months, yearly, or every 5,000 miles."
+
+
+def _local_update_args(text: str) -> dict | None:
+    """Recognize explicit rename / field-change requests, never infer the new value."""
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    match = re.match(r"^(?:please\s+)?(?:rename|renamed)\s+(?P<item>.+?)\s+(?:to|as)\s+(?P<value>.+?)[.!?]*$", raw, re.I)
+    if match:
+        item = _clean_local_name(match.group("item"))
+        value = _clean_local_name(match.group("value"))
+        return {"q": item, "name": value} if item and value else None
+
+    aliases = {
+        "name": "name", "called": "name", "title": "name", "category": "category",
+        "notes": "notes", "note": "notes", "make": "make", "model": "model",
+        "year": "year", "color": "color", "colour": "color", "trim": "trim",
+        "vin": "vin", "license plate": "plate", "licence plate": "plate", "plate": "plate",
+        "engine": "engine", "transmission": "transmission", "fuel type": "fuel_type",
+        "tire size": "tire_size", "tyre size": "tire_size", "battery": "battery_type",
+        "serial": "serial", "serial number": "serial", "tool type": "type",
+        "power source": "power_source", "location": "location", "room": "location",
+    }
+    fields = "|".join(re.escape(k) for k in sorted(aliases, key=len, reverse=True))
+    patterns = (
+        rf"^(?:please\s+)?(?:change|update|edit|set)\s+(?:the\s+)?(?P<field>{fields})\s+(?:for|on|of)\s+(?P<item>.+?)\s+(?:to|as)\s+(?P<value>.+?)[.!?]*$",
+        rf"^(?:please\s+)?(?:change|update|edit|set)\s+(?P<item>.+?)(?:['’]s)\s+(?P<field>{fields})\s+(?:to|as)\s+(?P<value>.+?)[.!?]*$",
+        rf"^(?:please\s+)?(?:change|update|edit|set)\s+(?P<item>.+?)\s+(?P<field>{fields})\s+(?:to|as)\s+(?P<value>.+?)[.!?]*$",
+    )
+    for pattern in patterns:
+        match = re.match(pattern, raw, re.I)
+        if not match:
+            continue
+        item = _clean_local_name(match.group("item"))
+        field = aliases[match.group("field").lower()]
+        value = _clean_local_name(match.group("value"), cap=4000 if field in ("notes", "category") else 200)
+        return {"q": item, field: value} if item and value else None
+    return None
+
+
+def _local_person_match(raw: str) -> tuple[dict | None, dict | None]:
+    """Resolve a person only within this household; ask if the name is ambiguous."""
+    from app.utils.ask_do import tool_member_list
+
+    needle = _clean_local_name(raw, cap=100).lower()
+    people = (tool_member_list({}) or {}).get("people") or []
+    matches = [p for p in people if needle in (p.get("username") or "").lower() or needle == (p.get("name") or "").strip().lower()]
+    if len(matches) == 1:
+        return matches[0], None
+    if len(matches) > 1:
+        choices = ", ".join(f"{p.get('name')} ({p.get('username')})" for p in matches[:6])
+        return None, {"ok": True, "say": f"Which person? {choices}", "did": [], "vault_locked": False}
+    return None, {"ok": True, "say": f"I couldn't find anyone named {needle} in this household.", "did": [], "vault_locked": False}
+
+
+def _local_read(tool: str, args: dict) -> dict | None:
+    result = run_tool(tool, args)
+    if (
+        tool == "item_inspect"
+        and not result.get("ok")
+        and str(result.get("error") or "").startswith("Nothing saved matches ")
+        and ask_ready()
+    ):
+        # Keep local lookup authoritative when possible, but let the model handle
+        # a conversational “where is …” question if no saved row matches.
+        return None
+    spoken = _speak_result(tool, result) or result.get("hint") or result.get("error")
+
+    if not spoken:
+        spoken = "I couldn't find that in this household. Try its saved name or a few distinctive words."
+    return {"ok": bool(result.get("ok")), "say": str(spoken), "did": [], "confirm": False, "vault_locked": False}
+
+
+def _local_inventory_query(text: str) -> str | None:
+    """Extract a grocery name only from an explicit stock-presence/count question."""
+    raw = (text or "").strip()
+    patterns = (
+        r"^(?:please\s+)?how\s+(?:much|many)(?:\s+of)?\s+(?P<item>.+?)(?:\s+(?:do\s+(?:we|i)\s+have|is\s+left|are\s+left|left|on\s+hand|in\s+stock|remaining|remains))?[?!.]*$",
+        r"^(?:please\s+)?do\s+(?:we|i)\s+have\s+(?:any\s+)?(?P<item>.+?)[?!.]*$",
+        r"^(?:please\s+)?is\s+there\s+(?:any\s+)?(?P<item>.+?)[?!.]*$",
+        r"^(?:please\s+)?what(?:'s|\s+is)\s+the\s+(?:quantity|count|amount)\s+of\s+(?P<item>.+?)[?!.]*$",
+    )
+    match = next((found for pattern in patterns if (found := re.match(pattern, raw, re.I))), None)
+    if not match:
+        return None
+    q = _clean_local_name(match.group("item"))
+    q = re.sub(r"\s+in\s+(?:the\s+)?(?:inventory|pantry|fridge|refrigerator|freezer)$", "", q, flags=re.I).strip()
+    if not q or q.lower() in {"inventory", "groceries", "food", "the house", "it", "that"}:
+        return None
+    return q
+
+
+def _local_inventory_read(text: str) -> dict | None:
+    """Answer explicit on-hand / inventory-presence questions from saved grocery rows."""
+    q = _local_inventory_query(text)
+    if not q:
+        return None
+    item, err = _pick_named_item(q, ("grocery",))
+    if err:
+        if err.get("choices"):
+            return {"ok": False, "say": err.get("hint") or "Which saved grocery did you mean?", "did": [], "confirm": False, "vault_locked": False}
+        if ask_ready():
+            return None
+        return {"ok": True, "say": f"I couldn't match {q} to a saved grocery. Try its saved name or a few distinctive words.", "did": [], "confirm": False, "vault_locked": False}
+    grocery = getattr(item, "grocery", None)
+    if grocery is None:
+        return None
+    from app.utils.scan import qty_label
+
+    qty = qty_label(grocery.quantity)
+    location = (grocery.default_location or "").strip()
+    if qty == "0":
+        say = f"None of {item.name} is marked on hand in inventory."
+    else:
+        say = f"We have {qty} {item.name} on hand"
+        if location:
+            say += f" in {location}"
+        say += "."
+    href = _path("items.detail", item_id=item.id)
+    if href:
+        say += f" {href}"
+    return {"ok": True, "say": say, "did": [], "confirm": False, "vault_locked": False}
+
+
+def _local_quantity_update_args(text: str) -> dict | None:
+    """Parse only an explicit numeric stock-count edit."""
+    raw = (text or "").strip()
+    patterns = (
+        r"^(?:please\s+)?(?:set|change|update)\s+(?:the\s+)?(?:count|quantity|qty|amount)\s+(?:of|for)\s+(?P<item>.+?)\s+(?:to|at)\s+(?P<qty>\d{1,6}(?:,\d{3})*)(?:\s+(?:on\s+hand|in\s+stock))?[.!?]*$",
+        r"^(?:please\s+)?(?:set|change|update)\s+(?P<item>.+?)\s+(?:count|quantity|qty|amount)\s+(?:to|at)\s+(?P<qty>\d{1,6}(?:,\d{3})*)(?:\s+(?:on\s+hand|in\s+stock))?[.!?]*$",
+        r"^(?:please\s+)?(?:set|change|update)\s+(?P<item>.+?)\s+to\s+(?P<qty>\d{1,6}(?:,\d{3})*)\s+(?:on\s+hand|in\s+stock)[.!?]*$",
+    )
+    for pattern in patterns:
+        match = re.match(pattern, raw, re.I)
+        if not match:
+            continue
+        item = _clean_local_name(match.group("item"))
+        qty = match.group("qty").replace(",", "")
+        if item and item.lower() not in {"it", "that", "this", "the count", "the quantity"}:
+            return {"q": item, "action": "set", "amount": qty}
+    return None
+
+
+def _local_explicit_list_kind(text: str) -> str | None:
+    """Map a clearly requested household list to its existing local list reader."""
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    # A grocery/shopping *list* is the basket, not the pantry inventory. Keep
+    # this explicit phrase check ahead of the broader grocery/inventory patterns.
+    from app.utils.ask_basket_language import basket_list_request
+
+    if basket_list_request(raw):
+        return "basket"
+    kinds = {
+        "vehicles": r"vehicles?|cars?|trucks?|fleet",
+        "tools": r"tools?",
+        "inventory": r"inventory|pantry|grocer(?:y|ies)?",
+        "basket": r"basket|shopping\s+list|grocery\s+list",
+        "reminders": r"reminders?",
+        "due": r"bills?|due dates?|oil changes?|expir(?:ing|ations?)",
+        "notes": r"notes?",
+        "people": r"people|members?|family|users?",
+        "vault": r"vault|passwords?|logins?",
+    }
+    for kind, noun in kinds.items():
+        if kind in {"vehicles", "tools", "inventory", "basket"} and asked_to_list(raw, kind):
+            return kind
+        if re.match(rf"^(?:please\s+)?(?:(?:can|could)\s+you\s+)?(?:show|list|open|display|see|tell\s+me)(?:\s+(?:all|me|us|my|our|the|saved))?\s+(?:(?:all|my|our|the|saved)\s+)*(?:{noun})[?!.]*$", raw, re.I):
+            return kind
+        if re.match(rf"^(?:what|which)\s+(?:{noun})\s+(?:do\s+(?:i|we)\s+have|are\s+(?:saved|open|there)|is\s+(?:saved|open))\s*[?!.]*$", raw, re.I):
+            return kind
+        if re.match(rf"^what(?:'s|\s+is)\s+(?:in|on)\s+(?:(?:my|our|the|saved)\s+)*(?:{noun})[?!.]*$", raw, re.I):
+            return kind
+        if re.match(rf"^what\s+do\s+(?:i|we)\s+have\s+(?:in|on)\s+(?:(?:my|our|the|saved)\s+)*(?:{noun})[?!.]*$", raw, re.I):
+            return kind
+        if re.match(rf"^how\s+many\s+(?:{noun})\s+do\s+(?:i|we)\s+have[?!.]*$", raw, re.I):
+            return kind
+    if re.match(r"^what\s+(?:reminders?|bills?)\s+(?:are|is)\s+(?:open|due)[?!.]*$", raw, re.I):
+        return "reminders" if re.search(r"reminders?", raw, re.I) else "due"
+    if re.match(r"^what\s+notes?\s+(?:are|is)\s+saved[?!.]*$", raw, re.I):
+        return "notes"
+    if re.match(r"^what\s+do\s+(?:i|we)\s+have\s+in\s+(?:the\s+)?household[?!.]*$", raw, re.I):
+        return "people"
+    if re.match(r"^(?:who(?:'s|\s+is|\s+are)\s+(?:in|at))\s+(?:this|our|the)\s+(?:house|household|family)[?!.]*$", raw, re.I):
+        return "people"
+    return None
+
+
+def _local_explicit_list_say(text: str) -> dict | None:
+    """Answer clearly requested household lists without spending an AI turn."""
+    kind = _local_explicit_list_kind(text)
+    if not kind:
+        return None
+    return {
+        "ok": True,
+        "say": _local_slash_read(kind),
+        "did": [],
+        "confirm": False,
+        "vault_locked": False,
+    }
+
+
+def _local_write(tool: str, args: dict) -> dict:
+    """Use Ask's normal authorization and confirmation gates for deterministic commands."""
+
+    from app.utils.ask_confirm import hold_writes, should_hold_tool
+
+    if should_hold_tool(tool, args):
+        return hold_writes([{"tool": tool, "args": args}])
+    result = run_tool(tool, args)
+    if result.get("need") == ["confirm"]:
+        return {"ok": True, "say": result.get("hint") or "Please confirm that change.", "confirm": True, "did": [], "vault_locked": False}
+    spoken = _speak_result(tool, result) or result.get("hint") or result.get("error") or "Done."
+    return {
+        "ok": bool(result.get("ok")), "say": str(spoken),
+        "did": [{"tool": tool, "title": result.get("name") or result.get("title") or "", "href": result.get("href") or ""}] if result.get("ok") and tool in WRITE_TOOLS else [],
+        "confirm": False, "vault_locked": False,
+    }
+
+
+def _local_command_say(text: str):
+    """Deterministic everyday CRUD commands. AI can handle novel language, not prerequisites."""
+    raw = (text or "").strip()
+    if not raw:
+        return None
+
+    quantity = _local_quantity_update_args(raw)
+    if quantity:
+        return _local_write("inventory", quantity)
+
+    update = _local_update_args(raw)
+    if update:
+        return _local_write("item_update", update)
+
+    # Inventory: require a destination so "add a note" or "add this to the truck"
+    # cannot accidentally create a food row. Unknown items retain the tool's
+    # where/confirm conversation and permission checks.
+    add_inventory = re.match(
+        r"^(?:please\s+)?(?:add|put|save|track|keep)\s+(?P<name>.+?)\s+(?:to|in|into|on)\s+(?:my\s+|our\s+|the\s+)?(?P<place>inventory|groceries|pantry|fridge|refrigerator|freezer)[.!?]*$",
+        raw, re.I,
+    )
+    if add_inventory:
+        name = _clean_local_name(add_inventory.group("name"))
+        place = add_inventory.group("place").lower()
+        place = {"groceries": "inventory", "refrigerator": "fridge"}.get(place, place)
+        if name:
+            return _local_write("inventory", {"q": name, "action": "create", "place": place})
+
+    # People changes use a same-house lookup by username or an unambiguous exact name.
+    people = re.match(
+        r"^(?:please\s+)?(?:change|update|edit)\s+(?P<who>.+?)['’]s\s+(?P<field>name|email|phone)\s+(?:to|as)\s+(?P<value>.+?)[.!?]*$",
+        raw, re.I,
+    )
+    if people:
+        user, error = _local_person_match(people.group("who"))
+        if error:
+            return error
+        value = _clean_local_name(people.group("value"), cap=200)
+        if value:
+            return _local_write("person_update", {"username": user["username"], people.group("field").lower(): value})
+    people_role = re.match(
+        r"^(?:please\s+)?(?:make|set|change)\s+(?P<who>.+?)\s+(?:a\s+|to\s+)?(?P<role>admin|administrator|member|child|kid)[.!?]*$",
+        raw, re.I,
+    )
+    if people_role:
+        user, error = _local_person_match(people_role.group("who"))
+        if error:
+            return error
+        role = {"administrator": "admin", "kid": "child"}.get(people_role.group("role").lower(), people_role.group("role").lower())
+        return _local_write("member_role", {"username": user["username"], "role": role})
+    remove_person = re.match(r"^(?:please\s+)?(?:remove|delete)\s+(?:the\s+)?(?:person|member|user)\s+(.+?)[.!?]*$", raw, re.I)
+    if remove_person:
+        user, error = _local_person_match(remove_person.group(1))
+        if error:
+            return error
+        return _local_write("member_remove", {"username": user["username"]})
+    add_person = re.match(
+        r"^(?:please\s+)?(?:add|invite|create)\s+(?:a\s+)?(?:person|member|user)\s+(.+?)\s+(?:as\s+(?:a\s+)?(?:member|admin|child)\s+)?(?:username|user\s*name|login)\s+(?:is\s+)?([A-Za-z][A-Za-z0-9_]{0,39})(?:\s+(?:as\s+(member|admin|child)))?[.!?]*$",
+        raw, re.I,
+    )
+    if add_person:
+        return _local_write("member_add", {"name": _clean_local_name(add_person.group(1)), "username": add_person.group(2), "role": add_person.group(3) or "member"})
+
+    reminder_done = re.match(
+        r"^(?:please\s+)?(?:mark|set)\s+(.+?)\s+(?:as\s+)?(?:done|complete|paid|finished)[.!?]*$",
+        raw, re.I,
+    )
+    if reminder_done:
+        return _local_write("reminder_done", {"q": _clean_local_name(reminder_done.group(1))})
+    reminder_done = re.match(
+        r"^(?:please\s+)?(?:i\s+)?(?:paid|finished|completed)\s+(?:the\s+)?(.+?)\s+(?:bill|reminder)[.!?]*$",
+        raw, re.I,
+    )
+    if reminder_done:
+        return _local_write("reminder_done", {"q": _clean_local_name(reminder_done.group(1))})
+
+    # Add a named tool or vehicle only when the user clearly asks to create one.
+    new_asset = re.match(
+        r"^(?:please\s+)?(?:add|save|register|track|put)\s+(?:a\s+|the\s+)?(?P<kind>tool|equipment|drill|mower|generator|vehicle|truck|car)\s+(?:named\s+|called\s+)?(?P<name>.+?)[.!?]*$",
+        raw, re.I,
+    )
+    if new_asset:
+        kind = new_asset.group("kind").lower()
+        name = _clean_local_name(new_asset.group("name"))
+        if name and name.lower() not in ("for me", "please"):
+            if kind in ("vehicle", "truck", "car"):
+                return _local_write("vehicle_save", {"name": name})
+            return _local_write("tool_save", {"name": name, "type": kind})
+
+    # Shopping list: add / remove are explicit, so no model or stock classification is needed.
+    from app.utils.ask_basket_language import basket_add_args, basket_remove_args
+
+    basket_add = basket_add_args(raw)
+    if basket_add:
+        return _local_write("basket_add", basket_add)
+    basket_remove = basket_remove_args(raw)
+    if basket_remove:
+        return _local_write("basket_remove", basket_remove)
+
+    # Reminders accept ISO and common conversational dates; an unreadable date is clarified, not dropped.
+    reminder = re.match(
+        r"^(?:please\s+)?(?:remind\s+me\s+(?:to|about)|set\s+(?:up\s+)?(?:a\s+)?reminder\s+(?:to|for)|add\s+(?:a\s+)?reminder\s+(?:to|for)|schedule)\s+(.+)$",
+        raw, re.I,
+    )
+    if reminder:
+        detail = reminder.group(1).strip().rstrip(".!?")
+        repeat = ""
+        every = re.search(r"\s+(?:every|repeat(?:ing)?\s+every)\s+(.+)$", detail, re.I)
+        if every:
+            repeat = every.group(1).strip()
+            detail = detail[:every.start()].strip()
+        recurrence, rec_error = _local_recurrence(repeat)
+        if rec_error:
+            return rec_error
+        day = None
+        date_part = re.search(r"\s+(?:on|by|due\s+)?(today|tomorrow|next\s+week|next\s+month|in\s+\d+\s+(?:days?|weeks?|months?)|\d+\s+(?:days?|weeks?|months?)|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|this\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4}|[A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?)\s*$", detail, re.I)
+        if date_part:
+            day = _local_day(date_part.group(1))
+            detail = detail[:date_part.start()].strip()
+            if day is None:
+                return "I couldn't make sense of that date. Try a weekday, tomorrow, or a date like 2026-10-05."
+        if not detail:
+            return "What should I remind you about?"
+        kind = "bill" if re.search(r"\b(bill|payment|pay)\b", detail, re.I) else "oil_change" if re.search(r"\b(oil change|change the oil)\b", detail, re.I) else "custom"
+        args = {"title": _clean_local_name(detail), "type": kind}
+        if day:
+            args["due"] = day.isoformat()
+        if recurrence:
+            args["every"] = recurrence
+        return _local_write("reminder_save", args)
+
+    # Note capture / edit. Require clear note language to avoid eating ordinary speech.
+    note = re.match(r"^(?:please\s+)?(?:make\s+(?:a\s+)?note|write\s+(?:a\s+)?note|save\s+(?:a\s+)?note|note\s+that|remember\s+that)\s+(.+)$", raw, re.I)
+    if note:
+        detail = note.group(1).strip().rstrip(".!?")
+        title, body = detail, ""
+        sep = re.match(r"^(.{2,100}?)\s*(?::|\s+-\s+)\s+(.+)$", detail)
+        if sep:
+            title, body = sep.group(1), sep.group(2)
+        else:
+            body = detail
+            title = " ".join(detail.split()[:8]).strip(" ,.!?")[:100] or "Note from Ask"
+        return _local_write("note_save", {"title": title, "body": body, "share": "household"})
+
+    inventory_read = _local_inventory_read(raw)
+    if inventory_read is not None:
+        return inventory_read
+
+    # Inspect one named row directly from the household database; broad lists remain
+    # handled only by the explicit list parser.
+    if not asked_to_list(raw):
+        inspect = re.match(
+            r"^(?:please\s+)?(?:what(?:'s| is)?\s+(?:saved|known|on\s+file)\s+(?:about|for|on)|"
+            r"tell\s+me\s+about|inspect|check|look\s+at|show\s+me|open)\s+(.+?)[.!?]*$",
+            raw, re.I,
+        )
+        where = re.match(r"^(?:please\s+)?where\s+(?:is|are)\s+(.+?)[.!?]*$", raw, re.I)
+        match = inspect or where
+        if match:
+            q = _clean_local_name(match.group(1))
+            if q and q.lower() not in {"my inventory", "the inventory", "my tools", "my vehicles", "the basket", "the list"}:
+                return _local_read("item_inspect", {"q": q})
+
+    remove_note = re.match(r"^(?:please\s+)?(?:delete|remove|trash)\s+(?:the\s+)?note\s+(?:called\s+|titled\s+|named\s+)?(.+?)[.!?]*$", raw, re.I)
+    if remove_note:
+        title = _clean_local_name(remove_note.group(1))
+        if title:
+            return _local_write("note_delete", {"title": title})
+
+    # Remove a named inventory/tool/vehicle with the same confirmation and exact-match checks as the UI.
+    remove = re.match(r"^(?:please\s+)?(?:delete|remove|retire|get\s+rid\s+of|take\s+out)\s+(?:the\s+|my\s+|our\s+)?(.+?)[.!?]*$", raw, re.I)
+    if remove and not re.search(r"\b(note|person|member|reminder|bill|basket|shopping\s+list|vault|password)\b", remove.group(1), re.I):
+        q = _clean_local_name(remove.group(1))
+        if q:
+            return _local_write("item_remove", {"q": q})
+    return None
+
+
+def _is_due_ask(t: str) -> bool:
+    """"what's due" / "my oil change is past due" — questions, not write commands."""
+    if not t:
+        return False
+    if re.search(r"\b(add|save|create|delete|remove|set|schedule|new|repeat|remind\s+me)\b", t):
+        return False
+    if t in ("due", "reminders"):
+        return True
+    # “whats due” (no apostrophe) and “what bills are due” were not matched — only
+    # “what's due” was, so the most common way to ask fell through to the model.
+    if re.search(
+        r"\b(?:whats|what's|what is|what)\s+"
+        r"(?:\w+\s+){0,3}?(?:due|on\s+the\s+list|coming\s+up)\b"
+        r"|\b(?:show|list|see)\s+(?:me\s+)?(?:the\s+|my\s+|our\s+)?"
+        r"(?:reminders?|bills?|oil\s+changes?)\b"
+        r"|\banything\s+due\b"
+        r"|\bwhat(?:'s| is)?\s+(?:on\s+)?the\s+list\b"
+        r"|\bdue\s+(?:today|tomorrow|this\s+week|this\s+month)\b",
+        t,
+    ):
+        return True
+    # "my oil change is past due", "is the oil due", "what's due on the tundra"
+    if re.search(r"\b(?:past\s+due|overdue|due\s+soon)\b", t):
+        return True
+    # "what do we have coming up", "anything coming up this week", "what needs doing"
+    if re.search(
+        r"\banything\s+(?:else\s+)?(?:coming\s+up|due|need(?:s|ed)?\s+doing)\b"
+        r"|\bwhat(?:'s| is)?\s+(?:coming\s+up|need(?:s|ed)?\s+doing)\b"
+        r"|\bwhat\s+(?:do\s+(?:we|I)\s+have\s+)?coming\s+up\b"
+        r"|\bwhat\s+needs?\s+(?:doing|handled|attention)\b",
+        t,
+    ):
+        return True
+    # "reminders coming up", "bills due soon", "what's due this week"
+    if re.search(
+        r"\b(?:reminders?|bills?|oil\s+changes?|maintenance)\b.{0,20}\b(?:due|coming\s+up|soon|this\s+week|this\s+month)\b",
+        t,
+    ):
+        return True
+    if re.search(r"\boil\b", t) and re.search(r"\b(?:is|are|when\s+is|what(?:'s| is)?)\b.{0,40}\bdue\b", t):
+        return True
+    return False
+
+
+def _local_slash_read(kind: str) -> str:
+    from app.utils.ask_rooms import local_list
+
+    try:
+        return local_list(kind)
+    except Exception:
+        return "I couldn't load that household list right now. Try again in a moment."
+
+
+def _local_room_read_say(text: str) -> dict | None:
+    """Deterministic room-aware list requests, even when no AI key is configured."""
+    raw = (text or "").strip()
+    if not raw or re.search(r"\b(?:add|save|create|delete|remove|change|update|set|put|move|sort|organize|log|schedule|remind)\b", raw, re.I):
+        return None
+    room = _room()
+    if room in ("vehicles", "tools", "inventory", "basket") and asked_to_list(raw, room):
+        return {"ok": True, "say": _local_slash_read(room), "did": [], "vault_locked": False}
+    # Explicitly scoped lists in notes, reminders, people, and vault rooms.
+    nouns = {
+        "notes": r"notes?",
+        "due": r"(?:bills?|reminders?|due|oil changes?|expir(?:ing|ations?))",
+        "reminders": r"(?:bills?|reminders?|due)",
+        "people": r"(?:people|members|family|users)",
+        "vault": r"(?:vault|passwords?|logins?)",
+    }
+    noun = nouns.get(room)
+    if noun and re.search(
+        rf"\b(?:show|list|open|display|what(?:'s| is)? in|what do we have in|who(?:'s| is) in)\b.{{0,30}}\b{noun}\b|\bwhat\s+{noun}\s+(?:do\s+we\s+have|are\s+saved|is\s+saved)\b",
+        raw,
+        re.I,
+    ):
+        return {"ok": True, "say": _local_slash_read(room), "did": [], "vault_locked": False}
+    return None
+
+
 def _local_house_say(text: str) -> str | None:
     t = (text or "").strip().lower()
     if not t:
         return None
+    if _is_due_ask(t):
+        open_rows = tool_due().get("open") or []
+        if not open_rows:
+            return "Nothing due right now. Oil changes, bills, and food show up here when they get close. /reminders/"
+        return "Due:\n" + "\n".join(f"· {ln}" for ln in open_rows)
     if re.search(
         r"\b(add|save|create|new|delete|remove|share|oil|note|spec|filter|tire|battery|expir|set|trip|sort|organize|organise|freezer|fridge|go in|put )\b",
         t,
@@ -2048,15 +3406,6 @@ def _local_house_say(text: str) -> str | None:
         return _speak_house(tool_house({"kind": "basket"}))
     if asked_to_list(t, "inventory"):
         return _speak_house(tool_house({"kind": "inventory"}))
-    if re.search(r"\b(what(?:'s| is)? due|what(?:'s| is)? (?:on )?the list|show (?:me )?(?:the )?reminders?)\b", t) or t in (
-        "due",
-        "reminders",
-    ):
-        due = tool_due()
-        open_rows = due.get("open") or []
-        if not open_rows:
-            return "Nothing due right now. /reminders/"
-        return "Due:\n" + "\n".join(f"· {ln}" for ln in open_rows)
     return None
 
 
@@ -2184,6 +3533,17 @@ def _speak_result(tool: str, r: dict) -> str:
             bit += f". {qty} on hand"
         href = r.get("href") or ""
         return f"{bit}. {href}".strip()
+    if tool == "reminder_done" and r.get("ok"):
+        return f"Marked {r.get('title') or 'that'} done. {r.get('href') or '/reminders/'}"
+    if tool == "basket_remove" and r.get("ok"):
+        return f"Took {r.get('name') or 'that'} off the basket. {r.get('href') or ''}".strip()
+    if tool == "note_delete" and r.get("ok"):
+        return f"Deleted the note {r.get('title') or ''}. {r.get('href') or ''}".strip()
+    if tool == "person_update" and r.get("ok"):
+        return f"{r.get('username') or 'They'}: {r.get('did') or 'updated'}. {r.get('href') or ''}".strip()
+    if tool == "item_update" and r.get("ok"):
+        changed = ", ".join(str(x).replace("_", " ") for x in (r.get("changed") or [])) or "details"
+        return f"Updated {r.get('name') or 'that item'}: {changed}. {r.get('href') or ''}".strip()
     if r.get("ok") and (r.get("href") or r.get("title") or r.get("name")):
         did = r.get("did") or "Saved"
         return f"{did} {r.get('title') or r.get('name') or ''}".strip() + (f" {r.get('href')}" if r.get("href") else "")
@@ -2301,22 +3661,113 @@ def tool_find(q: str) -> dict:
     }
 
 
+def _due_when(day) -> str:
+    """overdue 12d / today / in 3d / 2026-11-02 — household English for a date."""
+    try:
+        d = day.date() if isinstance(day, datetime) else day
+        if d is None:
+            return ""
+        days = (d - date.today()).days
+        if days < 0:
+            return f"overdue {abs(days)}d"
+        if days == 0:
+            return "today"
+        if days <= 30:
+            return f"in {days}d"
+        return d.isoformat()
+    except Exception:
+        return str(day or "")
+
+
+def _oil_due_lines(limit: int = 6) -> list:
+    """Oil changes due on vehicles/tools — the oil sheet knows, reminders table does not."""
+    lines = []
+    today = date.today()
+    for kind in ("vehicle", "tool"):
+        try:
+            items = _find_items("", kind, limit=40)
+        except Exception:
+            items = []
+        for item in items:
+            host = getattr(item, "vehicle", None) or getattr(item, "tool", None)
+            if host is None:
+                continue
+            href = _path("items.detail", item_id=item.id) or ""
+            nd = getattr(host, "next_oil_due_date", None)
+            try:
+                soon = nd is not None and (today - nd).days <= 45
+            except Exception:
+                soon = False
+            if soon:
+                lines.append(f"Oil change · {item.name} · {_due_when(nd)} · {href}")
+            nm = getattr(host, "next_oil_due_mileage", None)
+            cur = getattr(host, "current_mileage", None)
+            if nm and cur is not None:
+                try:
+                    nm_i, cur_i = int(nm), int(cur)
+                    if cur_i >= nm_i - 300:
+                        label = "overdue" if cur_i >= nm_i else f"{nm_i - cur_i:,} miles left"
+                        lines.append(f"Oil change · {item.name} · {label} at {nm_i:,} miles · {href}")
+                except Exception:
+                    pass
+            nh = getattr(host, "next_oil_due_hours", None)
+            hrs = getattr(host, "hours_used", None)
+            if nh and hrs is not None:
+                try:
+                    nh_f, hrs_f = float(nh), float(hrs)
+                    if hrs_f >= nh_f - 5:
+                        label = "overdue" if hrs_f >= nh_f else f"{nh_f - hrs_f:g} hours left"
+                        lines.append(f"Oil change · {item.name} · {label} at {nh_f:g} hours · {href}")
+                except Exception:
+                    pass
+            if len(lines) >= limit:
+                return lines[:limit]
+    return lines
+
+
+def _expire_due_lines(limit: int = 6) -> list:
+    lines = []
+    try:
+        rows = tool_expire_list({"days": 14}).get("items") or []
+    except Exception:
+        rows = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            n = int(row.get("days"))
+        except (TypeError, ValueError):
+            n = None
+        label = "" if n is None else ("expired" if n < 0 else ("today" if n == 0 else f"in {n}d"))
+        when = str(row.get("expires") or "")
+        bit = f"{row.get('name') or 'food'} · use by {when}" + (f" ({label})" if label else "")
+        lines.append((bit + f" · {row.get('href') or ''}").strip())
+        if len(lines) >= limit:
+            break
+    return lines
+
+
 def tool_due() -> dict:
-    from app.utils.household import household_id, scoped
+    """Everything due in this house: reminders + oil changes + food going bad."""
+    from app.utils.household import scoped
     from app.builddb.table_reminders import Reminder
 
     rows = (
         scoped(Reminder)
         .filter_by(status="open")
         .order_by(Reminder.due_at.asc(), Reminder.id.desc())
-        .limit(12)
+        .limit(20)
         .all()
     )
     out = []
     for r in rows:
         due = r.due_at.strftime("%Y-%m-%d") if r.due_at else "no date"
-        out.append(f"{r.title} · {due} · {_path('reminders.index')}")
-    return {"ok": True, "open": out, "href": "/reminders/"}
+        when = _due_when(r.due_at) if r.due_at else ""
+        bit = f"{r.title} · {due}" + (f" ({when})" if when else "")
+        out.append(f"{bit} · {_path('reminders.index')}")
+    out.extend(_oil_due_lines(limit=8))
+    out.extend(_expire_due_lines(limit=8))
+    return {"ok": True, "open": out[:24], "href": "/reminders/"}
 
 
 def _pick_named_item(q: str, types: tuple[str, ...] | None = None):
@@ -2368,6 +3819,87 @@ def tool_item_inspect(args: dict | None = None) -> dict:
         "card": card,
         "oil_saved": bool(oil.get("needs") or oil.get("in_it")),
         "href": card.get("href") or "",
+    }
+
+
+def tool_item_update(args: dict | None = None) -> dict:
+    """Update explicitly supplied fields on one saved item in this household."""
+    args = args if isinstance(args, dict) else {}
+    q = _trim(args.get("q") or args.get("item") or args.get("id"), 200)
+    item, err = _pick_named_item(q)
+    if err:
+        return err
+
+    item_fields = {"name": 200, "category": 100, "notes": 4000}
+    vehicle_fields = {
+        "make": ("make", 80), "model": ("model", 80), "year": ("year", 4),
+        "color": ("color", 40), "trim": ("trim", 80), "plate": ("plate", 20),
+        "vin": ("vin", 32), "engine": ("engine", 160), "transmission": ("transmission", 80),
+        "fuel_type": ("fuel_type", 80), "tire_size": ("tire_size", 40),
+        "battery_type": ("battery_type", 80),
+    }
+    tool_fields = {
+        "type": ("type", 80), "model": ("model", 120), "serial": ("serial_number", 120),
+        "fuel_type": ("fuel_type", 80), "power_source": ("power_source", 40),
+    }
+    changed = []
+    meta_requested = any(k in args and args[k] is not None for k in item_fields)
+    type_fields = vehicle_fields if item.vehicle is not None else tool_fields if item.tool is not None else {}
+    type_requested = any(k in args and args[k] is not None for k in type_fields)
+    if meta_requested and not can("edit_meta"):
+        return {"ok": False, "denied": True, "error": "You need item-edit permission to change its name or general details."}
+    if type_requested and not (can("maintain") or can("edit_meta")):
+        return {"ok": False, "denied": True, "error": "You cannot edit this vehicle or tool."}
+    if any(k in args and args[k] is not None for k in ("location", "place")):
+        if item.item_type != "grocery" or not can("edit_grocery"):
+            return {"ok": False, "denied": True, "error": "You cannot change that item's location."}
+        result = tool_inventory({"q": item.name, "action": "place", "place": args.get("place") or args.get("location")})
+        if not result.get("ok"):
+            return result
+        changed.append("location")
+
+    for key, cap in item_fields.items():
+        if key not in args or args[key] is None:
+            continue
+        value = _trim(args[key], cap)
+        if key == "name" and not value:
+            return {"ok": False, "need": ["name"], "hint": "A new name cannot be blank."}
+        if key == "name" and value.lower() != (item.name or "").lower():
+            from app.builddb.table_items import Item
+
+            duplicate = (
+                Item.query.filter_by(household_id=item.household_id, item_type=item.item_type, name=value)
+                .filter(Item.id != item.id, Item.removed_at.is_(None))
+                .first()
+            )
+            if duplicate:
+                return {"ok": False, "error": f"Another {item.item_type} is already named {value}."}
+        setattr(item, key, value or None)
+        changed.append(key)
+
+    for key, (attr, cap) in type_fields.items():
+        if key not in args or args[key] is None:
+            continue
+        value = _trim(args[key], cap)
+        if item.vehicle is not None and key == "year":
+            if value and (not value.isdigit() or not 1886 <= int(value) <= datetime.utcnow().year + 2):
+                return {"ok": False, "need": ["year"], "hint": "Give me a valid four-digit model year."}
+            setattr(item.vehicle, attr, int(value) if value else None)
+        elif item.vehicle is not None and key in ("vin", "plate"):
+            value = value.upper()
+            if key == "vin" and value and (len(value) != 17 or not re.fullmatch(r"[A-HJ-NPR-Z0-9]{17}", value)):
+                return {"ok": False, "need": ["vin"], "hint": "A VIN must be 17 characters; I left the saved VIN unchanged."}
+            setattr(item.vehicle, attr, value or None)
+        else:
+            setattr(item.vehicle or item.tool, attr, value or None)
+        changed.append(key)
+
+    if not changed:
+        return {"ok": False, "need": ["field"], "hint": "Tell me which saved field to change and its new value."}
+    db.session.commit()
+    return {
+        "ok": True, "id": item.id, "name": item.name, "changed": changed,
+        "did": "updated", "href": _path("items.detail", item_id=item.id) or f"/items/{item.id}",
     }
 
 
@@ -3212,6 +4744,208 @@ def tool_reminder_save(args: dict) -> dict:
     }
 
 
+def tool_reminder_list(args: dict | None = None) -> dict:
+    """Open reminders. kind: all (default), bill, oil_change, filter, custom."""
+    from app.utils.household import scoped
+
+    args = args if isinstance(args, dict) else {}
+    from app.builddb.table_reminders import Reminder
+
+    kind = _trim(args.get("kind") or args.get("type") or "", 20).lower()
+    if kind in ("billing", "utility"):
+        kind = "bill"
+    rows = scoped(Reminder).filter_by(status="open").order_by(Reminder.due_at.asc()).limit(30).all()
+    if kind:
+        rows = [r for r in rows if r.type == kind]
+    lines = [
+        f"{r.title} · {_due_when(r.due_at) if r.due_at else 'no date'} · id {r.id}"
+        for r in rows
+    ]
+    return {
+        "ok": True,
+        "kind": kind or "all",
+        "count": len(lines),
+        "lines": lines,
+        "empty": "No open reminders.",
+        "href": "/reminders/",
+    }
+
+
+def tool_reminder_done(args: dict | None = None) -> dict:
+    """Mark a reminder done. Args: id, or q (title to match)."""
+    from app.utils.household import scoped
+
+    args = args if isinstance(args, dict) else {}
+    from app.builddb.table_reminders import Reminder
+
+    raw_id = args.get("id") or args.get("reminder_id")
+    row = None
+    if raw_id and str(raw_id).strip().isdigit():
+        row = scoped(Reminder).filter_by(id=int(str(raw_id).strip())).first()
+        if row is None:
+            return {"ok": False, "error": "No reminder with that id."}
+    if row is None:
+        q = _trim(args.get("q") or args.get("title") or args.get("name"), 200)
+        if not q:
+            return {"ok": False, "need": ["q"], "hint": "Which reminder? Say the name on it, or its id."}
+        if q.isdigit():
+            row = scoped(Reminder).filter_by(id=int(q)).first()
+        if row is None:
+            matches = [
+                r
+                for r in scoped(Reminder).filter_by(status="open").order_by(Reminder.due_at.asc()).limit(60).all()
+                if q.lower() in (r.title or "").lower()
+            ]
+            if len(matches) == 1:
+                row = matches[0]
+            elif matches:
+                return {
+                    "ok": False,
+                    "need": ["q"],
+                    "choices": [r.title for r in matches[:8]],
+                    "hint": "Which one? " + ", ".join(r.title or "" for r in matches[:6]),
+                }
+    if row is None:
+        return {"ok": False, "error": "No open reminder matches that."}
+    row.status = "done"
+    db.session.commit()
+    return {
+        "ok": True,
+        "id": row.id,
+        "title": row.title,
+        "href": "/reminders/",
+        "did": "done",
+    }
+
+
+def tool_basket_remove(args: dict | None = None) -> dict:
+    """Take an open row off the basket. Args: q (name), or id."""
+    if not (can("scan") or can("edit_grocery")):
+        return {"ok": False, "error": "You cannot change the basket."}
+    from app.builddb.table_grocery_list import GroceryListEntry
+    from app.utils.household import household_id, scoped
+
+    args = args if isinstance(args, dict) else {}
+    raw_id = args.get("id") or args.get("entry_id")
+    row = None
+    if raw_id and str(raw_id).strip().isdigit():
+        row = scoped(GroceryListEntry).filter_by(id=int(str(raw_id).strip()), status="open").first()
+    if row is None:
+        q = _trim(args.get("q") or args.get("name") or args.get("item"), 200)
+        if not q:
+            return {"ok": False, "need": ["q"], "hint": "What should come off the basket?"}
+        matches = [
+            r
+            for r in scoped(GroceryListEntry).filter_by(household_id=household_id(), status="open")
+            .order_by(GroceryListEntry.id.desc()).limit(60).all()
+            if q.lower() in (r.name or "").lower()
+        ]
+        if len(matches) == 1:
+            row = matches[0]
+        elif matches:
+            return {
+                "ok": False,
+                "need": ["q"],
+                "choices": [r.name for r in matches[:8]],
+                "hint": "Which one? " + ", ".join(r.name or "" for r in matches[:6]),
+            }
+    if row is None:
+        return {"ok": False, "error": "Nothing open on the basket matches that."}
+    name = row.name
+    row.status = "done"
+    db.session.commit()
+    return {"ok": True, "name": name, "href": "/groceries/list", "did": "off the basket"}
+
+
+def tool_note_delete(args: dict | None = None) -> dict:
+    """Delete a note they own (household notes included, never someone else's)."""
+    from app.builddb.table_notes import Note
+    from app.utils.household import scoped
+
+    args = args if isinstance(args, dict) else {}
+    raw_id = args.get("id") or args.get("note_id")
+    row = None
+    if raw_id and str(raw_id).strip().isdigit():
+        row = scoped(Note).filter_by(id=int(str(raw_id).strip())).first()
+    if row is None:
+        title = _trim(args.get("title") or args.get("q") or args.get("name"), 500)
+        if not title:
+            return {"ok": False, "need": ["title"], "hint": "Which note? Say its title, or its id."}
+        matches = [
+            n
+            for n in scoped(Note).filter(Note.visibility == "household" if True else True)
+            .order_by(Note.id.desc()).limit(80).all()
+            if title.lower() in (n.title or "").lower()
+        ]
+        own = [n for n in matches if n.user_id == current_user.id]
+        pool = own or [n for n in matches if getattr(current_user, "is_admin", False)]
+        if len(pool) == 1:
+            row = pool[0]
+        elif len(pool) > 1:
+            return {
+                "ok": False,
+                "need": ["title"],
+                "choices": [n.title for n in pool[:8]],
+                "hint": "Which one? " + ", ".join((n.title or "")[:40] for n in pool[:6]),
+            }
+    if row is None:
+        return {"ok": False, "error": "No note you can delete matches that."}
+    if row.user_id != current_user.id and not getattr(current_user, "is_admin", False):
+        return {"ok": False, "error": "You cannot delete that note."}
+    title = row.title
+    db.session.delete(row)
+    db.session.commit()
+    return {"ok": True, "title": title, "href": "/notes/", "did": "deleted"}
+
+
+def tool_person_update(args: dict | None = None) -> dict:
+    """Change one field on a person in this house: name, email, phone, or role."""
+    from app.utils.ask_do import tool_member_role
+
+    args = args if isinstance(args, dict) else {}
+    username = _trim(args.get("username") or args.get("user"), 80).lower()
+    if not username:
+        return {"ok": False, "need": ["username"], "hint": "Whose details? Give their username."}
+    from app.builddb.table_users import User
+    from app.utils.household import household_id
+
+    row = User.query.filter_by(household_id=household_id(), username=username).first()
+    if row is None:
+        return {"ok": False, "error": f"No one named {username} in this house."}
+    changes = []
+    if args.get("name") is not None and _trim(args.get("name"), 120):
+        row.name = _trim(args.get("name"), 120)
+        changes.append("name")
+    if args.get("email") is not None:
+        email = _trim(args.get("email"), 200).lower()
+        if email:
+            from app.utils.identity import email_ok
+
+            try:
+                if not email_ok(email):
+                    return {"ok": False, "error": "That email does not look right."}
+            except Exception:
+                pass
+        row.email = email or None
+        changes.append("email")
+    if args.get("phone") is not None and _trim(args.get("phone"), 40):
+        if hasattr(row, "phone"):
+            row.phone = _trim(args.get("phone"), 40)
+            changes.append("phone")
+    if not changes:
+        role = _trim(args.get("role"), 20).lower()
+        if not role:
+            return {"ok": False, "need": ["name"], "hint": "What should change — name, email, phone, or role?"}
+        return tool_member_role({"username": username, "role": role})
+    db.session.commit()
+    return {
+        "ok": True,
+        "username": username,
+        "did": "updated " + ", ".join(changes),
+        "href": "/members/",
+    }
+
+
 def tool_inventory(args: dict) -> dict:
     from app.utils.household import household_id
     from app.utils.scan import apply_grocery_stock, flag_need_more, qty_label
@@ -3246,7 +4980,9 @@ def tool_inventory(args: dict) -> dict:
             }
         name = q or "Item"
         where_text = _trim(args.get("where") or args.get("on") or place, 80)
-        return _ask_where_to_add(name, upc=upc, amount=amount, place=place, where_text=where_text)
+        return _ask_where_to_add(
+            name, upc=upc, amount=amount, place=place, where_text=where_text, auto_file=True
+        )
     if action == "create":
         action = "restock"
     item = rows[0]
@@ -3469,6 +5205,8 @@ def run_tool(name: str, args: dict | None) -> dict:
             return tool_item_inspect(args)
         if key == "item_remove":
             return tool_item_remove(args)
+        if key == "item_update":
+            return tool_item_update(args)
         if key == "due":
             return tool_due()
         if key == "expire_list":
@@ -3479,6 +5217,18 @@ def run_tool(name: str, args: dict | None) -> dict:
             return tool_expire_guess(args)
         if key == "oil_lookup":
             return tool_oil_lookup(args)
+        if key == "research":
+            return tool_research(args)
+        if key == "reminder_list":
+            return tool_reminder_list(args)
+        if key == "reminder_done":
+            return tool_reminder_done(args)
+        if key == "basket_remove":
+            return tool_basket_remove(args)
+        if key == "note_delete":
+            return tool_note_delete(args)
+        if key == "person_update":
+            return tool_person_update(args)
         if key == "lookup":
             return tool_lookup(args)
         if key == "vault_unlock":
@@ -3573,22 +5323,32 @@ def _json_objects(text: str) -> list[dict]:
     if fenced:
         raw = fenced.group(1).strip()
     decoder = json.JSONDecoder()
-    out = []
-    i = 0
-    while i < len(raw):
-        start = raw.find("{", i)
-        if start < 0:
-            break
-        try:
-            obj, end = decoder.raw_decode(raw, start)
-        except Exception:
-            i = start + 1
-            continue
-        if isinstance(obj, dict):
-            out.append(obj)
-        i = end
-        if len(out) >= 8:
-            break
+
+    def _scan(s: str) -> list[dict]:
+        out = []
+        i = 0
+        while i < len(s):
+            start = s.find("{", i)
+            if start < 0:
+                break
+            try:
+                obj, end = decoder.raw_decode(s, start)
+            except Exception:
+                i = start + 1
+                continue
+            if isinstance(obj, dict):
+                out.append(obj)
+            i = end
+            if len(out) >= 8:
+                break
+        return out
+
+    out = _scan(raw)
+    if not out and raw.startswith("{"):
+        # Models sometimes drop a closing brace. Repair 1–3 so the turn still acts.
+        missing = raw.count("{") - raw.count("}")
+        if 0 < missing <= 3:
+            out = _scan(raw + ("}" * missing))
     return out
 
 
@@ -3690,11 +5450,38 @@ def _saved_vehicle_brief() -> str:
     )
 
 
+def ask_identity(household=None) -> dict:
+    """The agent's name and extra details for this house. Defaults: “Ask” + none."""
+    from app.utils.household_ai import agent_identity
+
+    h = household
+    if h is None and has_request_context():
+        h = getattr(current_user, "household", None)
+    try:
+        return agent_identity(h)
+    except Exception:
+        return {"name": "Ask", "persona": ""}
+
+
 def _system_now(has_photo: bool) -> str:
     from app.utils.ask_do import PHOTO_RULES, actor_lines
     from app.utils.ask_rooms import room_system_line
 
     extra = actor_lines()
+    identity = ask_identity()
+    extra += f"\n\nYour name is {identity['name']}. They may call you that; answer to it."
+    if identity.get("persona"):
+        extra += f"\n\nHouse details about you: {identity['persona']}"
+    try:
+        from datetime import date as _date
+
+        today = _date.today()
+        extra += (
+            f"\n\nToday is {today.strftime('%A, %B %d, %Y')} ({today.isoformat()}). "
+            "Use it for any date math (6 months from now, etc). reminder_save due must be YYYY-MM-DD."
+        )
+    except Exception:
+        pass
     extra += "\n\n" + room_system_line(_room())
     extra += "\nSlash /help, /vehicles, /inventory, /tools, /basket, /due, /oil list this house with no extra lookup. Do not invent those lists when they typed a slash — the site already answered."
     brief = _saved_vehicle_brief()
@@ -3719,6 +5506,58 @@ def _with_issued_login(say: str, tool_notes: list) -> str:
             continue
         text = text.rstrip() + f"\nUsername {username}. Password {password}. They sign in with the household handle."
     return text
+
+
+def _after_write_say(household, text: str, did: list, prior: str) -> str:
+    """One model pass after Allow runs, so Ask can keep talking.
+
+    The oil-change flow wants: save the change → “Want the reminder in 6 months or
+    at X miles?”. apply_held() only speaks tool results, so give the model one say-only
+    turn to continue. Any failure falls back to the plain "Saved …" line.
+    """
+    tools = {d.get("tool") for d in (did or []) if isinstance(d, dict)}
+    if "oil_save" not in tools or not prior:
+        return prior
+    try:
+        notes = [
+            {
+                "tool": d.get("tool") or "",
+                "result": {
+                    "ok": True,
+                    "did": d.get("title") or d.get("name") or "saved",
+                    "href": d.get("href") or "",
+                },
+            }
+            for d in (did or [])
+            if isinstance(d, dict)
+        ]
+        prompt = (
+            "They approved these writes and they just ran:\n"
+            + json.dumps(notes, ensure_ascii=False)[:1500]
+            + f"\n\nThey said: {_trim(text, 400)}"
+            + "\n\nReply with ONE JSON object: {\"say\":\"...\"}. One or two short spoken sentences "
+            "confirming what was saved, then — if an oil change was saved — ask whether they want the "
+            "reminder in 6 months or at X miles (use the miles on that machine). No JSON, no tool names, "
+            "no raw results inside say."
+        )
+        ok, raw = complete(
+            prompt,
+            system=_system_now(False),
+            max_tokens=350,
+            timeout=30,
+            household=household,
+            household_only=True,
+            job="everyday",
+        )
+        if not ok:
+            return prior
+        turn = _parse_turn(raw or "")
+        say = (turn.get("text") or "").strip() if turn.get("kind") == "say" else ""
+        if not say or _looks_like_json(say):
+            return prior
+        return say[:2000]
+    except Exception:
+        return prior
 
 
 def run_ask(
@@ -3755,12 +5594,11 @@ def run_ask(
         return {"ok": False, "error": "Say something first."}
     if household is None or int(getattr(household, "id", 0) or 0) != int(getattr(current_user, "household_id", 0) or 0):
         return {"ok": False, "error": "AI stays in this household."}
-    if not ask_ready(household, current_user):
-        return {"ok": False, "error": "Ask is off. Add an AI key in Household, or turn Ask back on."}
+    ai_ready = ask_ready(household, current_user)
     if has_photo:
         from app.utils.ai import get_ai_config
 
-        if not get_ai_config(household, household_only=True).get("vision"):
+        if not ai_ready or not get_ai_config(household, household_only=True).get("vision"):
             clear_ask_photo()
             return {
                 "ok": False,
@@ -3781,89 +5619,62 @@ def run_ask(
 
     gated = None if has_photo else handle_reply(text)
     if gated:
+        say = gated.get("say") or ""
+        if gated.get("did"):
+            more = _after_write_say(household, text, gated.get("did") or [], say)
+            if more and more != say:
+                say = more
+                gated["say"] = say
         history = _history()
         history.append({"role": "user", "text": text})
-        history.append({"role": "assistant", "text": gated.get("say") or ""})
+        history.append({"role": "assistant", "text": say})
         _save_history(history)
         return gated
-    confirmed = None if has_photo else _confirm_pending(text)
-    if confirmed:
-        history = _history()
-        history.append({"role": "user", "text": text})
-        history.append({"role": "assistant", "text": confirmed.get("say") or ""})
-        _save_history(history)
-        return confirmed
-    remembered = None if has_photo else _remember_reply(text)
-    if remembered:
-        history = _history()
-        history.append({"role": "user", "text": text})
-        history.append({"role": "assistant", "text": remembered.get("say") or ""})
-        _save_history(history)
-        return remembered
-    oil_say = None if has_photo else _oil_local_say(text)
-    if oil_say:
-        history = _history()
-        history.append({"role": "user", "text": text})
-        history.append({"role": "assistant", "text": oil_say})
-        _save_history(history)
-        return {"ok": True, "say": oil_say, "did": [], "vault_locked": False}
-    stored = None if has_photo else _stored_vehicle_say(text)
-    if stored:
-        history = _history()
-        history.append({"role": "user", "text": text})
-        history.append({"role": "assistant", "text": stored})
-        _save_history(history)
-        return {"ok": True, "say": stored, "did": [], "vault_locked": False}
-    trip_say = None if has_photo else _trip_local_say(text)
-    if trip_say:
+    # Local fast paths: household data and commands answered without the model.
+    # Each handler returns str (a say), dict (a full payload), or None to pass the
+    # turn on. Handlers run lazily in order — first match answers, everything else
+    # falls through to the model. Keep the order: confirms/replies first, then
+    # saved-spec answers (fluid, oil, vehicle), then command handlers, then due/list.
+    local_handlers = (
+        lambda: None if has_photo else _confirm_pending(text),
+        lambda: None if has_photo else _remember_reply(text),
+        lambda: None if has_photo else _fluid_saved_say(text),
+        lambda: None if has_photo else _fluid_unsaved_say(text),
+        lambda: None if has_photo else _fluids_overview_say(text),
+        lambda: None if has_photo else _oil_local_say(text),
+        lambda: None if has_photo else _stored_vehicle_say(text),
+        lambda: None if has_photo else _trip_local_say(text),
+        lambda: None if has_photo else _sort_local_say(text),
+        lambda: None if has_photo else _expire_local_say(text),
+        lambda: None if has_photo else _stock_local_say(text),
+        lambda: None if has_photo else _local_command_say(text),
+        lambda: None if has_photo else _local_explicit_list_say(text),
+        lambda: None if has_photo else _local_house_say(text),
+        lambda: None if has_photo else _local_room_read_say(text),
+    )
+    for handler in local_handlers:
+        local = handler()
+        if not local:
+            continue
         payload = (
-            trip_say
-            if isinstance(trip_say, dict)
-            else {"ok": True, "say": trip_say, "did": [], "vault_locked": False}
+            local
+            if isinstance(local, dict)
+            else {"ok": True, "say": local, "did": [], "vault_locked": False}
         )
         history = _history()
         history.append({"role": "user", "text": text})
         history.append({"role": "assistant", "text": payload.get("say") or ""})
         _save_history(history)
         return payload
-    sort_say = None if has_photo else _sort_local_say(text)
-    if sort_say:
-        payload = (
-            sort_say
-            if isinstance(sort_say, dict)
-            else {"ok": True, "say": sort_say, "did": [], "vault_locked": False}
+    if not ai_ready:
+        say = (
+            "I can still look up and manage saved household data here, but web research and open-ended chat need an AI key. "
+            "Tell me a saved item to inspect, or ask me to update inventory, notes, the basket, or a reminder."
         )
         history = _history()
-        history.append({"role": "user", "text": text})
-        history.append({"role": "assistant", "text": payload.get("say") or ""})
+        history.extend([{"role": "user", "text": text}, {"role": "assistant", "text": say}])
         _save_history(history)
-        return payload
-    expire_say = None if has_photo else _expire_local_say(text)
-    if expire_say:
-        history = _history()
-        history.append({"role": "user", "text": text})
-        history.append({"role": "assistant", "text": expire_say})
-        _save_history(history)
-        return {"ok": True, "say": expire_say, "did": [], "vault_locked": False}
-    stock_say = None if has_photo else _stock_local_say(text)
-    if stock_say:
-        payload = (
-            stock_say
-            if isinstance(stock_say, dict)
-            else {"ok": True, "say": stock_say, "did": [], "vault_locked": False}
-        )
-        history = _history()
-        history.append({"role": "user", "text": text})
-        history.append({"role": "assistant", "text": payload.get("say") or ""})
-        _save_history(history)
-        return payload
-    local = None if has_photo else _local_house_say(text)
-    if local:
-        history = _history()
-        history.append({"role": "user", "text": text})
-        history.append({"role": "assistant", "text": local})
-        _save_history(history)
-        return {"ok": True, "say": local, "did": [], "vault_locked": False}
+        return {"ok": True, "say": say, "did": [], "confirm": False, "vault_locked": False}
     history = _history()
     tool_notes = []
     oil_note = None if has_photo else _oil_inspect_note(text)
@@ -3872,6 +5683,7 @@ def run_ask(
     did = []
     queued = []
     last_say = ""
+    confirm_ui = False
     system = _system_now(has_photo)
     for _ in range(MAX_TOOL_ROUNDS + 1):
         ok, raw = complete(
@@ -3886,7 +5698,12 @@ def run_ask(
             job="heavy" if has_photo else "everyday",
         )
         if not ok:
-            spoken = _speak_tool_notes(tool_notes) or _local_house_say(text)
+            spoken = (
+                _speak_tool_notes(tool_notes)
+                or _fluid_saved_say(text)
+                or _fluids_overview_say(text)
+                or _local_house_say(text)
+            )
             if spoken:
                 last_say = spoken
                 break
@@ -3899,9 +5716,16 @@ def run_ask(
             args = turn.get("args") or {}
             q = str(args.get("q") or args.get("name") or args.get("what") or args.get("item") or "")
             action = str(args.get("action") or "").lower()
-            if turn["tool"] in ("inventory", "place") and (
-                _looks_like_command(text) or _looks_like_command(q)
-            ):
+            if turn["tool"] in ("inventory", "place") and not has_photo and not (
+                _trim(
+                    args.get("barcode")
+                    or args.get("upc")
+                    or args.get("code")
+                    or args.get("vin")
+                    or args.get("serial"),
+                    48,
+                )
+            ) and (_looks_like_command(text) or (bool(q) and _looks_like_command(q))):
                 stock = _stock_local_say(text)
                 if isinstance(stock, dict):
                     last_say = stock.get("say") or ""
@@ -3943,6 +5767,7 @@ def run_ask(
             need = result.get("need") or []
             if need == ["confirm"] and result.get("hint"):
                 last_say = str(result.get("hint"))
+                confirm_ui = True
                 break
             continue
         last_say = _plain_say(turn.get("text") or "", tool_notes)
@@ -3959,17 +5784,44 @@ def run_ask(
         held["say"] = last_say
         return held
     if not last_say:
-        last_say = _speak_tool_notes(tool_notes) or _oil_local_say(text) or _expire_local_say(text) or _local_house_say(text)
+        last_say = (
+            _speak_tool_notes(tool_notes)
+            or _fluid_saved_say(text)
+            or _oil_local_say(text)
+            or _expire_local_say(text)
+            or _local_house_say(text)
+        )
     last_say = _plain_say(last_say or "", tool_notes)
     if not last_say:
         return {
             "ok": False,
             "error": "I didn’t catch that. Try “what tools do I have” or “what’s due.”",
         }
+    # A research answer must always carry its sources into the reply, even when
+    # the model's own say pass dropped them.
+    for note in tool_notes:
+        research = (note.get("result") or {}).get("research") if note.get("tool") == "research" else None
+        if not research:
+            continue
+        sourced = _research_say(topic="", spec=research, sources=research.get("sources") or [])
+        offer = research.get("save_offer") or {}
+        if "Sources:" not in last_say:
+            last_say = sourced
+        elif offer and "save this" not in last_say.lower() and "save it" not in last_say.lower():
+            last_say = last_say.rstrip() + "\n" + (
+                f"Want me to save this as the {str(offer.get('fluid') or 'fluid').lower()} spec on {offer.get('name')}?"
+            )
+        break
     last_say = _with_issued_login(last_say, tool_notes)
     if photo_was_attached():
         clear_ask_photo()
     history.append({"role": "user", "text": text})
     history.append({"role": "assistant", "text": last_say})
     _save_history(history)
-    return {"ok": True, "say": last_say, "did": did, "vault_locked": any((n.get("result") or {}).get("need") == "vault_unlock" for n in tool_notes)}
+    return {
+        "ok": True,
+        "say": last_say,
+        "did": did,
+        "confirm": confirm_ui,
+        "vault_locked": any((n.get("result") or {}).get("need") == "vault_unlock" for n in tool_notes),
+    }

@@ -41,3 +41,7 @@ class SmtpPortTests(unittest.TestCase):
         self.assertIn("465", msg)
         self.assertIn("587", msg)
         self.assertNotIn("Dovecot ready", msg)
+
+
+if __name__ == "__main__":
+    unittest.main()

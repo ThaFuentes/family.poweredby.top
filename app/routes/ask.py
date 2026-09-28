@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, redirect, render_template, request, url_fo
 from flask_login import current_user, login_required
 
 from app.builddb.table_households import Household
-from app.utils.ask import ask_ready, clear_history, history_payload, run_ask
+from app.utils.ask import ask_chat_allowed, ask_ready, clear_history, history_payload, run_ask
 from app.utils.ask_photo import image_from_payload
 from app.utils.ask_rooms import help_text, normalize_room, room_from_path, room_meta, rooms_public
 from app.utils.household import household_id
@@ -29,13 +29,8 @@ def _desk(room_key: str):
         return redirect(url_for("home.home"))
     key = normalize_room(room_key)
     h = _household()
-    if not ask_ready(h, current_user):
-        return render_template(
-            "ask_help.html",
-            rooms=rooms_public(),
-            help_body=help_text(key),
-            need_key=True,
-        )
+    if not ask_chat_allowed(h, current_user):
+        return redirect(url_for("home.home"))
     meta = room_meta(key)
     return render_template(
         "ask.html",
@@ -53,8 +48,8 @@ def message():
     if role_of() == "child":
         return jsonify({"ok": False, "error": "Ask is for grown-ups."}), 403
     h = _household()
-    if not ask_ready(h, current_user):
-        return jsonify({"ok": False, "error": "Ask is off. Add an AI key in Household."}), 403
+    if not ask_chat_allowed(h, current_user):
+        return jsonify({"ok": False, "error": "Ask is off for this household."}), 403
     payload = request.get_json(silent=True) or {}
     text = payload.get("message") or request.form.get("message") or ""
     image_bytes, image_mime, image_err = image_from_payload(payload, request.files.get("image"))
@@ -76,7 +71,7 @@ def message():
 def history():
     if role_of() == "child":
         return jsonify({"ok": False, "turns": []}), 403
-    if not ask_ready(_household(), current_user):
+    if not ask_chat_allowed(_household(), current_user):
         return jsonify({"ok": False, "turns": []}), 403
     return jsonify(history_payload(_room_arg()))
 
@@ -100,7 +95,7 @@ def help_page():
         "ask_help.html",
         rooms=rooms_public(),
         help_body=help_text("house"),
-        need_key=not ask_ready(_household(), current_user),
+        need_key=not ask_chat_allowed(_household(), current_user),
     )
 
 

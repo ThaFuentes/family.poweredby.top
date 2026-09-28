@@ -695,12 +695,20 @@ def set_member_calendar(user_id):
 @login_required
 @require_perm("settings")
 def save_ai():
-    from app.utils.household_ai import set_household_ask_confirm, set_household_chat
+    from app.utils.household_ai import set_household_agent, set_household_ask_confirm, set_household_chat
 
     h = Household.query.get(household_id())
     set_household_chat(h, chat=("1" in request.form.getlist("ai_chat")))
     set_household_ask_confirm(h, request.form.get("ask_confirm") or "ask")
-    flash("Ask setting saved.", "success")
+    if "agent_name" in request.form or "agent_persona" in request.form:
+        identity = set_household_agent(
+            h,
+            name=request.form.get("agent_name") or "",
+            persona=request.form.get("agent_persona") or "",
+        )
+        flash(f"Ask setting saved. The chat agent goes by {identity['name']}.", "success")
+    else:
+        flash("Ask setting saved.", "success")
     return _after()
 
 

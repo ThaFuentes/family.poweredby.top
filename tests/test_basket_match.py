@@ -117,6 +117,22 @@ class BasketHttpTests(unittest.TestCase):
                 headers={"X-CSRF-Token": token},
             )
         self.assertEqual(resp.status_code, 200, resp.data)
+        # Writes show a plan first (Allow / Don't / always allow), then run on yes.
+        plan = resp.get_json() or {}
+        self.assertTrue(plan.get("confirm"), plan)
+        self.assertIn("coffee creamer", (plan.get("say") or ""))
+
+        def no_model(*_a, **_k):
+            raise AssertionError("allowing a plan should not call the model")
+
+        with patch("app.utils.ask.complete", side_effect=no_model):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "yes"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertTrue((resp.get_json() or {}).get("ok"), resp.data)
         with self.app.app_context():
             from app.builddb.table_grocery_list import GroceryListEntry
             from app.builddb.table_users import User

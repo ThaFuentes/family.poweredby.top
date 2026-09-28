@@ -288,10 +288,11 @@
         setPreview("");
         return;
       }
+      var AGENT = (root && root.dataset.agent) || "Ask";
       shrinkFile(file, function (url) {
         if (!url) {
           setPreview("");
-          addBubble("them err", "That file is not a photo Ask can read.");
+          addBubble("them err", "That file is not a photo " + AGENT + " can read.");
           return;
         }
         setPreview(url, file.name || "Photo");
@@ -354,7 +355,7 @@
       })
       .catch(function () {
         if (pending) pending.remove();
-        addBubble("them err", "Could not reach Ask.", "", retry);
+        addBubble("them err", "Could not reach " + ((root && root.dataset.agent) || "Ask") + ".", "", retry);
       })
       .then(function () {
         busy = false;

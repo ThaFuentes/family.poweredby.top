@@ -996,3 +996,135 @@ def _err_body(resp) -> str:
         return f"{resp.status_code}: {str(data)[:240]}"
     except Exception:
         return f"{resp.status_code}: {(resp.text or '')[:240]}"
+
+
+# --- Web grounding -----------------------------------------------------------
+# Ask can look up facts this site cannot know (OEM fluid specs, part numbers)
+# with the household's own key. Gemini grounds with google_search; xAI with
+# Live Search. Other providers return ungrounded text — clearly flagged.
+
+
+def _gemini_web(cfg, prompt, system, max_tokens, timeout) -> tuple[str, list]:
+    """Grounded Gemini call: google_search tool, answer plus source titles."""
+    model = _live_model("gemini", cfg.get("model") or DEFAULT_MODEL)
+    url = f"{cfg['base_url']}/models/{model}:generateContent"
+    body = {
+        "contents": [{"role": "user", "parts": [{"text": f"{system}\n\n{prompt}"}]}],
+        "generationConfig": {"maxOutputTokens": max(int(max_tokens or 512), 1024), "temperature": 0.1},
+        "tools": [{"google_search": {}}],
+    }
+    resp = requests.post(
+        url,
+        params={"key": cfg["api_key"]},
+        headers={"x-goog-api-key": cfg["api_key"], "Content-Type": "application/json"},
+        json=body,
+        timeout=timeout,
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(_err_body(resp))
+    data = resp.json() if resp.content else {}
+    cands = data.get("candidates") or []
+    cand = cands[0] if cands else {}
+    text = "\n".join(
+        (p.get("text") or "") for p in ((cand.get("content") or {}).get("parts") or [])
+    ).strip()
+    sources = []
+    for chunk in (cand.get("groundingMetadata") or {}).get("groundingChunks") or []:
+        web = chunk.get("web") or {}
+        title = (web.get("title") or "").strip()
+        uri = (web.get("uri") or "").strip()
+        if title or uri:
+            fallback = uri.rsplit("/", 1)[-1] or uri
+            sources.append({"title": (title or fallback)[:60], "uri": uri})
+    return text, sources
+
+
+def _openai_web(cfg, prompt, system, max_tokens, timeout) -> tuple[str, list]:
+    """xAI Live Search: on-the-ground search with cited sources."""
+    extra: dict[str, Any] = {}
+    if (cfg.get("provider") or "") == "xai":
+        extra["search_parameters"] = {"mode": "auto", "return_citations": True}
+    resp = requests.post(
+        f"{cfg['base_url']}/chat/completions",
+        headers={"Authorization": f"Bearer {cfg['api_key']}", "Content-Type": "application/json"},
+        json={
+            "model": cfg["model"],
+            "messages": [
+                *( [{"role": "system", "content": system}] if system else [] ),
+                {"role": "user", "content": prompt},
+            ],
+            "max_tokens": max_tokens,
+            "temperature": 0.1,
+            **extra,
+        },
+        timeout=timeout,
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(_err_body(resp))
+    data = resp.json() if resp.content else {}
+    msg = ((data.get("choices") or [{}])[0].get("message") or {})
+    text = (msg.get("content") or "").strip()
+    sources = []
+    for u in data.get("citations") or []:
+        u = str(u or "")
+        if not u:
+            continue
+        tail = u.rsplit("/", 1)[-1] or u
+        sources.append({"title": tail[:60], "uri": u})
+    return text, sources
+
+
+def complete_web(
+    prompt: str,
+    *,
+    system: str | None = None,
+    max_tokens: int = 700,
+    timeout: int = 45,
+    household=None,
+) -> tuple[bool, object]:
+    """Answer a factual question with real web search on the household key.
+
+    Returns (False, error) when nothing grounded answered, else
+    (True, (text, sources)) with sources as [{"title", "uri"}].
+    Every household key is tried before giving up; a provider that cannot
+    search still answers, but its text is prefixed so nobody mistakes it for
+    a sourced result.
+    """
+    if household is not None and not _household_in_scope(household):
+        return False, "AI stays in this household."
+    cfg = get_ai_config(household, household_only=True)
+    slots = [c for c in (cfg.get("chain") or []) if (c.get("api_key") or "").strip()]
+    if not slots and (cfg.get("api_key") or "").strip():
+        slots = [cfg]
+    if not slots:
+        return False, "No AI key on this household. Paste your own Gemini (free) or other key in Household."
+    errors = []
+    for slot in slots:
+        kind = slot.get("kind") or "openai"
+        provider = slot.get("provider") or ""
+        try:
+            if kind == "gemini":
+                text, sources = _gemini_web(slot, prompt, system, max_tokens, timeout)
+                if text:
+                    return True, (text, sources)
+                errors.append(f"{provider or 'gemini'}: empty")
+                continue
+            if provider in ("xai", "openai") and kind == "openai":
+                text, sources = _openai_web(slot, prompt, system, max_tokens, timeout)
+                if text:
+                    if not sources and provider == "openai":
+                        text = "(unverified — this key cannot search the web) " + text
+                    return True, (text, sources)
+                errors.append(f"{provider}: empty")
+                continue
+            # Any other OpenAI-compatible key: best effort, no grounding.
+            text, sources = _openai_web(slot, prompt, system, max_tokens, timeout)
+            if text:
+                text = "(unverified — this key cannot search the web) " + text
+                return True, (text, sources)
+            errors.append(f"{provider or kind}: empty")
+        except Exception as exc:
+            msg = str(exc)
+            errors.append(f"{provider or kind}: {msg[:120]}")
+            continue
+    return False, "Web lookup failed: " + " | ".join(errors[:3])
