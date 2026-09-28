@@ -7,6 +7,7 @@ People, vault cards, and deleting a vehicle still ask in allow mode.
 from __future__ import annotations
 
 import re
+from decimal import Decimal
 
 from flask import has_request_context, session
 from flask_login import current_user
@@ -168,6 +169,51 @@ def _fmt_miles(raw) -> str:
         return s
 
 
+def _inventory_count_plan(args: dict, action: str) -> str:
+    """Describe a grocery count change using its saved quantity and planned result."""
+    q = _trim(args.get("q") or args.get("name") or args.get("id"), 200)
+    if not q:
+        return ""
+    try:
+        from app.utils.ask import _find_items
+        from app.utils.scan import clamp_qty, qty_label
+
+        rows = _find_items(q, "grocery")
+        if not rows or getattr(rows[0], "grocery", None) is None:
+            return ""
+        item = rows[0]
+        grocery = item.grocery
+        before = clamp_qty(grocery.quantity)
+        amount = args.get("amount") or args.get("qty") or args.get("quantity") or 1
+        amount = clamp_qty(amount, "1")
+        if amount <= 0:
+            amount = Decimal("1")
+
+        if action == "set":
+            after = amount
+        elif action in ("restock", "add", "new", "buy", "bought", "got_more", "got-more", "got_it", "got-it", "create"):
+            action = "restock"
+            after = before + amount
+        elif action in ("used", "out", "consume", "use"):
+            action = "used"
+            after = max(Decimal("0"), before - amount)
+        else:
+            return ""
+
+        unit = (getattr(grocery, "unit", None) or "each").strip()
+        unit_text = f" {unit}" if unit else ""
+        transition = f"{qty_label(before)}{unit_text} to {qty_label(after)}{unit_text}"
+        place = _trim(args.get("place") or args.get("location"), 80)
+        if action == "set":
+            if place:
+                return f"I’ll put {item.name} in {place} and set its count from {transition}."
+            return f"I’ll set {item.name} from {transition}."
+        verb = "restock" if action == "restock" else "use"
+        return f"I’ll {verb} {item.name} from {transition}."
+    except Exception:
+        return ""
+
+
 def plan_line(tool: str, args: dict | None = None) -> str:
     args = args if isinstance(args, dict) else {}
     name = _trim(
@@ -218,9 +264,14 @@ def plan_line(tool: str, args: dict | None = None) -> str:
     if tool == "inventory":
         action = _trim(args.get("action") or "restock", 20).lower() or "restock"
         loc = _trim(args.get("place") or args.get("location"), 80)
+        if action == "place":
+            return f"Put {name or 'that'} in {loc}." if loc else f"Update {name or 'that'}."
+        count_plan = _inventory_count_plan(args, action)
+        if count_plan:
+            return count_plan
         qty = _trim(args.get("amount") or args.get("qty") or args.get("quantity"), 20)
-        if action == "place" or (loc and action in ("place", "set", "restock")):
-            bit = f"Put {name or 'that'} in {loc}" if loc else f"Update {name or 'that'}"
+        if loc and action in ("set", "restock"):
+            bit = f"Put {name or 'that'} in {loc}"
             if qty and action == "set":
                 bit += f" and set the count to {qty}"
             return bit + "."

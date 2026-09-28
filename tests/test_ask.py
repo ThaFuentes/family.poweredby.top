@@ -19,6 +19,7 @@ from app.utils.ask import (
     _trip_miles_from,
     asked_to_list,
 )
+from app.utils.ask_confirm import plan_line
 from app.utils.ask_rooms import help_text, normalize_room, room_from_path, slash_reply
 from app.utils.household_ai import ask_available, chat_on, household_config
 
@@ -101,6 +102,32 @@ class ParseTests(unittest.TestCase):
         turn = _parse_turn('{"tool":"member_add","args":{"name":"Sam"}}')
         self.assertEqual(turn["tool"], "member_add")
         self.assertEqual(turn["args"]["name"], "Sam")
+
+
+class ConfirmationPlanTests(unittest.TestCase):
+    def _plan(self, quantity, args):
+        grocery = SimpleNamespace(quantity=quantity, unit="each")
+        item = SimpleNamespace(name="Sponge", grocery=grocery)
+        with patch("app.utils.ask._find_items", return_value=[item]):
+            return plan_line("inventory", {"q": "sponge", **args})
+
+    def test_set_count_shows_current_and_requested_quantities(self):
+        self.assertEqual(
+            self._plan(2, {"action": "set", "amount": 5}),
+            "I’ll set Sponge from 2 each to 5 each.",
+        )
+
+    def test_restock_plan_shows_current_and_resulting_quantities(self):
+        self.assertEqual(
+            self._plan(2, {"action": "restock", "amount": 3}),
+            "I’ll restock Sponge from 2 each to 5 each.",
+        )
+
+    def test_use_plan_shows_current_and_resulting_quantities(self):
+        self.assertEqual(
+            self._plan(2, {"action": "used", "amount": 3}),
+            "I’ll use Sponge from 2 each to 0 each.",
+        )
 
 
 class RoomTests(unittest.TestCase):
