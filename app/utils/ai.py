@@ -713,7 +713,26 @@ def complete(
     if not slots:
         return False, "No AI key on this household. Paste your own Gemini (free) or other key in Household. Family OS does not share the owner's key."
 
+    # Cap output per call and keep a rolling per-key budget, so one turn's several
+    # rounds cannot arrive as a burst big enough to trip the provider's 429.
+    from app.utils.ai_budget import AIBudget, limits, spend
+
+    per_call, rpm, tpm = limits()
+    try:
+        max_tokens = int(max_tokens or 400)
+    except (TypeError, ValueError):
+        max_tokens = 400
+    max_tokens = max(64, min(max_tokens, per_call))
+
+    def _budget_key(use_cfg) -> str:
+        hid = getattr(household, "id", None)
+        kid = str(use_cfg.get("key_id") or "").strip()
+        if hid:
+            return f"h{int(hid)}:{kid or 'main'}"
+        return f"k:{kid or use_cfg.get('provider') or 'default'}"
+
     def _call(use_cfg):
+        spend(_budget_key(use_cfg), prompt, system, max_tokens, rpm=rpm, tpm=tpm)
         use_cfg = _for_image(use_cfg, image_bytes)
         kind = use_cfg.get("kind") or "openai"
         if kind == "gemini":
@@ -748,6 +767,10 @@ def complete(
                 if text:
                     return True, text
                 last = "AI returned nothing. Check the key, model, and base URL."
+            except AIBudget as exc:
+                if last and not getattr(exc, "prior", ""):
+                    exc.prior = last
+                raise
             except requests.Timeout:
                 last = "AI timed out."
             except Exception as exc:
@@ -764,6 +787,10 @@ def complete(
                     text = _call(local)
                     if text:
                         return True, text
+                except AIBudget as exc:
+                    if last and not getattr(exc, "prior", ""):
+                        exc.prior = last
+                    raise
                 except Exception as exc:
                     last = str(exc)
             alt = next(
@@ -783,11 +810,20 @@ def complete(
         return False, last
 
     last_err = ""
+    budget_wait = 0
     for slot in slots:
-        ok, text = _attempt(slot)
+        try:
+            ok, text = _attempt(slot)
+        except AIBudget as exc:
+            budget_wait = max(budget_wait, exc.wait)
+            if getattr(exc, "prior", ""):
+                last_err = exc.prior
+            continue
         if ok:
             return True, text
         last_err = text
+    if budget_wait and not last_err:
+        return False, f"Ask is moving faster than your AI key allows. Wait about {budget_wait}s and ask again."
     if _capacity_err(last_err):
         return False, "The model is busy right now. I can still look up this house — tools, vehicles, basket, what’s due."
     if last_err:

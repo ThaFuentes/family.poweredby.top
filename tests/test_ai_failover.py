@@ -8,6 +8,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
+from app.utils import ai_budget
 from app.utils.ai import complete
 
 
@@ -32,6 +33,10 @@ def _house():
 
 
 class FailoverTests(unittest.TestCase):
+    def setUp(self):
+        # The per-key AI budget is a process-wide window; each test gets a clean one.
+        ai_budget.reset()
+
     def test_busy_gemini_uses_groq(self):
         def boom(*_a, **_k):
             raise RuntimeError("503 high demand")

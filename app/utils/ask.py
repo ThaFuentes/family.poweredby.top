@@ -26,10 +26,16 @@ SESSION_EXPIRE_PENDING = "family_ask_expire_pending"
 SESSION_ITEM_PENDING = "family_ask_item_pending"
 SESSION_REMOVE_PENDING = "family_ask_remove_pending"
 MAX_HISTORY = 24
-MAX_TOOL_ROUNDS = 6
+MAX_TOOL_ROUNDS = 3
 MAX_HITS = 40
 HIT_WINDOW = 600
 MSG_CAP = 2000
+# Only the tail of the thread is re-sent to the model, and only the last few tool
+# results, so one call cannot carry the whole conversation as input tokens.
+HISTORY_IN_PROMPT = 6
+HISTORY_TURN_CAP = 300
+TOOL_NOTE_COUNT = 3
+TOOL_NOTE_CAP = 1200
 TURN_KEEP = 80
 IDLE_DAYS = 14
 
@@ -5460,12 +5466,12 @@ def _local_smalltalk_say(text: str) -> str | None:
 
 def _prompt_for(history: list, message: str, tool_notes: list) -> str:
     bits = []
-    for row in history[-16:]:
+    for row in history[-HISTORY_IN_PROMPT:]:
         role = "You" if row.get("role") == "assistant" else "Them"
-        bits.append(f"{role}: {_trim(row.get('text'), 800)}")
+        bits.append(f"{role}: {_trim(row.get('text'), HISTORY_TURN_CAP)}")
     bits.append(f"Them: {_trim(message, MSG_CAP)}")
-    for note in tool_notes:
-        bits.append("Tool result JSON:\n" + json.dumps(note, ensure_ascii=False)[:3500])
+    for note in tool_notes[-TOOL_NOTE_COUNT:]:
+        bits.append("Tool result JSON:\n" + json.dumps(note, ensure_ascii=False)[:TOOL_NOTE_CAP])
     bits.append(
         "Reply with one JSON object only. If you are done, {\"say\":\"spoken English, no JSON inside\"}. "
         "Do not paste tool results. Look things up on this site; do not ask them to. "
@@ -5791,7 +5797,7 @@ def run_ask(
         ok, raw = complete(
             _prompt_for(history, text, tool_notes),
             system=system,
-            max_tokens=1200 if has_photo else 900,
+            max_tokens=800 if has_photo else 600,
             timeout=55 if has_photo else 40,
             household=household,
             household_only=True,
