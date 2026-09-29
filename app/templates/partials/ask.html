@@ -34,8 +34,9 @@
       <input class="sr-only" id="ask-file" type="file" accept="image/*">
       <label class="sr-only" for="ask-input">Ask</label>
       <textarea id="ask-input" maxlength="2000" rows="2" placeholder="{{ meta.placeholder if meta and meta.placeholder else 'What oil does the gas gen need? What’s about to expire?' }}"></textarea>
+      <button class="ask-mic" type="button" id="ask-mic" aria-label="Speak your message" aria-pressed="false" hidden>Mic</button>
       <button class="btn" type="submit" id="ask-send">Send</button>
     </form>
   </section>
 </div>
-<script src="{{ url_for('static', filename='js/ask.js') }}?v=os11" defer></script>
+<script src="{{ url_for('static', filename='js/ask.js') }}?v=os12" defer></script>

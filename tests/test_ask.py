@@ -10,6 +10,7 @@ if ROOT not in sys.path:
 
 from app.utils.ask import (
     _local_house_say,
+    _local_smalltalk_say,
     _parse_stock_jobs,
     _parse_turn,
     _plain_say,
@@ -70,6 +71,22 @@ class ParseTests(unittest.TestCase):
         turn = _parse_turn("Call the city water line: https://example.test/water")
         self.assertEqual(turn["kind"], "say")
         self.assertIn("https://example.test/water", turn["text"])
+
+    def test_everyday_conversation_is_not_forced_into_a_tool_call(self):
+        turn = _parse_turn('{"say":"That sounds like a lot. Want to tell me more?"}')
+        self.assertEqual(turn, {"kind": "say", "text": "That sounds like a lot. Want to tell me more?"})
+        from app.utils.ask import _prompt_for
+
+        prompt = _prompt_for([], "I'm having a rough day, can we talk?", [])
+        self.assertIn("Ordinary conversation and general questions are valid", prompt)
+        self.assertIn("do not force a tool", prompt)
+
+    def test_simple_smalltalk_works_without_a_household_ai_key(self):
+        with patch("app.utils.ask.ask_identity", return_value={"name": "Jarvis"}):
+            self.assertIn("Jarvis", _local_smalltalk_say("Hey there!") or "")
+        self.assertIn("welcome", _local_smalltalk_say("thanks so much") or "")
+        self.assertIsNone(_local_smalltalk_say("Can you explain photosynthesis?"))
+        self.assertIsNone(_local_smalltalk_say("move milk to the freezer"))
 
     def test_tool_result_json_is_spoken(self):
         turn = _parse_turn('{"ok": true, "kind": "tools", "lines": ["DeWalt drill · /items/4"], "count": 1}')
@@ -314,6 +331,15 @@ class AskHttpTests(unittest.TestCase):
         self.assertIn(b'id="ask-root"', home.data)
         token = self._csrf(home.data)
 
+        with patch("app.utils.ask.complete", side_effect=AssertionError("greetings do not need AI")):
+            greeting = self.client.post(
+                "/ask/message",
+                json={"message": "hello"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertEqual(greeting.status_code, 200, greeting.get_json())
+        self.assertIn("what can i help with", (greeting.get_json() or {}).get("say", "").lower())
+
         def fail_if_called(*_a, **_k):
             raise AssertionError("deterministic operations must work without AI")
 
@@ -357,6 +383,32 @@ class AskHttpTests(unittest.TestCase):
             row = GroceryListEntry.query.filter_by(household_id=user.household_id, name="chips").first()
             self.assertIsNotNone(row)
 
+    def test_normal_conversation_uses_the_household_ai_as_a_say_turn(self):
+        self.admin = f"ask_talk_{self.suffix}"
+        self._register(self.admin, household=f"AskTalk {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        token = self._csrf(self.client.get("/").data)
+        seen = {}
+
+        def answer(prompt, **kwargs):
+            seen["prompt"] = prompt
+            seen["system"] = kwargs.get("system")
+            return True, '{"say":"I’m sorry it’s been a rough day. Want to talk about it?"}'
+
+        with patch("app.utils.ask.complete", side_effect=answer) as complete:
+            response = self.client.post(
+                "/ask/message",
+                json={"message": "I'm having a rough day, can we talk?"},
+                headers={"X-CSRF-Token": token},
+            )
+        data = response.get_json() or {}
+        self.assertEqual(response.status_code, 200, data)
+        self.assertEqual(data.get("say"), "I’m sorry it’s been a rough day. Want to talk about it?")
+        self.assertFalse(data.get("did"))
+        self.assertEqual(complete.call_count, 1)
+        self.assertIn("do not force a tool", seen["prompt"])
+        self.assertIn("Normal conversation is welcome", seen["system"])
+
     def test_chat_local_edits_and_lists_when_ai_is_down(self):
         self.admin = f"ask_offline_{self.suffix}"
         self._register(self.admin, household=f"AskOffline {self.suffix}", name="Pat")
@@ -366,6 +418,15 @@ class AskHttpTests(unittest.TestCase):
 
         def ai_down(*_a, **_k):
             return False, "The model is busy right now."
+
+        with patch("app.utils.ask.complete", side_effect=ai_down):
+            greeting = self.client.post(
+                "/ask/message",
+                json={"message": "hey"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertEqual(greeting.status_code, 200, greeting.get_json())
+        self.assertIn("what can i help with", (greeting.get_json() or {}).get("say", "").lower())
 
         with patch("app.utils.ask.complete", side_effect=ai_down):
             response = self.client.post(

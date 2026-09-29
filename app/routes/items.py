@@ -1240,9 +1240,11 @@ def add_log(item_id):
         abort(404)
     from app.builddb.table_item_logs import LOG_KINDS
     from app.utils.item_log import add_item_log
+    from app.utils.log_apply import is_oil_kind
 
     kind = (request.form.get("kind") or "note").strip().lower()
-    if kind not in LOG_KINDS:
+    # "oil" is a valid Log-form choice; add_item_log maps it to a repair.
+    if kind not in LOG_KINDS and not is_oil_kind(kind):
         kind = "note"
     if kind == "miles" and item.item_type != "vehicle":
         kind = "hours" if item.item_type == "tool" else "note"

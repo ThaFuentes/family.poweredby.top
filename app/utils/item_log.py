@@ -91,14 +91,21 @@ def add_item_log(
     from app.builddb.builddb import db
     from app.builddb.table_item_logs import LOG_KINDS, ItemLog
 
+    from app.utils.log_apply import map_log_kind
+
     kind = (kind or "note").strip().lower()
+    extra = dict(extra or {})
+    # "oil" (the Log form's Oil change option, or Ask) is stored as a repair
+    # with a service tag, so the living record gets updated by apply_log_to_record.
+    kind, title, service = map_log_kind(kind, title)
+    if service:
+        extra["service"] = service
     if kind not in LOG_KINDS:
         kind = "note"
     when = happened_on or date.today()
     read = _dec(reading)
     gal = _dec(gallons)
     pay = _dec(cost)
-    extra = dict(extra or {})
     if kind == "fillup" and read is not None and gal and gal > 0:
         prev = last_fillup(item.id, item.household_id)
         prev_read = _dec(prev.reading) if prev is not None else None
@@ -121,14 +128,12 @@ def add_item_log(
     )
     db.session.add(row)
     db.session.flush()
-    if read is not None:
-        if item.item_type == "vehicle" and item.vehicle:
-            try:
-                item.vehicle.current_mileage = int(read)
-            except Exception:
-                pass
-        elif item.item_type == "tool" and item.tool:
-            item.tool.hours_used = read
+    # One hook: the log row updates the vehicle/tool living record (odometer,
+    # hours, oil, fluids, maintenance history). Shared by the Log form, Ask,
+    # trip start, and the maintenance form.
+    from app.utils.log_apply import apply_log_to_record
+
+    apply_log_to_record(item, row)
     return row
 
 

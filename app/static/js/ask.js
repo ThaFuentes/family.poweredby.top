@@ -14,6 +14,9 @@
   var previewImg = document.getElementById("ask-preview-img");
   var previewName = document.getElementById("ask-preview-name");
   var previewClear = document.getElementById("ask-preview-clear");
+  var micBtn = document.getElementById("ask-mic");
+  var micRec = null;
+  var micListening = false;
   var busy = false;
   var pendingImage = "";
   var room = root.getAttribute("data-room") || "house";
@@ -400,6 +403,62 @@
         if (input) input.focus();
       });
   }
+
+  function micStop() {
+    micListening = false;
+    if (micBtn) {
+      micBtn.classList.remove("is-listening");
+      micBtn.setAttribute("aria-pressed", "false");
+      micBtn.textContent = "Mic";
+    }
+  }
+
+  function micToggle() {
+    if (!micRec) return;
+    if (micListening) {
+      try { micRec.stop(); } catch (err) { /* already stopping */ }
+      micStop();
+      return;
+    }
+    try {
+      micRec.start();
+      micListening = true;
+      if (micBtn) {
+        micBtn.classList.add("is-listening");
+        micBtn.setAttribute("aria-pressed", "true");
+        micBtn.textContent = "Listening…";
+      }
+      if (input) input.focus();
+    } catch (err) {
+      micStop();
+    }
+  }
+
+  function micSetup() {
+    var Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!micBtn || !Rec || !input) return;
+    micRec = new Rec();
+    micRec.interimResults = false;
+    micRec.continuous = false;
+    micRec.onresult = function (event) {
+      var said = "";
+      for (var i = event.resultIndex || 0; i < event.results.length; i += 1) {
+        var piece = event.results[i];
+        if (piece.isFinal || i === event.results.length - 1) said += piece[0].transcript;
+      }
+      said = said.replace(/\s+/g, " ").trim();
+      if (!said) return;
+      var current = input.value || "";
+      input.value = current && !/\s$/.test(current) ? current + " " + said : current + said;
+      try { input.setSelectionRange(input.value.length, input.value.length); } catch (err) { /* not supported */ }
+      input.dispatchEvent(new Event("input"));
+    };
+    micRec.onerror = micStop;
+    micRec.onend = micStop;
+    micBtn.hidden = false;
+    micBtn.addEventListener("click", micToggle);
+  }
+  micSetup();
 
   if (form) {
     form.addEventListener("submit", function (e) {

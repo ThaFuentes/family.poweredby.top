@@ -206,9 +206,9 @@ def create_app():
             ask_path = ""
         try:
             if getattr(current_user, "is_authenticated", False) and _role_of() != "child":
-                from app.utils.ask import ask_chat_allowed as _ask_chat_allowed
+                from app.utils.ask import ask_window_on as _ask_window_on
 
-                ask_open = _ask_chat_allowed(hh, current_user)
+                ask_open = _ask_window_on(hh, current_user)
                 ask_embed = bool(ask_open) and not ask_path.startswith("/ask")
         except Exception:
             ask_open = False

@@ -115,6 +115,8 @@ To act: {"tool":"find","args":{"q":"gas generator"}}
 To talk: {"say":"short spoken English with /items/4 links."}
 The say field is spoken English only. Never put JSON, tool names, or raw tool results in say.
 
+Normal conversation is welcome; not every message is a command. Answer greetings, thanks, small talk, general questions, and conversational follow-ups directly in natural English with {"say":"…"}. Use a tool only when they ask to look up or change household data, do a task, or explicitly research something. Do not force a household interpretation onto ordinary conversation, and never invent saved household facts.
+
 {"tool":"find","args":{"q":"batteries"}}
 {"tool":"item_inspect","args":{"q":"gas gen"}}
 {"tool":"item_remove","args":{"q":"old drill"}}
@@ -199,10 +201,21 @@ def _utcnow():
 
 
 def ask_chat_allowed(household=None, user=None) -> bool:
-    """Ask's local app controls work without a model key; children stay excluded."""
+    """Adults in this household may use Ask. Local lookups and edits are the main
+    engine and stay on; children stay excluded."""
     u = user if user is not None else current_user
     h = household if household is not None else getattr(u, "household", None)
     if not getattr(u, "is_authenticated", False) or role_of(u) == "child" or h is None:
+        return False
+    return True
+
+
+def ask_window_on(household=None, user=None) -> bool:
+    """The floating Ask bubble follows the household on/off toggle. Local Ask still
+    answers through the routes when this is off; only the AI is held back."""
+    u = user if user is not None else current_user
+    h = household if household is not None else getattr(u, "household", None)
+    if not ask_chat_allowed(h, u):
         return False
     try:
         from app.utils.household_ai import chat_on
@@ -213,7 +226,9 @@ def ask_chat_allowed(household=None, user=None) -> bool:
 
 
 def ask_ready(household=None, user=None) -> bool:
-    """Whether the household has an enabled AI key for research/open-ended chat."""
+    """Whether the household has an enabled AI key for research/open-ended chat.
+    ask_available folds in the on/off toggle, so a turned-off window is never
+    model-ready even with a key saved."""
     u = user if user is not None else current_user
     h = household if household is not None else getattr(u, "household", None)
     return ask_chat_allowed(h, u) and ask_available(h, u)
@@ -1992,7 +2007,13 @@ def _confirm_pending(text: str) -> dict | None:
     raw = (text or "").strip()
     research_pending = session.get(SESSION_RESEARCH_PENDING) if has_request_context() else None
     if isinstance(research_pending, dict):
-        if _SAVE_THAT.match(raw) and research_pending.get("source") == "vin_builtin":
+        if research_pending.get("source") == "vin_builtin" and (
+            _STAGE_VIN.match(raw) or _SAVE_THAT.match(raw)
+        ):
+            # An existing truck updates right away; a brand-new one asks for the
+            # Allow click first, then a plain "yes" runs the save.
+            if research_pending.get("item_id"):
+                return _apply_pending_research()
             return {"ok": True, "say": "I’ve staged the VIN and guide details. Allow the save?", "confirm": True, "did": [], "vault_locked": False}
         if _NO_ADD.match(raw):
             session.pop(SESSION_RESEARCH_PENDING, None)
@@ -2230,6 +2251,10 @@ def _speak_house(result: dict) -> str:
 
 _SAVE_THAT = re.compile(
     r"^\s*(?:please\s+)?(?:add|save|put|keep|store|pin)\s+(?:that|this|it)\s+(?:on|to|onto|in|into)\s+(?:my|the|our|this)?\s*(.+?)\s*[.!?]*\s*$",
+    re.I,
+)
+_STAGE_VIN = re.compile(
+    r"^\s*(?:please\s+)?(?:save|add|put|keep|store|pin)\s+(?:that|this)\s*[.!]?\s*$",
     re.I,
 )
 _OIL_SPEC = re.compile(r"\b(\d{1,2}\s*W-\s*\d{2}|SAE\s*\d{2})\b", re.I)
@@ -4719,11 +4744,19 @@ def tool_reminder_save(args: dict) -> dict:
     due_at = _parse_due(args.get("due") or args.get("due_at") or "")
     rec = _every_key(args.get("every") or args.get("recurrence") or "")
     notes = _trim(args.get("notes") or args.get("account") or args.get("account_no"), 500)
+    linked = None
+    linked_raw = str(args.get("linked_item_id") or "").strip()
+    if linked_raw.isdigit():
+        from app.builddb.table_items import Item
+        from app.utils.household import scoped
+
+        linked = scoped(Item).filter_by(id=int(linked_raw)).first()
     row = Reminder(
         household_id=household_id(),
         title=title,
         type=rtype,
         due_at=due_at,
+        linked_item_id=int(linked.id) if linked is not None else None,
         recurrence=rec,
         notes=notes or None,
         status="open",
@@ -5408,6 +5441,23 @@ def _parse_turn(text: str) -> dict:
     return {"kind": "say", "text": _plain_say(raw) if raw else ""}
 
 
+def _local_smalltalk_say(text: str) -> str | None:
+    """Friendly, no-key answers for simple pleasantries; other chat uses the household AI."""
+    raw = re.sub(r"[.!?,…]+$", "", (text or "").strip().lower())
+    if re.fullmatch(r"(?:hi|hello|hey|yo)(?: there)?", raw):
+        name = ask_identity().get("name") or "Ask"
+        return f"Hey! {name} here. What can I help with?"
+    if re.fullmatch(r"(?:good morning|good afternoon|good evening)(?: there)?", raw):
+        return "Good to hear from you! What can I help with?"
+    if re.fullmatch(r"(?:how are you|how's it going|how are things|how's your day)(?: doing)?", raw):
+        return "I’m doing well and ready to help. How are you?"
+    if re.fullmatch(r"(?:thanks|thank you|thanks so much|thank you so much|thx)", raw):
+        return "You’re welcome!"
+    if re.fullmatch(r"(?:bye|goodbye|see you|good night)", raw):
+        return "Take care! I’ll be here when you need me."
+    return None
+
+
 def _prompt_for(history: list, message: str, tool_notes: list) -> str:
     bits = []
     for row in history[-16:]:
@@ -5419,7 +5469,8 @@ def _prompt_for(history: list, message: str, tool_notes: list) -> str:
     bits.append(
         "Reply with one JSON object only. If you are done, {\"say\":\"spoken English, no JSON inside\"}. "
         "Do not paste tool results. Look things up on this site; do not ask them to. "
-        "Listen first. Do not assume inventory or vehicles. Do not create an item from a command sentence."
+        "Listen first. Do not assume inventory or vehicles. Do not create an item from a command sentence. "
+        "Ordinary conversation and general questions are valid: answer them directly with say; do not force a tool or a household-task interpretation."
     )
     return "\n\n".join(bits)
 
@@ -5718,8 +5769,8 @@ def run_ask(
         _save_history(history)
         return payload
     if not ai_ready:
-        say = (
-            "I can still look up and manage saved household data here, but web research and open-ended chat need an AI key. "
+        say = _local_smalltalk_say(text) or (
+            "I can still look up and manage saved household data here, but open-ended chat and web research need an AI key. "
             "Tell me a saved item to inspect, or ask me to update inventory, notes, the basket, or a reminder."
         )
         history = _history()
@@ -5754,12 +5805,10 @@ def run_ask(
                 or _fluid_saved_say(text)
                 or _fluids_overview_say(text)
                 or _local_house_say(text)
+                or (_local_smalltalk_say(text) if not has_photo else None)
             )
             if spoken:
                 last_say = spoken
-                break
-            if re.match(r"^(hi|hello|hey|yo)\b", text, re.I):
-                last_say = "Hey. I can look up this house even when the model is busy — try “what tools do I have.”"
                 break
             return {"ok": False, "error": raw or "The model is busy. Try “what tools do I have.”"}
         turn = _parse_turn(raw)

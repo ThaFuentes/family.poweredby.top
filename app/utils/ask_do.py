@@ -1048,6 +1048,7 @@ def tool_log_save(args: dict | None = None) -> dict:
     from app.builddb.table_item_logs import LOG_KINDS
     from app.utils.ask import _find_items, _path
     from app.utils.item_log import add_item_log
+    from app.utils.log_apply import is_oil_kind
 
     q = _trim(args.get("item") or args.get("q") or args.get("name") or args.get("vehicle"), 200)
     if not q:
@@ -1082,7 +1083,8 @@ def tool_log_save(args: dict | None = None) -> dict:
         kind = "fillup"
     if kind in ("dtc", "error"):
         kind = "code"
-    if kind not in LOG_KINDS:
+    # "oil" / "oil change" is a repair; add_item_log owns that map.
+    if kind not in LOG_KINDS and not is_oil_kind(kind):
         kind = "note"
     if kind == "miles" and item.item_type != "vehicle":
         kind = "hours" if item.item_type == "tool" else "note"

@@ -95,7 +95,7 @@ def help_page():
         "ask_help.html",
         rooms=rooms_public(),
         help_body=help_text("house"),
-        need_key=not ask_chat_allowed(_household(), current_user),
+        need_key=not ask_ready(_household(), current_user),
     )
 
 
