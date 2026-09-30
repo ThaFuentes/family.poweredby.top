@@ -29,6 +29,69 @@
 <button type="button" class="btn secondary home-cal-btn" data-sheet="{{ url_for('appearance.calendar_sheet') }}" data-sheet-title="Your calendar">
   {% if cal_links.cal_ready %}Calendar · {{ cal_links.cal_provider_label }}{% else %}Your calendar{% endif %}
 </button>
+{% if twofa %}
+<details class="card add-fold" id="twofa" {% if twofa.method or twofa.pending_secret %}open{% endif %}>
+<summary>Two-factor sign-in <span class="badge">BOT</span></summary>
+  {% if twofa.method == 'app' %}
+  <p class="muted">On — authenticator app. Codes refresh every 30 seconds.</p>
+  {% elif twofa.method == 'email' %}
+  <p class="muted">On — a 6-digit code is emailed at sign-in to <strong>{{ twofa.inbox }}</strong>.</p>
+  {% elif twofa.pending_secret %}
+  <p class="muted">Setup started. Scan this into your authenticator app, then confirm one code.</p>
+  <div style="text-align:center;margin:.5rem 0">
+    <img src="{{ url_for('appearance.twofa_qr') }}?v={{ twofa.pending_secret[-4:] }}" alt="2FA QR code" width="180" height="180" style="background:#fff;padding:8px;border-radius:10px">
+  </div>
+  <p class="muted" style="text-align:center">Or type the key: <code>{{ twofa.pending_secret }}</code></p>
+  <form method="post" action="{{ url_for('appearance.twofa_confirm') }}">
+    <label>Confirm a code from the app</label>
+    <input name="code" inputmode="numeric" maxlength="7" placeholder="123456" required>
+    <div class="btn-row">
+      <button class="btn" type="submit">Turn on authenticator</button>
+      <button class="btn secondary" type="submit" formaction="{{ url_for('appearance.twofa_start') }}">New code</button>
+    </div>
+  </form>
+  {% else %}
+  <p class="muted">Required. The house stays closed until this bot turns 2FA on.</p>
+  <form method="post" action="{{ url_for('appearance.twofa_start') }}">
+    <div class="btn-row"><button class="btn" type="submit">Set up authenticator app</button></div>
+  </form>
+  {% if twofa.inbox %}
+  <form method="post" action="{{ url_for('appearance.twofa_set_method') }}" style="margin-top:.4rem">
+    <input type="hidden" name="method" value="email">
+    <div class="btn-row"><button class="btn secondary" type="submit">Use emailed codes instead</button></div>
+  </form>
+  {% endif %}
+  {% endif %}
+
+  {% if twofa.method %}
+  <form method="post" action="{{ url_for('appearance.twofa_set_method') }}" style="margin-top:.6rem;border-top:1px solid var(--line,#eee);padding-top:.6rem">
+    <label>Switch method</label>
+    <div class="btn-row">
+      {% if twofa.method == 'app' %}
+      <input type="hidden" name="method" value="email">
+      <button class="btn sm secondary" type="submit">Switch to emailed code</button>
+      {% else %}
+      <input type="hidden" name="method" value="app">
+      <button class="btn sm secondary" type="submit" {% if not twofa.pending_secret %}onclick="alert('Set up the authenticator app first.');return false;"{% endif %}>Switch to authenticator</button>
+      {% endif %}
+    </div>
+  </form>
+  <p class="muted">A bot cannot turn this off. A leader can clear it on People, and the next sign-in sets it up again.</p>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('appearance.set_own_security_email') }}" style="margin-top:.6rem;border-top:1px solid var(--line,#eee);padding-top:.6rem">
+    <h2 style="font-size:1rem;margin:.2rem 0 .3rem">Security inboxes</h2>
+    <p class="muted">2FA codes can use the login email ({{ current_user.email or 'none on file' }}). Password resets need a different inbox.</p>
+    <label>2FA codes go to</label>
+    <input type="email" name="security_email" value="{{ current_user.security_email or '' }}" placeholder="codes@…">
+    <label>Password reset links go to</label>
+    <input type="email" name="reset_email" value="{{ current_user.reset_email or '' }}" placeholder="resets@…" required>
+    <div class="btn-row"><button class="btn sm secondary" type="submit">Save security inboxes</button></div>
+    <p class="muted">Reset inbox right now: <strong>{{ twofa.reset_inbox or 'none — resets are off' }}</strong></p>
+  </form>
+</details>
+{% endif %}
+
 <details class="card add-fold" id="your-password">
 <summary>Your password</summary>
 <form method="post" action="{{ url_for('auth.change_own_password') }}">

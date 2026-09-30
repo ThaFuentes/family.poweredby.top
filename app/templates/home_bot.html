@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Bot dashboard · Family OS{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Bot dashboard</h1>
+    <p>Signed in as a <strong>BOT account</strong>. The house tools stay where they were — this card is the quick one.</p>
+  </div>
+</div>
+
+<section class="card" id="bot-password" aria-label="Reset password">
+  <h2 style="margin:.1rem 0 .4rem;font-size:1.05rem">Reset password</h2>
+  <p class="muted">One press. Prove it is you with the current password <em>or</em> a fresh 2FA code{% if twofa_method == 'app' %} from the authenticator{% endif %}. The model can pass the current password in; the new one lands here.</p>
+  <form method="post" action="{{ url_for('auth.bot_reset_own_password') }}" autocomplete="off">
+    <label>Current password <span class="muted">(or skip if you use the code)</span></label>
+    <input type="password" name="current_password" autocomplete="current-password">
+    {% if twofa_method %}
+    <label>2FA code <span class="muted">({{ 'authenticator app' if twofa_method == 'app' else 'emailed code' }} — or skip if you used the password)</span></label>
+    <input name="twofa_code" inputmode="numeric" maxlength="7" placeholder="123456" autocapitalize="off">
+    {% endif %}
+    <label>New password</label>
+    <input type="password" name="new_password" autocomplete="new-password" required minlength="8">
+    <label>Confirm new password</label>
+    <input type="password" name="confirm_password" autocomplete="new-password" required minlength="8">
+    <div class="btn-row"><button class="btn" type="submit">Reset password</button></div>
+  </form>
+</section>
+
+<section class="card" style="margin-top:.8rem">
+  <h2 style="margin:.1rem 0 .4rem;font-size:1.05rem">This bot's security</h2>
+  <p class="muted">
+    2FA: <strong>{{ twofa_label }}</strong>{% if twofa_inbox %} · codes to <strong>{{ twofa_inbox }}</strong>{% endif %}<br>
+    Reset links go to <strong>{{ reset_inbox or '(no email on file)' }}</strong>.
+  </p>
+</section>
+{% endblock %}

@@ -7,7 +7,7 @@ from app.builddb.table_users import User, ROLES
 from app.builddb.table_invites import Invite
 from app.builddb.table_households import Household
 from app.utils.household import household_id, scoped
-from app.utils.permissions import require_perm
+from app.utils.permissions import can, require_perm
 
 members_bp = Blueprint("members", __name__, url_prefix="/members")
 
@@ -94,7 +94,36 @@ def _page_ctx():
         "vault_unlocked": vault_unlocked(household),
         "vault_format": FORMAT_HINT,
         "mail": public_mail_config(household),
+        "platform_mail": _platform_mail_status(),
+        "twofa_status": _twofa_status(members),
     }
+
+
+def _platform_mail_status() -> dict:
+    """The platform mailbox, sanitized for the household UI: ready or not."""
+    from app.utils.mail import mail_config
+
+    cfg = mail_config()
+    return {
+        "ready": bool(cfg.get("mode") == "smtp" and cfg.get("smtp_host") and cfg.get("from_email")),
+    }
+
+
+def _twofa_status(members) -> dict:
+    """user_id -> {'on': bool, 'method': str, 'inbox': str, 'reset': str} for the People sheet."""
+    from app.utils.passwords import reset_inbox_label
+    from app.utils.twofa import twofa_enabled, twofa_inbox_for, twofa_method
+
+    out = {}
+    for m in members:
+        method = twofa_method(m)
+        out[m.id] = {
+            "on": twofa_enabled(m),
+            "method": method,
+            "inbox": twofa_inbox_for(m) if method == "email" else "",
+            "reset": reset_inbox_label(m),
+        }
+    return out
 
 
 @members_bp.route("/happened")
@@ -211,6 +240,14 @@ def add_person():
         provider = guess_provider(cal_email)
     mode = normalize_cal_mode(request.form.get("calendar_mode"), "auto")
 
+    is_bot = (request.form.get("is_bot") or "") in ("1", "true", "on", "yes")
+    security_email = (request.form.get("security_email") or "").strip().lower() or None
+    reset_email = (request.form.get("reset_email") or "").strip().lower() or None
+    for addr in (security_email, reset_email):
+        if addr and "@" not in addr:
+            flash("Security email doesn't look like an email.", "danger")
+            return _after()
+
     user = User(
         household_id=hid,
         username=username,
@@ -218,6 +255,9 @@ def add_person():
         email=email,
         role=role,
         is_leader=False,
+        is_bot=is_bot,
+        security_email=security_email,
+        reset_email=reset_email,
         calendar_email=cal_email or None,
         calendar_provider=provider,
         calendar_mode=mode,
@@ -250,6 +290,12 @@ def add_person():
             flash(mail_msg, "danger")
 
     hint = f"{person_name} is in as {role}. No Family key — they sign in with the household handle."
+    if is_bot:
+        from app.utils.twofa import reset_email_is_separate
+
+        hint += " First sign-in must turn on 2FA before the house opens."
+        if not reset_email_is_separate(user):
+            hint += " They also name a reset email that is not the login email."
     if target.get("cal_ready"):
         hint += f" Calendar: {target['cal_label']}."
     if mailed:
@@ -613,6 +659,79 @@ def remove_person(user_id):
     ok, msg = remove_member(user, by=current_user)
     flash(msg, "success" if ok else "warning")
     return _after()
+
+
+@members_bp.route("/<int:user_id>/bot", methods=["POST"])
+@login_required
+@require_perm("members")
+def set_bot_flag(user_id):
+    """Mark or unmark someone as a BOT account. Off also turns their 2FA off."""
+    hid = household_id()
+    user = User.query.filter_by(id=user_id, household_id=hid).first_or_404()
+    make = (request.form.get("is_bot") or "") in ("1", "true", "on", "yes")
+    if not make:
+        from app.utils.twofa import turn_off
+
+        turn_off(user)
+    user.is_bot = make
+    db.session.commit()
+    if make:
+        flash(
+            f"{user.name} is a BOT account. Their next sign-in must turn on 2FA before the house opens.",
+            "success",
+        )
+    else:
+        flash(f"{user.name} is a regular account again (2FA turned off with it).", "info")
+    return _after()
+
+
+@members_bp.route("/<int:user_id>/security-email", methods=["POST"])
+@login_required
+@require_perm("members")
+def set_security_emails(user_id):
+    """Separate inboxes: one for 2FA codes, one for password reset links."""
+    hid = household_id()
+    user = User.query.filter_by(id=user_id, household_id=hid).first_or_404()
+    security = (request.form.get("security_email") or "").strip().lower() or None
+    reset = (request.form.get("reset_email") or "").strip().lower() or None
+    for addr in (security, reset):
+        if addr and "@" not in addr:
+            flash("Security email doesn't look like an email.", "danger")
+            return _after()
+    user.security_email = security
+    user.reset_email = reset
+    db.session.commit()
+    flash(f"Security inboxes saved for {user.name}.", "success")
+    return _after()
+
+
+@members_bp.route("/<int:user_id>/twofa-off", methods=["POST"])
+@login_required
+@require_perm("members")
+def turn_twofa_off(user_id):
+    hid = household_id()
+    user = User.query.filter_by(id=user_id, household_id=hid).first_or_404()
+    if not (can("members") or current_user.is_leader):
+        flash("Only household leaders can turn 2FA off for someone.", "warning")
+        return _after()
+    from app.utils.twofa import turn_off
+
+    if not twofa_on(user):
+        flash(f"2FA was already off for {user.name}.", "info")
+        return _after()
+    turn_off(user)
+    db.session.commit()
+    flash(
+        f"2FA is cleared for {user.name}. Their next sign-in must set it up again before the house opens.",
+        "info",
+    )
+    return _after()
+
+
+def twofa_on(user) -> bool:
+    from app.utils.twofa import twofa_enabled
+
+    return twofa_enabled(user)
 
 
 @members_bp.route("/reminders-via", methods=["POST"])

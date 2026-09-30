@@ -24,6 +24,9 @@ class User(UserMixin, db.Model):
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     is_leader = db.Column(db.Boolean, default=False, nullable=False)
     notify_via = db.Column(db.String(16), nullable=False, default="both")
+    is_bot = db.Column(db.Boolean, default=False, nullable=False)
+    security_email = db.Column(db.String(120), nullable=True)
+    reset_email = db.Column(db.String(120), nullable=True)
     calendar_token = db.Column(db.String(64), unique=True, nullable=True)
     calendar_email = db.Column(db.String(120), nullable=True)
     calendar_provider = db.Column(db.String(16), nullable=True)
@@ -56,6 +59,10 @@ class User(UserMixin, db.Model):
         return (self.role or "").strip().lower() == "member"
 
     @property
+    def is_bot_account(self):
+        return bool(getattr(self, "is_bot", False))
+
+    @property
     def is_child(self):
         return (self.role or "").strip().lower() == "child"
 
@@ -75,6 +82,9 @@ def create_table():
             ("is_active", "TINYINT(1) NOT NULL DEFAULT 1"),
             ("is_leader", "TINYINT(1) NOT NULL DEFAULT 0"),
             ("notify_via", "VARCHAR(16) NOT NULL DEFAULT 'both'"),
+            ("is_bot", "TINYINT(1) NOT NULL DEFAULT 0"),
+            ("security_email", "VARCHAR(120) NULL"),
+            ("reset_email", "VARCHAR(120) NULL"),
             ("calendar_token", "VARCHAR(64) NULL"),
             ("calendar_email", "VARCHAR(120) NULL"),
             ("calendar_provider", "VARCHAR(16) NULL"),

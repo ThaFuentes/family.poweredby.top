@@ -318,6 +318,22 @@ def create_app():
             return None
         return None
 
+    @app.before_request
+    def _bot_must_finish_setup():
+        """A bot does not get the house until 2FA is on and resets have their own inbox."""
+        from flask import request, redirect, url_for
+        from flask_login import current_user as _cu
+
+        if not getattr(_cu, "is_authenticated", False):
+            return None
+        from app.utils.twofa import bot_setup_path_ok, bot_setup_remaining
+
+        if not bot_setup_remaining(_cu):
+            return None
+        if bot_setup_path_ok(request.path or ""):
+            return None
+        return redirect(url_for("auth.bot_setup"))
+
     try:
         from app.utils.favicon_inject import register_favicon
 

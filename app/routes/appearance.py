@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, jsonify, make_response, flash
+from flask import Blueprint, abort, render_template, request, redirect, url_for, jsonify, make_response, flash
 from flask_login import login_required, current_user
 
 from app.builddb.builddb import db
@@ -20,8 +20,7 @@ def picker():
     links = member_subscribe(current_user, household, cal_url)
     from app.utils.dashboard import dashboard_prefs
 
-    return render_template(
-        "appearance.html",
+    ctx = dict(
         themes=list(THEMES.values()),
         current=read_theme(),
         cal_url=links["https"],
@@ -29,6 +28,152 @@ def picker():
         cal_next="look",
         dash=dashboard_prefs(current_user),
     )
+    ctx.update(_twofa_ctx())
+    return render_template("appearance.html", **ctx)
+
+
+def _twofa_ctx():
+    """Look-page 2FA card. BOT accounts only for now."""
+    from app.utils.passwords import reset_inbox_label
+    from app.utils.twofa import twofa_method, twofa_settings
+
+    if not bool(getattr(current_user, "is_bot", False)):
+        return {"twofa": None}
+    blob = twofa_settings(current_user)
+    method = twofa_method(current_user)
+    return {
+        "twofa": {
+            "method": method,
+            "pending_secret": (blob.get("secret") or "") if not method else "",
+            "inbox": (current_user.security_email or current_user.email or "").strip(),
+            "reset_inbox": reset_inbox_label(current_user),
+        }
+    }
+
+
+def _twofa_next():
+    """Back to the first-sign-in wall while a bot still owes setup. Otherwise Look."""
+    from app.utils.twofa import bot_setup_remaining
+
+    nxt = (request.form.get("next") or "").strip()
+    if bot_setup_remaining(current_user):
+        return redirect(url_for("auth.bot_setup"))
+    if nxt == "setup":
+        return redirect(url_for("home.home"))
+    return redirect(url_for("appearance.picker") + "#twofa")
+
+
+@appearance_bp.route("/2fa/start", methods=["POST"])
+@login_required
+def twofa_start():
+    from app.utils import twofa as twofa_util
+
+    if not bool(getattr(current_user, "is_bot", False)):
+        abort(403)
+    if twofa_util.twofa_method(current_user):
+        flash("2FA is already on.", "warning")
+        return _twofa_next()
+    twofa_util.begin_totp_setup(current_user)
+    db.session.commit()
+    return _twofa_next()
+
+
+@appearance_bp.route("/2fa/qr.png")
+@login_required
+def twofa_qr():
+    from app.utils import twofa as twofa_util
+    from app.utils.qr_labels import qr_png_response
+
+    if not bool(getattr(current_user, "is_bot", False)):
+        abort(403)
+    blob = twofa_util.twofa_settings(current_user)
+    secret = (blob.get("secret") or "").strip()
+    if not secret or twofa_util.twofa_method(current_user) == "app":
+        abort(404)
+    label = f"{current_user.username}@{(getattr(current_user.household, 'handle', '') or 'family')}"
+    return qr_png_response(twofa_util.otpauth_url(secret, label), "twofa-qr.png")
+
+
+@appearance_bp.route("/2fa/confirm", methods=["POST"])
+@login_required
+def twofa_confirm():
+    from app.utils import twofa as twofa_util
+
+    if not bool(getattr(current_user, "is_bot", False)):
+        abort(403)
+    ok, msg = twofa_util.confirm_totp_setup(current_user, request.form.get("code") or "")
+    db.session.commit()
+    flash(msg, "success" if ok else "danger")
+    return _twofa_next()
+
+
+@appearance_bp.route("/2fa/method", methods=["POST"])
+@login_required
+def twofa_set_method():
+    """App codes or emailed codes — emailed ones land in the 2FA inbox."""
+    from app.utils import twofa as twofa_util
+
+    if not bool(getattr(current_user, "is_bot", False)):
+        abort(403)
+    want = (request.form.get("method") or "").strip().lower()
+    if want == "email":
+        if not twofa_util.twofa_inbox_for(current_user):
+            flash("Name a 2FA email first — that is where codes would go.", "danger")
+            return _twofa_next()
+        twofa_util.save_twofa(current_user, method="email")
+        db.session.commit()
+        flash(f"2FA is now an emailed code to {twofa_util.twofa_inbox_for(current_user)}.", "success")
+    elif want == "app":
+        if not (twofa_util.twofa_settings(current_user).get("secret") or "").strip():
+            flash("Scan the code and confirm one code from the app first.", "warning")
+            return _twofa_next()
+        twofa_util.save_twofa(current_user, method="app")
+        db.session.commit()
+        flash("2FA is now the authenticator app.", "success")
+    else:
+        flash("Pick the authenticator app or the emailed code.", "danger")
+    return _twofa_next()
+
+
+@appearance_bp.route("/2fa/off", methods=["POST"])
+@login_required
+def twofa_off():
+    if not bool(getattr(current_user, "is_bot", False)):
+        abort(403)
+    flash(
+        "A bot keeps 2FA on. A leader can clear it from People; the next sign-in sets it up again.",
+        "warning",
+    )
+    return _twofa_next()
+
+
+@appearance_bp.route("/security-email", methods=["POST"])
+@login_required
+def set_own_security_email():
+    """Separate inboxes. A bot's reset inbox cannot be blank or the login email."""
+    from app.builddb.table_users import User
+
+    security = (request.form.get("security_email") or "").strip().lower() or None
+    reset = (request.form.get("reset_email") or "").strip().lower() or None
+    for addr in (security, reset):
+        if addr and "@" not in addr:
+            flash("That doesn't look like an email.", "danger")
+            return _twofa_next()
+        if addr:
+            taken = User.query.filter(User.email == addr, User.id != current_user.id).first()
+            if taken:
+                flash("That email is already someone's login.", "danger")
+                return _twofa_next()
+    if bool(getattr(current_user, "is_bot", False)):
+        login = (current_user.email or "").strip().lower()
+        if not reset or "@" not in reset or (login and reset == login):
+            flash("A bot needs a reset email that is not the login email.", "danger")
+            return _twofa_next()
+    current_user.security_email = security
+    current_user.reset_email = reset
+    db.session.commit()
+    flash("Security emails saved. 2FA codes and reset links can now go to different inboxes.", "success")
+    return _twofa_next()
 
 
 @appearance_bp.route("/home-sheet")

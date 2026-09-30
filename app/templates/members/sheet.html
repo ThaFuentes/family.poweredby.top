@@ -25,6 +25,8 @@
 <div class="card" style="margin:.55rem 0">
   <strong>{{ m.name }}</strong>
   {% if m.is_leader %}<span class="badge">Leader</span>{% endif %}
+  {% if m.is_bot %}<span class="badge">BOT</span>{% endif %}
+  {% if twofa_status.get(m.id) and twofa_status[m.id].on %}<span class="badge">2FA</span>{% endif %}
   <div class="muted">{{ m.username }} · {{ m.role }}{% if household.handle %} · {{ household.handle }}{% endif %}</div>
   {% if can('members') %}
   <form method="post" action="{{ url_for('members.set_username', user_id=m.id) }}" class="btn-row" style="margin:.35rem 0 0">
@@ -37,6 +39,33 @@
     <input type="email" name="email" value="{{ m.email or '' }}" placeholder="login email">
     <button class="btn sm secondary" type="submit">Save email</button>
   </form>
+  <form method="post" action="{{ url_for('members.set_security_emails', user_id=m.id) }}" class="btn-row" style="margin:.35rem 0 0">
+    {% include "members/_next.html" %}
+    <input type="email" name="security_email" value="{{ m.security_email or '' }}" placeholder="2FA inbox (blank = login email)">
+    <button class="btn sm secondary" type="submit">Save 2FA inbox</button>
+  </form>
+  <form method="post" action="{{ url_for('members.set_security_emails', user_id=m.id) }}" class="btn-row" style="margin:.35rem 0 0">
+    {% include "members/_next.html" %}
+    <input type="email" name="reset_email" value="{{ m.reset_email or '' }}" placeholder="reset inbox (blank = login email)">
+    <button class="btn sm secondary" type="submit">Save reset inbox</button>
+  </form>
+  {% set ts = twofa_status.get(m.id) %}
+  {% if ts %}
+  <div class="muted" style="margin:.35rem 0 0">2FA: {{ 'on — ' + ('authenticator' if ts.method == 'app' else 'email to ' + ts.inbox) if ts.on else 'off' }} · resets to {{ ts.reset or '—' }}</div>
+  {% if ts.on and (can('members') or is_leader) and m.id != current_user.id %}
+  <form method="post" action="{{ url_for('members.turn_twofa_off', user_id=m.id) }}" style="margin:.35rem 0 0" onsubmit="return confirm('Turn 2FA off for {{ m.name }}?');">
+    {% include "members/_next.html" %}
+    <button class="btn sm secondary" type="submit">Clear 2FA</button>
+  </form>
+  {% endif %}
+  {% endif %}
+  {% if can('members') and m.id != current_user.id %}
+  <form method="post" action="{{ url_for('members.set_bot_flag', user_id=m.id) }}" style="margin:.35rem 0 0">
+    {% include "members/_next.html" %}
+    <input type="hidden" name="is_bot" value="{{ '0' if m.is_bot else '1' }}">
+    <button class="btn sm secondary" type="submit">{% if m.is_bot %}Unmark BOT account{% else %}Mark as BOT account{% endif %}</button>
+  </form>
+  {% endif %}
   <form method="post" action="{{ url_for('members.set_member_calendar', user_id=m.id) }}" style="margin:.35rem 0 0">
     {% include "members/_next.html" %}
     <input type="email" name="calendar_email" value="{{ m.calendar_email or m.email or '' }}" placeholder="their calendar inbox">
@@ -118,6 +147,14 @@
     <option value="child">child</option>
     <option value="admin">admin</option>
   </select>
+  <label class="cal-check">
+    <input type="checkbox" name="is_bot" value="1">
+    BOT account — browser automation. First sign-in must turn on 2FA. Reset links need their own inbox.
+  </label>
+  <label>2FA inbox (optional — blank = login email)</label>
+  <input type="email" name="security_email" placeholder="codes@…">
+  <label>Reset inbox (optional — blank = login email)</label>
+  <input type="email" name="reset_email" placeholder="resets@…">
   <label>Their calendar email</label>
   <input type="email" name="calendar_email" placeholder="same as above, or another inbox">
   <div class="cal-row">
@@ -239,6 +276,15 @@
 
 {% elif sheet_panel == 'mail' %}
 <h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">Mailbox</h1>
+<div class="card">
+  {% if mail.ready %}
+  <p class="muted">This house sends from <strong>its own mailbox</strong> ({{ mail.from_email }}).</p>
+  {% elif platform_mail.ready %}
+  <p class="muted">Sending is <strong>on</strong> — Family OS's platform mailbox does the sending. The toggle below only switches to this house's <em>own</em> mailbox, and it needs an SMTP host <em>and</em> a From email before it counts as On.</p>
+  {% else %}
+  <p class="muted">No working mailbox anywhere yet: this house's setup is off or incomplete, and the platform mailbox is not configured either. Until one is ready, email only lands in the server log.</p>
+  {% endif %}
+</div>
 <form class="card" method="post" action="{{ url_for('members.save_mail') }}">
   {% include "members/_next.html" %}
   <label class="btn-row" style="align-items:center;gap:.5rem">

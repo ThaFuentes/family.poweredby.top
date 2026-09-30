@@ -47,6 +47,8 @@ def home():
     from app.utils.dashboard import dashboard_prefs
 
     prefs = dashboard_prefs(current_user)
+    if bool(getattr(current_user, "is_bot", False)):
+        return render_template("home_bot.html", **_bot_ctx())
     tmpl = "home_kid.html" if is_child else "home.html"
     return render_template(
         tmpl,
@@ -59,3 +61,17 @@ def home():
         cal_next="home",
         dash=prefs,
     )
+
+
+def _bot_ctx():
+    from app.utils.passwords import reset_inbox_label
+    from app.utils.twofa import twofa_inbox_for, twofa_method
+
+    method = twofa_method(current_user)
+    labels = {"app": "Authenticator app", "email": "Email code", "": "Off"}
+    return {
+        "twofa_method": method,
+        "twofa_label": labels.get(method, "Off"),
+        "twofa_inbox": twofa_inbox_for(current_user) if method == "email" else "",
+        "reset_inbox": reset_inbox_label(current_user),
+    }

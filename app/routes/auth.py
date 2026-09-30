@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from flask import Blueprint, render_template, request, flash, redirect, url_for, session
+from flask import Blueprint, abort, render_template, request, flash, redirect, url_for, session
 from flask_login import login_user, logout_user, login_required, current_user
 
 from app.builddb.builddb import db
@@ -63,38 +63,20 @@ def login():
             if household is not None and not bool(getattr(household, "is_active", True)):
                 flash("This household is paused. Ask the household leader.", "warning")
                 return render_template("auth/login.html")
-            user.failed_login_attempts = 0
-            user.account_locked_until = None
-            user.last_login_at = _utcnow()
-            db.session.commit()
-            family_lock = (request.form.get("family_lock") or "").strip()
-            if household is not None:
-                from app.utils.household_vault import unlock_vault, vault_enabled
+            from app.utils import twofa as twofa_util
 
-                if vault_enabled(household) and family_lock:
-                    ok_lock, lock_msg = unlock_vault(household, family_lock)
-                    if not ok_lock:
-                        flash(lock_msg, "danger")
+            if twofa_util.twofa_enabled(user):
+                method = twofa_util.twofa_method(user)
+                twofa_util.stash_pending_login(user.id, method)
+                if method == "email":
+                    ok, msg = twofa_util.send_email_code(user)
+                    if not ok:
+                        twofa_util.pop_pending_login()
+                        flash(msg, "danger")
                         return render_template("auth/login.html")
-            try:
-                from poweredbytop.utils.helpers import get_real_ip
-                from poweredbytop.reputation.scorer import update_reputation_on_login_attempt
-
-                update_reputation_on_login_attempt(get_real_ip(), user.username, success=True)
-            except Exception:
-                pass
-            _stay_signed_in(user)
-            from app.utils.dashboard import start_url
-
-            resp = redirect(start_url(user))
-            try:
-                from app.utils.themes import normalize, stamp_theme_cookie
-
-                extra = user.extra_data if isinstance(user.extra_data, dict) else {}
-                stamp_theme_cookie(resp, normalize((extra or {}).get("theme")))
-            except Exception:
-                pass
-            return resp
+                    flash(msg, "info")
+                return redirect(url_for("auth.twofa_verify"))
+            return _complete_login(user, family_lock=(request.form.get("family_lock") or "").strip())
         if user:
             user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
             if user.failed_login_attempts >= 5:
@@ -109,6 +91,166 @@ def login():
             pass
         flash("Invalid household, username, or password.", "danger")
     return render_template("auth/login.html")
+
+
+def _complete_login(user, *, family_lock: str = ""):
+    """Everything that happens after the password (and 2FA) check passes."""
+    household = getattr(user, "household", None)
+    user.failed_login_attempts = 0
+    user.account_locked_until = None
+    user.last_login_at = _utcnow()
+    db.session.commit()
+    if household is not None and family_lock:
+        from app.utils.household_vault import unlock_vault, vault_enabled
+
+        if vault_enabled(household):
+            ok_lock, lock_msg = unlock_vault(household, family_lock)
+            if not ok_lock:
+                flash(lock_msg, "danger")
+                return render_template("auth/login.html")
+    try:
+        from poweredbytop.utils.helpers import get_real_ip
+        from poweredbytop.reputation.scorer import update_reputation_on_login_attempt
+
+        update_reputation_on_login_attempt(get_real_ip(), user.username, success=True)
+    except Exception:
+        pass
+    _stay_signed_in(user)
+    from app.utils.dashboard import start_url
+    from app.utils.twofa import bot_setup_remaining
+
+    if bot_setup_remaining(user):
+        resp = redirect(url_for("auth.bot_setup"))
+    else:
+        resp = redirect(start_url(user))
+    try:
+        from app.utils.themes import normalize, stamp_theme_cookie
+
+        extra = user.extra_data if isinstance(user.extra_data, dict) else {}
+        stamp_theme_cookie(resp, normalize((extra or {}).get("theme")))
+    except Exception:
+        pass
+    return resp
+
+
+@auth_bp.route("/2fa", methods=["GET", "POST"])
+def twofa_verify():
+    """Second step: authenticator code, or the code we emailed."""
+    from app.utils import twofa as twofa_util
+
+    pending = twofa_util.pending_login()
+    if pending is None:
+        return redirect(url_for("auth.login"))
+    user = User.query.filter_by(id=int(pending["user_id"]), is_active=True).first()
+    if user is None or not twofa_util.twofa_enabled(user):
+        twofa_util.pop_pending_login()
+        return redirect(url_for("auth.login"))
+    if request.method == "POST":
+        do = (request.form.get("do") or "").strip()
+        if do == "resend":
+            ok, msg = twofa_util.send_email_code(user)
+            flash(msg, "success" if ok else "danger")
+            return render_template("auth/twofa.html", method=pending.get("method"))
+        if do == "cancel":
+            twofa_util.pop_pending_login()
+            return redirect(url_for("auth.login"))
+        code = (request.form.get("code") or "").strip()
+        method = pending.get("method") or twofa_util.twofa_method(user)
+        ok = False
+        if method == "email":
+            ok = twofa_util.email_code_ok(pending, code)
+        else:
+            if twofa_util.totp_replay_recent(user, code):
+                flash("That code was already used. Wait for the next one.", "warning")
+                return render_template("auth/twofa.html", method=method)
+            ok = twofa_util.totp_ok((twofa_util.twofa_settings(user).get("secret") or ""), code)
+        if not ok:
+            fails = twofa_util.register_pending_fail(pending)
+            if fails >= twofa_util.LOCK_AFTER_FAILS:
+                flash("Too many wrong codes. Start again at sign in.", "danger")
+                return redirect(url_for("auth.login"))
+            flash(f"That code is not right. {twofa_util.LOCK_AFTER_FAILS - fails} tries left.", "danger")
+            return render_template("auth/twofa.html", method=method)
+        if method == "email":
+            pending = twofa_util.pop_pending_login()
+        else:
+            twofa_util.mark_totp_used(user, code)
+            twofa_util.pop_pending_login()
+        flash("Two-factor check passed.", "success")
+        return _complete_login(user)
+    return render_template("auth/twofa.html", method=pending.get("method"))
+
+
+@auth_bp.route("/bot-setup", methods=["GET"])
+@login_required
+def bot_setup():
+    """First sign-in wall. A bot stays here until 2FA is on and the reset inbox is separate."""
+    from app.utils.twofa import (
+        bot_setup_remaining,
+        twofa_enabled,
+        twofa_inbox_for,
+        twofa_settings,
+    )
+
+    if not bool(getattr(current_user, "is_bot", False)):
+        return redirect(url_for("home.home"))
+    gaps = bot_setup_remaining(current_user)
+    if not gaps:
+        return redirect(url_for("home.home"))
+    blob = twofa_settings(current_user)
+    pending = ""
+    if not twofa_enabled(current_user):
+        pending = (blob.get("secret") or "").strip()
+    return render_template(
+        "auth/bot_setup.html",
+        gaps=gaps,
+        pending_secret=pending,
+        inbox=twofa_inbox_for(current_user),
+        login_email=(current_user.email or "").strip(),
+        security_email=(current_user.security_email or "").strip(),
+        reset_email=(current_user.reset_email or "").strip(),
+    )
+
+
+@auth_bp.route("/bot/reset-password", methods=["POST"])
+@login_required
+def bot_reset_own_password():
+    """Quick reset for BOT accounts, straight from their dashboard.
+
+    Current password OR a fresh 2FA code (their own) proves it is really the
+    operator driving this browser. Bots only.
+    """
+    from app.utils import twofa as twofa_util
+
+    if not bool(getattr(current_user, "is_bot", False)):
+        abort(403)
+    new = request.form.get("new_password") or ""
+    confirm = request.form.get("confirm_password") or ""
+    current = request.form.get("current_password") or ""
+    code = (request.form.get("twofa_code") or "").strip()
+    proved = bool(current) and current_user.check_password(current)
+    if not proved and code:
+        from app.utils import twofa as t
+
+        if t.twofa_method(current_user) == "app":
+            proved = t.totp_ok((t.twofa_settings(current_user).get("secret") or ""), code) and not t.totp_replay_recent(current_user, code)
+            if proved:
+                t.mark_totp_used(current_user, code)
+    if not proved:
+        flash("Prove it is you: current password, or a fresh 2FA code.", "danger")
+        return redirect(url_for("home.home") + "#bot-password")
+    if len(new) < 8:
+        flash("New password needs at least 8 characters.", "danger")
+        return redirect(url_for("home.home") + "#bot-password")
+    if new != confirm:
+        flash("New passwords do not match.", "danger")
+        return redirect(url_for("home.home") + "#bot-password")
+    current_user.set_password(new)
+    current_user.failed_login_attempts = 0
+    current_user.account_locked_until = None
+    db.session.commit()
+    flash("Password updated. Use it on the next sign-in.", "success")
+    return redirect(url_for("home.home") + "#bot-password")
 
 
 def _register_ctx(**extra):

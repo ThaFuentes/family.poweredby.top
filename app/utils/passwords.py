@@ -27,7 +27,9 @@ def _hash(token: str) -> str:
 def issue_reset(user: User, requested_by: int | None = None) -> str | None:
     if user is None or not user.is_active:
         return None
-    if not (user.email or "").strip():
+    from app.utils.twofa import reset_inbox_for
+
+    if not (reset_inbox_for(user) or "").strip():
         return None
     household = getattr(user, "household", None)
     if household is not None and not bool(getattr(household, "is_active", True)):
@@ -50,21 +52,40 @@ def issue_reset(user: User, requested_by: int | None = None) -> str | None:
 
 
 def send_reset_email(user: User, token: str) -> tuple[bool, str]:
+    """Reset link goes to this account's reset inbox, else the login email."""
+    from app.utils.twofa import reset_inbox_for
+
     link = url_for("auth.reset_password", token=token, _external=True)
+    to = reset_inbox_for(user)
+    if not to:
+        to = (user.email or "").strip()
+    bot_line = (
+        "This is a bot account: a new password here takes effect on the next sign-in.\n"
+        if bool(getattr(user, "is_bot", False))
+        else ""
+    )
     body = (
         f"Hi {user.name or user.username},\n\n"
         "Someone asked to reset your Family OS password. This link is only for your account "
         "in your household — it will not work for anyone else.\n\n"
         f"{link}\n\n"
         f"It expires in {TTL_HOURS} hours. If you did not ask for this, ignore the email.\n"
+        f"{bot_line}"
     )
     household = getattr(user, "household", None)
     return send_mail(
-        user.email,
+        to,
         "Reset your Family OS password",
         body,
         household=household,
     )
+
+
+def reset_inbox_label(user: User) -> str:
+    """Where this account's reset links actually go (for the UI)."""
+    from app.utils.twofa import reset_inbox_for
+
+    return reset_inbox_for(user) or (user.email or "")
 
 
 def find_user_for_forgot(ident: str, household: str | None = None) -> User | None:

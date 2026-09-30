@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Set up this bot · Family OS</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
+  {% include "partials/theme_head.html" %}
+</head>
+<body class="auth">
+  <header class="auth-desk-bar">
+    <a class="brand" href="{{ url_for('auth.bot_setup') }}">
+      <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
+      <span class="brand-meta"><strong>Family OS</strong><small>Bot setup</small></span>
+    </a>
+    <a href="{{ url_for('auth.logout') }}">Sign out</a>
+  </header>
+  <div class="auth-page">
+    <div class="wrap">
+      <div class="auth-hero">
+        <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
+        <h1>This bot needs 2FA</h1>
+        <p class="muted">The house stays closed until two-factor sign-in is on. A password alone is not enough.</p>
+      </div>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      {% if 'reset_email' in gaps or not inbox %}
+      <div class="card" style="margin-bottom:.8rem">
+        <h2 style="margin:.1rem 0 .4rem;font-size:1.05rem">Reset inbox</h2>
+        <p class="muted">Password reset links go to an inbox that is not the login email{% if login_email %} (<strong>{{ login_email }}</strong>){% endif %}.</p>
+        <form method="post" action="{{ url_for('appearance.set_own_security_email') }}">
+          <input type="hidden" name="next" value="setup">
+          <label>2FA codes go to <span class="muted">(blank uses the login email)</span></label>
+          <input type="email" name="security_email" value="{{ security_email }}" placeholder="codes@…">
+          <label>Password resets go to</label>
+          <input type="email" name="reset_email" value="{{ reset_email }}" placeholder="resets@…" required>
+          <div class="btn-row"><button class="btn" type="submit">Save reset email</button></div>
+        </form>
+      </div>
+      {% endif %}
+
+      {% if 'twofa' in gaps %}
+      <div class="card">
+        <h2 style="margin:.1rem 0 .4rem;font-size:1.05rem">Turn on 2FA</h2>
+        {% if pending_secret %}
+        <p class="muted">Scan this into an authenticator app, then confirm one code.</p>
+        <div style="text-align:center;margin:.5rem 0">
+          <img src="{{ url_for('appearance.twofa_qr') }}?v={{ pending_secret[-4:] }}" alt="2FA QR code" width="180" height="180" style="background:#fff;padding:8px;border-radius:10px">
+        </div>
+        <p class="muted" style="text-align:center">Or type the key: <code>{{ pending_secret }}</code></p>
+        <form method="post" action="{{ url_for('appearance.twofa_confirm') }}">
+          <input type="hidden" name="next" value="setup">
+          <label>Code from the app</label>
+          <input name="code" inputmode="numeric" maxlength="7" placeholder="123456" required autofocus>
+          <div class="btn-row"><button class="btn" type="submit">Turn on authenticator</button></div>
+        </form>
+        <form method="post" action="{{ url_for('appearance.twofa_start') }}" style="margin-top:.4rem">
+          <input type="hidden" name="next" value="setup">
+          <div class="btn-row"><button class="btn secondary" type="submit">New code</button></div>
+        </form>
+        {% else %}
+        <p class="muted">Use an authenticator app{% if inbox %}, or a code emailed to <strong>{{ inbox }}</strong>{% endif %}.</p>
+        <form method="post" action="{{ url_for('appearance.twofa_start') }}">
+          <input type="hidden" name="next" value="setup">
+          <div class="btn-row"><button class="btn" type="submit">Set up authenticator app</button></div>
+        </form>
+        {% if inbox %}
+        <form method="post" action="{{ url_for('appearance.twofa_set_method') }}" style="margin-top:.4rem">
+          <input type="hidden" name="next" value="setup">
+          <input type="hidden" name="method" value="email">
+          <div class="btn-row"><button class="btn secondary" type="submit">Use emailed codes instead</button></div>
+        </form>
+        {% else %}
+        <p class="muted">Emailed codes need an address above. Until then, use the authenticator app.</p>
+        {% endif %}
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <p class="muted" style="text-align:center;margin-top:.8rem"><a href="{{ url_for('auth.logout') }}">Sign out</a></p>
+    </div>
+  </div>
+</body>
+</html>

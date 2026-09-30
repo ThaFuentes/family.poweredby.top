@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Two-factor check · Family OS</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
+  {% include "partials/theme_head.html" %}
+</head>
+<body class="auth">
+  <header class="auth-desk-bar">
+    <a class="brand" href="{{ url_for('auth.login') }}">
+      <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
+      <span class="brand-meta"><strong>Family OS</strong><small>Two-factor</small></span>
+    </a>
+  </header>
+  <div class="auth-page">
+    <div class="wrap">
+      <div class="auth-hero">
+        <img src="{{ url_for('static', filename='images/fav.jpg') }}" alt="">
+        <h1>One more check</h1>
+        {% if method == 'email' %}
+        <p class="muted">Type the 6-digit code we just emailed. It works for 10 minutes.</p>
+        {% else %}
+        <p class="muted">Type the current code from your authenticator app.</p>
+        {% endif %}
+      </div>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+      <div class="card">
+        <form method="post" autocomplete="off">
+          <label>{{ 'Email code' if method == 'email' else 'Authenticator code' }}</label>
+          <input name="code" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" placeholder="123456" autofocus autocapitalize="off" required>
+          <div class="btn-row">
+            <button class="btn block" type="submit">Check code</button>
+          </div>
+        </form>
+        {% if method == 'email' %}
+        <form method="post" class="btn-row" style="margin-top:.4rem">
+          <button class="btn secondary sm" type="submit" name="do" value="resend">Email me a new code</button>
+        </form>
+        {% endif %}
+        <form method="post" class="btn-row" style="margin-top:.4rem">
+          <button class="btn secondary sm" type="submit" name="do" value="cancel">Back to sign in</button>
+        </form>
+      </div>
+      <p class="muted" style="text-align:center">Wrong email? A household leader can fix it on People.</p>
+    </div>
+  </div>
+</body>
+</html>
