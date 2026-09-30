@@ -251,6 +251,46 @@ class TwofaFlowTests(unittest.TestCase):
                     db.session.commit()
             self.client.get("/auth/logout")
 
+    def test_02d_one_inbox_save_leaves_the_other(self):
+        """Each People button posts one field. The other inbox must stay."""
+        bot = self._add_bot()
+        target_id = self._uid(bot)
+        codes = f"{bot}.codes@family.test"
+        resets = f"{bot}.resets@family.test"
+        other_reset = f"{bot}.other@family.test"
+        other_codes = f"{bot}.codes2@family.test"
+        try:
+            saved_reset = self._post(
+                f"/members/{target_id}/security-email",
+                data={"reset_email": other_reset},
+                follow_redirects=True,
+            )
+            self.assertEqual(saved_reset.status_code, 200)
+            self.assertIn(b"Reset inbox saved", saved_reset.data)
+            with self.app.app_context():
+                user = User.query.filter_by(id=target_id).first()
+                self.assertEqual(user.security_email, codes)
+                self.assertEqual(user.reset_email, other_reset)
+            saved_codes = self._post(
+                f"/members/{target_id}/security-email",
+                data={"security_email": other_codes},
+                follow_redirects=True,
+            )
+            self.assertEqual(saved_codes.status_code, 200)
+            self.assertIn(b"2FA inbox saved", saved_codes.data)
+            with self.app.app_context():
+                user = User.query.filter_by(id=target_id).first()
+                self.assertEqual(user.security_email, other_codes)
+                self.assertEqual(user.reset_email, other_reset)
+        finally:
+            with self.app.app_context():
+                user = User.query.filter_by(id=target_id).first()
+                if user is not None:
+                    user.security_email = codes
+                    user.reset_email = resets
+                    db.session.commit()
+            self.client.get("/auth/logout")
+
     def test_03_totp_login_challenge_and_bot_dashboard(self):
         bot = f"bot_{self.suffix}"
         self._set_app_2fa(bot)

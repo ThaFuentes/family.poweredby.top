@@ -689,19 +689,38 @@ def set_bot_flag(user_id):
 @login_required
 @require_perm("members")
 def set_security_emails(user_id):
-    """Separate inboxes: one for 2FA codes, one for password reset links."""
+    """Save whichever inbox this button posted. The other one stays as it is.
+
+    People has two forms. Save 2FA inbox posts only security_email, and Save
+    reset inbox posts only reset_email. A missing key is not a blank.
+    """
     hid = household_id()
     user = User.query.filter_by(id=user_id, household_id=hid).first_or_404()
-    security = (request.form.get("security_email") or "").strip().lower() or None
-    reset = (request.form.get("reset_email") or "").strip().lower() or None
-    for addr in (security, reset):
-        if addr and "@" not in addr:
-            flash("Security email doesn't look like an email.", "danger")
+    updates = {}
+    if "security_email" in request.form:
+        security = (request.form.get("security_email") or "").strip().lower() or None
+        if security and "@" not in security:
+            flash("That doesn't look like an email.", "danger")
             return _after()
-    user.security_email = security
-    user.reset_email = reset
+        updates["security_email"] = security
+    if "reset_email" in request.form:
+        reset = (request.form.get("reset_email") or "").strip().lower() or None
+        if reset and "@" not in reset:
+            flash("That doesn't look like an email.", "danger")
+            return _after()
+        updates["reset_email"] = reset
+    if not updates:
+        flash("Nothing to save.", "info")
+        return _after()
+    for key, value in updates.items():
+        setattr(user, key, value)
     db.session.commit()
-    flash(f"Security inboxes saved for {user.name}.", "success")
+    if len(updates) == 1 and "security_email" in updates:
+        flash(f"2FA inbox saved for {user.name}.", "success")
+    elif len(updates) == 1:
+        flash(f"Reset inbox saved for {user.name}.", "success")
+    else:
+        flash(f"Security inboxes saved for {user.name}.", "success")
     return _after()
 
 
