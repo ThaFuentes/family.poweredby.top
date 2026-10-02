@@ -102,7 +102,7 @@ class BotApiTests(unittest.TestCase):
         self.assertTrue(self._logged_in(client))
         return u
 
-    def _add_bot(self, slug: str, *, leader=False, house: str = "a") -> str:
+    def _add_bot(self, slug: str, *, leader=False, house: str = "a", role: str = "") -> str:
         """A bot with 2FA on and three different inboxes, in one household."""
         u = f"botapi_{house}_{slug}_{self.suffix}"
         client = self._web()
@@ -116,7 +116,7 @@ class BotApiTests(unittest.TestCase):
                 "person_name": f"Bot {slug}",
                 "username": u,
                 "email": f"{u}@family.test",
-                "role": "admin" if leader else "member",
+                "role": role or ("admin" if leader else "member"),
                 "password": "BotPass123!",
                 "is_bot": "1",
                 "security_email": f"{u}.codes@family.test",
@@ -285,12 +285,46 @@ class BotApiTests(unittest.TestCase):
         raw_key = self._api(pair["primary"], "/api/v1/vehicles")
         self.assertEqual(raw_key.status_code, 401)
 
-    def test_06_bot_scope_cannot_reach_vault(self):
+    def test_06_house_key_stays_inside_the_account(self):
         u = self._add_bot("scope")
         token = self._exchange(*self._pair_of(u))
+        me = json.loads(self._api(token, "/api/v1/whoami").data)
+        self.assertEqual(me["account"]["role"], "member")
+        self.assertTrue(me["account"]["can"]["legal"])
+        self.assertTrue(me["account"]["can"]["vault"])
+        self.assertFalse(me["account"]["can"]["members"])
+        # A member may open the vault with the house key. The list is empty here.
         vault = self._api(token, "/api/v1/vault")
-        self.assertEqual(vault.status_code, 403, vault.data[:300])
-        self.assertEqual(json.loads(vault.data)["code"], "scope_denied")
+        self.assertEqual(vault.status_code, 200, vault.data[:300])
+        self.assertEqual(json.loads(vault.data)["entries"], [])
+
+        child = self._add_bot("child", role="child")
+        ctoken = self._exchange(*self._pair_of(child))
+        denied = self._api(ctoken, "/api/v1/records")
+        self.assertEqual(denied.status_code, 403, denied.data[:300])
+        self.assertEqual(json.loads(denied.data)["code"], "forbidden")
+        truck = self._api(ctoken, "/api/v1/vehicles", method="post", json_body={"name": "Nope"})
+        self.assertEqual(truck.status_code, 403, truck.data[:300])
+        child_vault = self._api(ctoken, "/api/v1/vault")
+        self.assertEqual(child_vault.status_code, 403, child_vault.data[:300])
+        self.assertEqual(json.loads(child_vault.data)["code"], "vault_forbidden")
+        # A child can still see the house and add a basket line.
+        self.assertEqual(self._api(ctoken, "/api/v1/vehicles").status_code, 200)
+        basket = self._api(ctoken, "/api/v1/basket", method="post", json_body={"name": "Milk"})
+        self.assertEqual(basket.status_code, 201, basket.data[:300])
+        self.assertEqual(json.loads(basket.data)["entry"]["name"], "Milk")
+        self.assertEqual(self._api(token, "/api/v1/reminders").status_code, 200)
+        self.assertEqual(self._api(token, "/api/v1/tools").status_code, 200)
+        self.assertEqual(self._api(token, "/api/v1/house").status_code, 200)
+        people = self._api(token, "/api/v1/people")
+        self.assertEqual(people.status_code, 200, people.data[:300])
+        person = json.loads(people.data)["people"][0]
+        self.assertNotIn("password", person)
+        self.assertNotIn("security_email", person)
+        self.assertEqual(self._api(ctoken, "/api/v1/people").status_code, 403)
+        self.assertEqual(self._api(ctoken, "/api/v1/activity").status_code, 403)
+        due = self._api(ctoken, "/api/v1/reminders", method="post", json_body={"title": "Nope"})
+        self.assertEqual(due.status_code, 403, due.data[:300])
 
     def test_07_vault_bot_reads_only_its_own_house(self):
         u = self._add_bot("vault", leader=True)

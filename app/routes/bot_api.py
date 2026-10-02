@@ -54,6 +54,19 @@ SCOPE_SURFACE = {
             "GET /api/v1/inventory/<id>",
             "GET /api/v1/records",
             "GET /api/v1/records/<id>",
+            "GET /api/v1/cases",
+            "GET /api/v1/basket",
+            "GET /api/v1/reminders",
+            "GET /api/v1/tools",
+            "GET /api/v1/house",
+            "GET /api/v1/items/<id>/logs",
+            "GET /api/v1/photos",
+            "GET /api/v1/photos/<id>",
+            "GET /api/v1/find?q=",
+            "GET /api/v1/people",
+            "GET /api/v1/ask",
+            "GET /api/v1/activity",
+            "GET /api/v1/vault",
         ],
         "write": [
             "POST /api/v1/vehicles",
@@ -65,6 +78,11 @@ SCOPE_SURFACE = {
             "PATCH /api/v1/inventory/<id>",
             "POST /api/v1/records",
             "PATCH /api/v1/records/<id>",
+            "POST /api/v1/basket",
+            "POST /api/v1/basket/<id>/done",
+            "POST /api/v1/reminders",
+            "POST /api/v1/reminders/<id>/done",
+            "POST /api/v1/items/<id>/logs",
         ],
         "delete": "not in v1",
     },
@@ -244,6 +262,7 @@ def exchange():
 
 
 def _whoami_payload():
+    from app.utils.bot_api_access import account_snapshot
     from app.utils.bot_api_keys import key_status
 
     user = api_user()
@@ -255,6 +274,7 @@ def _whoami_payload():
             "bot": (getattr(user, "username", None) or ""),
             "household": (getattr(getattr(user, "household", None), "handle", None) or ""),
             "session_expires_at": iso(session.expires_at),
+            "account": account_snapshot(),
             "available": SCOPE_SURFACE.get(session.scope, {}),
             "keys": [
                 {

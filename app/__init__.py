@@ -271,6 +271,7 @@ def create_app():
     from app.routes.ask import ask_bp
     from app.routes.bot_api import bot_api_bp
     from app.routes import bot_api_house  # noqa: F401  registers fos_bot_ routes
+    from app.routes import bot_api_content  # noqa: F401  basket, due, tools, house, photos
     from app.routes import bot_api_vault  # noqa: F401  registers fos_vault_ routes
 
     app.register_blueprint(auth_bp)

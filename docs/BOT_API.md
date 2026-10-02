@@ -11,11 +11,21 @@ A key's **prefix is its scope**. There is no separate permission toggle:
 
 | Prefix | Scope | Access |
 |---|---|---|
-| `fos_bot_…` | House | Read + write vehicles, notes, attachments, inventory, records |
-| `fos_vault_…` | Vault | Read-only vault |
+| `fos_bot_…` | House | Household content this account is allowed to open |
+| `fos_vault_…` | Vault | Read-only vault. Cannot change the house |
 
-A `fos_vault_` key cannot reach a house route, and a `fos_bot_` key cannot
-reach the vault. The check happens per route, before the view runs.
+A `fos_vault_` key cannot reach a house route. A `fos_bot_` key can read the
+vault only when that bot account can use the vault in the app (never a child).
+
+The key does not raise the account. `GET /api/v1/whoami` returns `account.role`
+and `account.can`. A turned-down ability is `403` with `code: forbidden`. A
+key prefix that cannot touch the route is `403` with `code: scope_denied`.
+
+House reads a member can use also include basket, reminders, tools, house,
+item logs, photos, find, people, cases, and that bot's own Ask history.
+Writes follow the same permissions as the page (a child can check the basket
+and cannot file a legal record or edit a vehicle). Leaders can read
+`GET /api/v1/activity`. There is still no delete.
 
 ## Two keys, two inboxes
 
@@ -114,7 +124,7 @@ curl -X POST https://family.poweredby.top/api/v1/auth/revoke \
 | Method | Path | Notes |
 |---|---|---|
 | `POST` | `/api/v1/auth/exchange` | Pair → session token. Unauthenticated by design. |
-| `GET` | `/api/v1/whoami` | Bot, scope, session expiry, key tails, and the routes available to this key. |
+| `GET` | `/api/v1/whoami` | Bot, scope, `account.role`, `account.can`, session expiry, and routes. |
 | `GET` | `/api/v1/meta` | The documented v1 surface for both scopes. |
 | `POST` | `/api/v1/auth/revoke` | Kills the calling session only. |
 
@@ -127,7 +137,18 @@ curl -X POST https://family.poweredby.top/api/v1/auth/revoke \
 | `GET` | `/api/v1/notes/<id>/files` |
 | `GET` | `/api/v1/files/<id>` — decrypted attachment bytes |
 | `GET` | `/api/v1/inventory`, `/api/v1/inventory/<id>` |
-| `GET` | `/api/v1/records`, `/api/v1/records/<id>` |
+| `GET` | `/api/v1/records`, `/api/v1/records/<id>` — needs `legal` |
+| `GET` | `/api/v1/cases` — needs `legal` |
+| `GET` | `/api/v1/basket` |
+| `GET` | `/api/v1/reminders` |
+| `GET` | `/api/v1/tools`, `/api/v1/house` |
+| `GET` | `/api/v1/items/<id>/logs` |
+| `GET` | `/api/v1/photos`, `/api/v1/photos/<id>` |
+| `GET` | `/api/v1/find?q=` — records and cases only when `legal` |
+| `GET` | `/api/v1/people` — not a child. No passwords or security inboxes |
+| `GET` | `/api/v1/ask` — this bot's own Ask history, not a child's |
+| `GET` | `/api/v1/activity` — leaders only |
+| `GET` | `/api/v1/vault`, `/api/v1/vault/<id>` — when this account can use the vault |
 
 ### `fos_bot_` — write
 
@@ -137,7 +158,10 @@ curl -X POST https://family.poweredby.top/api/v1/auth/revoke \
 | `POST` | `/api/v1/notes` · `PATCH /api/v1/notes/<id>` |
 | `POST` | `/api/v1/notes/<id>/files` — multipart, field `file` |
 | `POST` | `/api/v1/inventory` · `PATCH /api/v1/inventory/<id>` |
-| `POST` | `/api/v1/records` · `PATCH /api/v1/records/<id>` |
+| `POST` | `/api/v1/records` · `PATCH /api/v1/records/<id>` — needs `legal` |
+| `POST` | `/api/v1/basket` · `POST /api/v1/basket/<id>/done` — scan or groceries |
+| `POST` | `/api/v1/reminders` · `POST /api/v1/reminders/<id>/done` — needs `maintain` |
+| `POST` | `/api/v1/items/<id>/logs` — needs `maintain` |
 
 `PATCH` is a whitelisted column update — a body key that is not a known field
 is ignored, never mass-assigned.

@@ -6,12 +6,14 @@ of the vault. Opening one card decrypts it and writes a specific audit row.
 
 Access follows the same rules the vault page uses: never a child, and only
 cards this bot may see (its own, the whole household's, or one shared with
-it on a live grant). A `fos_bot_` key cannot reach any of this.
+it on a live grant). A house key can read the vault when this account can.
+A vault-only key still cannot change the house.
 """
 from __future__ import annotations
 
 from app.builddb.builddb import db
 from app.routes.bot_api import (
+    BOT,
     VAULT,
     bot_api_bp,
     limit_arg,
@@ -26,7 +28,7 @@ from app.utils.bot_api_auth import (
     api_scope,
     api_user,
     audit,
-    bot_api,
+    bot_api_any,
     iso,
 )
 from app.utils.password_vault import (
@@ -78,7 +80,7 @@ def _may_see(entry) -> bool:
 
 
 @bot_api_bp.route("/vault")
-@bot_api(VAULT)
+@bot_api_any(BOT, VAULT)
 def vault_list():
     user = api_user()
     if not can_use_vault(user):
@@ -96,7 +98,7 @@ def vault_list():
 
 
 @bot_api_bp.route("/vault/<int:entry_id>")
-@bot_api(VAULT)
+@bot_api_any(BOT, VAULT)
 def vault_get(entry_id):
     from app.builddb.table_vault_entries import VaultEntry
     from app.utils.password_vault import open_fields, two_factor_label

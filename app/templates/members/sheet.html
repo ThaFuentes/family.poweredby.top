@@ -100,8 +100,8 @@
       <form method="post" action="{{ url_for('members.bot_api_keys', user_id=m.id) }}">
         {% include "members/_next.html" %}
         <select name="scope">
-          <option value="fos_bot_">House &mdash; vehicles, notes, files, inventory, records (read + write)</option>
-          <option value="fos_vault_">Vault &mdash; read-only</option>
+          <option value="fos_bot_">House &mdash; this account's access (home, basket, notes, records, vault if allowed)</option>
+          <option value="fos_vault_">Vault only &mdash; read-only, no house changes</option>
         </select>
         <div class="btn-row" style="margin:.35rem 0 0">
           <button class="btn sm" type="submit" name="do" value="issue">Send keys</button>

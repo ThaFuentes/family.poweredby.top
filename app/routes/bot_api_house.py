@@ -26,6 +26,7 @@ from app.routes.bot_api import (
     ok,
     page,
 )
+from app.utils.bot_api_access import gate, inventory_write_allowed, note_edit_allowed
 from app.utils.bot_api_auth import (
     api_error,
     api_household_id,
@@ -121,6 +122,9 @@ def _vehicle_or_404(ident):
 @bot_api_bp.route("/vehicles")
 @bot_api(BOT)
 def vehicles_list():
+    blocked = gate("view", "scan")
+    if blocked:
+        return blocked
     from app.builddb.table_items import Item
 
     q = api_scope(Item).filter_by(item_type="vehicle").order_by(Item.name.asc())
@@ -132,6 +136,9 @@ def vehicles_list():
 @bot_api_bp.route("/vehicles/<int:item_id>")
 @bot_api(BOT)
 def vehicles_get(item_id):
+    blocked = gate("view", "scan")
+    if blocked:
+        return blocked
     item = _vehicle_or_404(item_id)
     if item is None:
         return api_error("No such vehicle in this household.", 404, "not_found")
@@ -141,6 +148,9 @@ def vehicles_get(item_id):
 @bot_api_bp.route("/vehicles", methods=["POST"])
 @bot_api(BOT, write=True)
 def vehicles_create():
+    blocked = gate("maintain", "edit_meta")
+    if blocked:
+        return blocked
     from app.builddb.table_items import Item
     from app.builddb.table_vehicles import Vehicle
 
@@ -175,6 +185,9 @@ def vehicles_create():
 @bot_api_bp.route("/vehicles/<int:item_id>", methods=["PATCH"])
 @bot_api(BOT, write=True)
 def vehicles_update(item_id):
+    blocked = gate("maintain", "edit_meta")
+    if blocked:
+        return blocked
     from app.builddb.table_vehicles import Vehicle
 
     item = _vehicle_or_404(item_id)
@@ -252,6 +265,9 @@ def note_or_404(note_id):
 @bot_api_bp.route("/notes")
 @bot_api(BOT)
 def notes_list():
+    blocked = gate("view", "scan")
+    if blocked:
+        return blocked
     from app.builddb.table_notes import Note
 
     q = visible_notes().order_by(Note.updated_at.desc())
@@ -266,6 +282,9 @@ def notes_list():
 @bot_api_bp.route("/notes/<int:note_id>")
 @bot_api(BOT)
 def notes_get(note_id):
+    blocked = gate("view", "scan")
+    if blocked:
+        return blocked
     note = note_or_404(note_id)
     if note is None:
         return api_error("No such note in this household.", 404, "not_found")
@@ -275,6 +294,9 @@ def notes_get(note_id):
 @bot_api_bp.route("/notes", methods=["POST"])
 @bot_api(BOT, write=True)
 def notes_create():
+    blocked = gate("view", "scan")
+    if blocked:
+        return blocked
     from app.builddb.table_items import Item
     from app.builddb.table_notes import VISIBILITY, Note
 
@@ -314,9 +336,14 @@ def notes_update(note_id):
     from app.builddb.table_items import Item
     from app.builddb.table_notes import VISIBILITY
 
+    blocked = gate("view", "scan")
+    if blocked:
+        return blocked
     note = note_or_404(note_id)
     if note is None:
         return api_error("No such note in this household.", 404, "not_found")
+    if not note_edit_allowed(note):
+        return api_error("This account cannot change that note.", 403, "forbidden")
     data = body()
     if "title" in data:
         note.title = as_str(data, "title", 500) or note.title
@@ -352,6 +379,9 @@ def notes_update(note_id):
 @bot_api_bp.route("/notes/<int:note_id>/files")
 @bot_api(BOT)
 def files_list(note_id):
+    blocked = gate("view", "scan")
+    if blocked:
+        return blocked
     note = note_or_404(note_id)
     if note is None:
         return api_error("No such note in this household.", 404, "not_found")
@@ -363,9 +393,14 @@ def files_list(note_id):
 def files_add(note_id):
     from app.routes.notes import save_note_file
 
+    blocked = gate("view", "scan")
+    if blocked:
+        return blocked
     note = note_or_404(note_id)
     if note is None:
         return api_error("No such note in this household.", 404, "not_found")
+    if not note_edit_allowed(note):
+        return api_error("This account cannot change that note.", 403, "forbidden")
     upload = request.files.get("file") or request.files.get("photo")
     if upload is None or not getattr(upload, "filename", ""):
         return api_error(
@@ -394,6 +429,9 @@ def files_add(note_id):
 @bot_api_bp.route("/files/<int:file_id>")
 @bot_api(BOT)
 def files_get(file_id):
+    blocked = gate("view", "scan")
+    if blocked:
+        return blocked
     from sqlalchemy.orm import selectinload
 
     from app.builddb.table_note_files import NoteFile
@@ -463,6 +501,9 @@ def _sync_stock(g) -> None:
 @bot_api_bp.route("/inventory")
 @bot_api(BOT)
 def inventory_list():
+    blocked = gate("view", "scan")
+    if blocked:
+        return blocked
     from app.builddb.table_items import Item
 
     q = api_scope(Item).filter(Item.item_type.in_(("grocery", "house", "tool", "custom")))
@@ -478,6 +519,9 @@ def inventory_list():
 @bot_api_bp.route("/inventory/<int:item_id>")
 @bot_api(BOT)
 def inventory_get(item_id):
+    blocked = gate("view", "scan")
+    if blocked:
+        return blocked
     from app.builddb.table_items import Item
 
     item = api_scope(Item).filter_by(id=item_id).first()
@@ -498,6 +542,8 @@ def inventory_create():
     if not name:
         return api_error("name is required.", 400, "bad_request")
     item_type = (as_str(data, "item_type", 20) or "grocery").lower()
+    if not inventory_write_allowed(item_type, data, creating=True):
+        return api_error("This account cannot add that.", 403, "forbidden")
     if item_type not in ("grocery", "tool", "house", "custom"):
         item_type = "grocery"
     hid = api_household_id()
@@ -549,6 +595,8 @@ def inventory_update(item_id):
     if item is None:
         return api_error("No such item in this household.", 404, "not_found")
     data = body()
+    if not inventory_write_allowed(item.item_type, data, creating=False):
+        return api_error("This account cannot change that.", 403, "forbidden")
     item.name = as_str(data, "name", 200) or item.name
     item.category = as_str(data, "category", 100) or item.category
     if "notes" in data:
@@ -617,6 +665,9 @@ def _record_json(rec, with_files: bool = True):
 @bot_api_bp.route("/records")
 @bot_api(BOT)
 def records_list():
+    blocked = gate("legal")
+    if blocked:
+        return blocked
     from app.builddb.table_legal_records import LegalRecord
 
     q = api_scope(LegalRecord).order_by(LegalRecord.issued_on.desc())
@@ -631,6 +682,9 @@ def records_list():
 @bot_api_bp.route("/records/<int:record_id>")
 @bot_api(BOT)
 def records_get(record_id):
+    blocked = gate("legal")
+    if blocked:
+        return blocked
     from app.builddb.table_legal_records import LegalRecord
 
     rec = api_scope(LegalRecord).filter_by(id=record_id).first()
@@ -642,6 +696,9 @@ def records_get(record_id):
 @bot_api_bp.route("/records", methods=["POST"])
 @bot_api(BOT, write=True)
 def records_create():
+    blocked = gate("legal")
+    if blocked:
+        return blocked
     from app.builddb.table_legal_records import KINDS, STATUSES, LegalRecord
 
     data = body()
@@ -680,6 +737,9 @@ def records_create():
 @bot_api_bp.route("/records/<int:record_id>", methods=["PATCH"])
 @bot_api(BOT, write=True)
 def records_update(record_id):
+    blocked = gate("legal")
+    if blocked:
+        return blocked
     from app.builddb.table_legal_records import KINDS, STATUSES, LegalRecord
 
     rec = api_scope(LegalRecord).filter_by(id=record_id).first()

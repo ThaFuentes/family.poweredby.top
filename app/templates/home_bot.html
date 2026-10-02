@@ -53,8 +53,8 @@
     <form method="post" action="{{ url_for('auth.bot_own_api_keys') }}" autocomplete="off">
       <label>Scope</label>
       <select name="scope">
-        <option value="fos_bot_">House (vehicles, notes, files, inventory, records)</option>
-        <option value="fos_vault_">Vault (read-only)</option>
+        <option value="fos_bot_">House — this account's access (home, basket, notes, records, vault if allowed)</option>
+        <option value="fos_vault_">Vault only (read-only, no house changes)</option>
       </select>
       <input type="hidden" name="do" value="resent">
       <label>Prove it is you</label>
