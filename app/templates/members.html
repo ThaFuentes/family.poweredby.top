@@ -5,63 +5,63 @@
 <div class="page-head">
   <div>
     <h1>{{ household.name }}</h1>
-    <p>Tap one. It opens a sheet — not a pile of forms.</p>
+    <p>Tap one. It opens full screen.</p>
   </div>
 </div>
 
 <div class="grid sys-menu">
-  <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='people') }}" data-sheet-title="People">
+  <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='people') }}" data-sheet-title="People" data-sheet-size="full">
     <span class="kicker">{{ members|length }}</span>
     <span class="label">People</span>
     <span class="count">Logins, calendars, roles</span>
   </button>
   {% if can('members') %}
-  <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='add') }}" data-sheet-title="Add someone">
+  <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='add') }}" data-sheet-title="Add someone" data-sheet-size="full">
     <span class="kicker">No key</span>
     <span class="label">Add someone</span>
     <span class="count">Make their login</span>
   </button>
   {% endif %}
   {% if can('settings') %}
-  <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='house') }}" data-sheet-title="This house">
+  <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='house') }}" data-sheet-title="This house" data-sheet-size="full">
     <span class="kicker">{{ household.handle or 'no handle' }}</span>
     <span class="label">This house</span>
     <span class="count">Name, handle, places</span>
   </button>
   {% endif %}
   {% if can('members') %}
-  <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='keys') }}" data-sheet-title="Keys">
+  <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='keys') }}" data-sheet-title="Keys" data-sheet-size="full">
     <span class="kicker">FAM · SRV</span>
     <span class="label">Keys</span>
     <span class="count">Family keys, Service keys, revoke</span>
   </button>
   {% endif %}
   {% if can('settings') %}
-  <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='mail') }}" data-sheet-title="Email">
+  <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='mail') }}" data-sheet-title="Email" data-sheet-size="full">
     <span class="kicker">{% if mail.ready %}On · own{% elif platform_mail.ready %}On · Family OS{% else %}Off{% endif %}</span>
     <span class="label">Mailbox</span>
     <span class="count">Invites and reminders From</span>
   </button>
-  <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='lock') }}" data-sheet-title="Family lock">
+  <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='lock') }}" data-sheet-title="Family lock" data-sheet-size="full">
     <span class="kicker">{% if vault_on %}On{% else %}Off{% endif %}</span>
     <span class="label">Family lock</span>
     <span class="count">Notes, photos, vault</span>
   </button>
   {% endif %}
   {% if current_user.is_admin or is_leader %}
-  <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='ai') }}" data-sheet-title="AI key">
+  <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='ai') }}" data-sheet-title="AI key" data-sheet-size="full">
     <span class="kicker">{% if ai.has_key %}On{% else %}None{% endif %}</span>
     <span class="label">AI key</span>
     <span class="count">{% if ai.chat != False %}Ask + scan names{% else %}Scan names{% endif %}. Yours, not ads.</span>
   </button>
-  <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='trusted') }}" data-sheet-title="Trusted emails">
+  <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='trusted') }}" data-sheet-title="Trusted emails" data-sheet-size="full">
     <span class="kicker">{{ trusted|length }}</span>
     <span class="label">Trusted emails</span>
     <span class="count">Skip Service key</span>
   </button>
   {% endif %}
   {% if is_leader %}
-  <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='remind') }}" data-sheet-title="Reminders">
+  <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='remind') }}" data-sheet-title="Reminders" data-sheet-size="full">
     <span class="kicker">{{ reminders_via }}</span>
     <span class="label">Reminders</span>
     <span class="count">Oil, blades, filters</span>
@@ -75,7 +75,7 @@
   </a>
   {% endif %}
   {% if can('settings') %}
-  <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='danger') }}" data-sheet-title="Delete household">
+  <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='danger') }}" data-sheet-title="Delete household" data-sheet-size="full">
     <span class="kicker">Danger</span>
     <span class="label">Delete household</span>
     <span class="count">No undo</span>

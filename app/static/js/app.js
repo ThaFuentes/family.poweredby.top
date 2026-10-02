@@ -71,6 +71,9 @@
       frame.src = "about:blank";
       frame.hidden = true;
     }
+    overlay.classList.remove("sheet-full");
+    var sheetTitle = document.getElementById("sheet-title");
+    if (sheetTitle) sheetTitle.textContent = "";
     document.body.classList.remove("sheet-open");
     if (
       reload &&
@@ -126,6 +129,12 @@
       frame.hidden = false;
       frame.title = openBtn.getAttribute("data-sheet-title") || "Sheet";
       frame.src = openBtn.getAttribute("data-sheet") || "";
+      var full = openBtn.getAttribute("data-sheet-size") === "full";
+      overlay.classList.toggle("sheet-full", full);
+      var sheetTitle = document.getElementById("sheet-title");
+      if (sheetTitle) sheetTitle.textContent = full ? (frame.title || "") : "";
+      var panel = overlay.querySelector(".sheet-panel");
+      if (panel) panel.setAttribute("aria-label", frame.title || "Sheet");
       overlay.hidden = false;
       document.body.classList.add("sheet-open");
       return;

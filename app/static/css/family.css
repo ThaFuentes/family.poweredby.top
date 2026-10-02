@@ -386,6 +386,12 @@ h2 { font-size: 1.02rem; margin: 1.15rem 0 .55rem; letter-spacing: -0.02em; }
   overflow: hidden;
   transition: transform .18s ease;
 }
+.sheet-top {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+}
+.sheet-title { display: none; }
 .sheet-grab {
   flex: 0 0 auto;
   width: 2.5rem;
@@ -417,11 +423,83 @@ h2 { font-size: 1.02rem; margin: 1.15rem 0 .55rem; letter-spacing: -0.02em; }
   -webkit-overflow-scrolling: touch;
 }
 body.sheet-open { overflow: hidden; overscroll-behavior: none; }
+.sheet-overlay.sheet-full {
+  align-items: stretch;
+  background: var(--bg);
+}
+.sheet-overlay.sheet-full .sheet-panel {
+  width: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  border-radius: 0;
+  box-shadow: none;
+}
+.sheet-overlay.sheet-full .sheet-top {
+  flex-direction: row;
+  align-items: center;
+  gap: .75rem;
+  padding: calc(.45rem + var(--safe-t)) .75rem .45rem .95rem;
+  background: var(--card);
+  border-bottom: 1px solid var(--edge);
+}
+.sheet-overlay.sheet-full .sheet-grab { display: none; }
+.sheet-overlay.sheet-full .sheet-title {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 1.15rem;
+  line-height: 1.2;
+}
+.sheet-overlay.sheet-full .sheet-close {
+  align-self: center;
+  margin: 0;
+  min-height: 2.75rem;
+  font-size: 1rem;
+}
 body.sheet-body {
   min-height: 0;
   padding: .55rem 1rem calc(1.5rem + var(--safe-b));
   background: var(--bg);
 }
+body.sheet-room {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: .9rem 1.1rem calc(2.25rem + var(--safe-b));
+}
+body.sheet-room h1 { font-size: 1.45rem; }
+body.sheet-room input,
+body.sheet-room select,
+body.sheet-room textarea {
+  font-size: 1rem;
+  min-height: 2.75rem;
+}
+body.sheet-room .btn-row { flex-wrap: wrap; }
+body.sheet-room .btn-row > .btn,
+body.sheet-room .btn-row > input,
+body.sheet-room .btn-row > select {
+  flex: 1 1 12rem;
+}
+.fold-menu > summary {
+  display: block;
+  cursor: pointer;
+  list-style: none;
+  min-height: 3.25rem;
+  padding: .15rem 1.2rem .15rem 0;
+}
+.fold-menu > summary::-webkit-details-marker { display: none; }
+.fold-menu > summary::after {
+  content: "";
+  float: right;
+  width: .55rem;
+  height: .55rem;
+  margin-top: .45rem;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+}
+.fold-menu[open] > summary { margin-bottom: .7rem; }
+.fold-menu[open] > summary::after { transform: rotate(225deg); margin-top: .7rem; }
 .sheet-exit {
   display: flex;
   justify-content: flex-end;

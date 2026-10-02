@@ -7,7 +7,7 @@
   <link rel="shortcut icon" href="{{ url_for('static', filename='images/fav.jpg') }}" type="image/jpeg">
   {% include "partials/theme_head.html" %}
 </head>
-<body class="sheet-body">
+<body class="sheet-body sheet-room">
 {% set exit_href = url_for('members.index') %}
 {% include "partials/sheet_exit.html" %}
 {% include "partials/key_issued.html" %}
@@ -22,12 +22,14 @@
 {% if sheet_panel == 'people' %}
 <h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">People</h1>
 {% for m in members %}
-<div class="card" style="margin:.55rem 0">
-  <strong>{{ m.name }}</strong>
-  {% if m.is_leader %}<span class="badge">Leader</span>{% endif %}
-  {% if m.is_bot %}<span class="badge">BOT</span>{% endif %}
-  {% if twofa_status.get(m.id) and twofa_status[m.id].on %}<span class="badge">2FA</span>{% endif %}
-  <div class="muted">{{ m.username }} · {{ m.role }}{% if household.handle %} · {{ household.handle }}{% endif %}</div>
+<details class="card fold-menu" style="margin:.55rem 0" {% if members|length == 1 %}open{% endif %}>
+  <summary>
+    <strong>{{ m.name }}</strong>
+    {% if m.is_leader %}<span class="badge">Leader</span>{% endif %}
+    {% if m.is_bot %}<span class="badge">BOT</span>{% endif %}
+    {% if twofa_status.get(m.id) and twofa_status[m.id].on %}<span class="badge">2FA</span>{% endif %}
+    <div class="muted">{{ m.username }} · {{ m.role }}{% if household.handle %} · {{ household.handle }}{% endif %}</div>
+  </summary>
   {% if can('members') %}
   <form method="post" action="{{ url_for('members.set_username', user_id=m.id) }}" class="btn-row" style="margin:.35rem 0 0">
     {% include "members/_next.html" %}
@@ -172,7 +174,7 @@
     <button class="btn sm secondary" type="submit">Remove from household</button>
   </form>
   {% endif %}
-</div>
+</details>
 {% endfor %}
 
 {% elif sheet_panel == 'add' %}
@@ -389,10 +391,12 @@
 <h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">AI keys</h1>
 <p class="muted">Add a key for Gemini, Groq, Grok, OpenAI, or any other provider. Turn on the ones Ask may use. Main goes first. If that model is busy, Ask tries the other models on the same key, then the next key. Everyday is lists and chat. Heavy is photos and oil lookup. <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Get a Groq API key</a>.</p>
 {% for k in ai.saved_keys or [] %}
-<div class="card ai-key">
-  <strong>{{ k.label }}</strong>
-  {% if k.default and k.on %}<span class="badge">Main</span>{% elif not k.on %}<span class="badge">Off</span>{% endif %}
-  <div class="muted">{% if k.key_hint %}{{ k.key_hint }}{% endif %}</div>
+<details class="card ai-key fold-menu">
+  <summary>
+    <strong>{{ k.label }}</strong>
+    {% if k.default and k.on %}<span class="badge">Main</span>{% elif not k.on %}<span class="badge">Off</span>{% endif %}
+    <div class="muted">{% if k.key_hint %}{{ k.key_hint }}{% endif %}</div>
+  </summary>
   <form method="post" action="{{ url_for('members.ai_key') }}">
     {% include "members/_next.html" %}
     <input type="hidden" name="key_id" value="{{ k.id }}">
@@ -440,7 +444,7 @@
       <button class="btn sm secondary" type="submit" name="action" value="remove">Remove</button>
     </div>
   </form>
-</div>
+</details>
 {% else %}
 <p class="muted">No keys yet.</p>
 {% endfor %}

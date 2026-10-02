@@ -128,8 +128,11 @@
   {% endif %}
   <div class="sheet-overlay" id="sheet-overlay" hidden>
     <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="Sheet">
-      <div class="sheet-grab" id="sheet-grab" aria-hidden="true"></div>
-      <button type="button" class="sheet-close" data-sheet-close aria-label="Close">Close</button>
+      <div class="sheet-top">
+        <div class="sheet-grab" id="sheet-grab" aria-hidden="true"></div>
+        <strong class="sheet-title" id="sheet-title"></strong>
+        <button type="button" class="sheet-close" data-sheet-close aria-label="Close">Close</button>
+      </div>
       <iframe class="sheet-frame" id="sheet-frame" title="Sheet" hidden></iframe>
     </div>
   </div>
@@ -161,7 +164,7 @@
   <script>window.FAMILY_CAN_CREATE = {{ 'true' if can('edit_grocery') or can('edit_meta') or can('maintain') else 'false' }};</script>
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="{{ url_for('static', filename='js/scan.js') }}?v=os40"></script>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=os24"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=os25"></script>
   {% if ask_open and ask_embed %}
   {% include "partials/ask.html" %}
   {% endif %}
