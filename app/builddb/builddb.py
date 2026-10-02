@@ -179,6 +179,10 @@ def _schema_ready() -> bool:
             return False
         if "ask_turns" not in names:
             return False
+        if not {"bot_api_keys", "bot_api_sessions"} <= names:
+            return False
+        if "bot_api_audit" not in names or "bot_api_rate" not in names:
+            return False
         items = {c["name"] for c in inspect(db.engine).get_columns("items")}
         if "removed_at" not in items:
             return False
@@ -248,8 +252,12 @@ def init_tenant_system(app):
                 "table_photo_notes",
                 "table_notes",
                 "table_note_files",
-                "table_ask_turns",
-                "table_vault_entries",
+            "table_ask_turns",
+            "table_bot_api_keys",
+            "table_bot_api_sessions",
+            "table_bot_api_audit",
+            "table_bot_api_rate",
+            "table_vault_entries",
                 "table_vault_grants",
                 "table_vault_access",
                 "table_legal_cases",

@@ -64,6 +64,7 @@ def home():
 
 
 def _bot_ctx():
+    from app.utils.bot_api_keys import summary as api_summary
     from app.utils.passwords import reset_inbox_label
     from app.utils.twofa import twofa_inbox_for, twofa_method
 
@@ -74,4 +75,5 @@ def _bot_ctx():
         "twofa_label": labels.get(method, "Off"),
         "twofa_inbox": twofa_inbox_for(current_user) if method == "email" else "",
         "reset_inbox": reset_inbox_label(current_user),
+        "bot_api": api_summary(current_user),
     }

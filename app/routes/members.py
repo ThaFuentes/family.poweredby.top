@@ -96,6 +96,7 @@ def _page_ctx():
         "mail": public_mail_config(household),
         "platform_mail": _platform_mail_status(),
         "twofa_status": _twofa_status(members),
+        "bot_api": _bot_api_status(members),
     }
 
 
@@ -124,6 +125,13 @@ def _twofa_status(members) -> dict:
             "reset": reset_inbox_label(m),
         }
     return out
+
+
+def _bot_api_status(members) -> dict:
+    """Bot API readiness + live keys per member, for the People sheet."""
+    from app.utils.bot_api_keys import summary as api_summary
+
+    return {m.id: api_summary(m) for m in members if bool(getattr(m, "is_bot", False))}
 
 
 @members_bp.route("/happened")
@@ -682,6 +690,119 @@ def set_bot_flag(user_id):
         )
     else:
         flash(f"{user.name} is a regular account again (2FA turned off with it).", "info")
+    return _after()
+
+
+@members_bp.route("/<int:user_id>/bot-api", methods=["POST"])
+@login_required
+@require_perm("members")
+def bot_api_keys(user_id):
+    """Issue / reset / resend a bot's API pair. Leaders only.
+
+    A resend cannot repeat the old key — only hashes are kept — so every one
+    of these buttons rotates the pair and kills the previous one.
+    """
+    from app.builddb.table_households import Household
+    from app.utils.bot_api_keys import (
+        SCOPE_ALL,
+        api_inboxes,
+        bot_api_blockers,
+        deliver_pair,
+        mint_pair,
+        normalize_scope,
+        scope_label,
+    )
+    from app.utils.keys_ui import stash_issued_key
+
+    hid = household_id()
+    user = User.query.filter_by(id=user_id, household_id=hid, is_active=True).first_or_404()
+    if not bool(getattr(user, "is_bot", False)):
+        flash(f"{user.name} is not a BOT account. Mark it as one first.", "warning")
+        return _after()
+    scope = normalize_scope(request.form.get("scope") or SCOPE_ALL)
+    do = (request.form.get("do") or "issue").strip().lower()
+    if do not in ("issue", "reset", "resent"):
+        do = "issue"
+    gaps = bot_api_blockers(user)
+    if gaps:
+        flash(f"{user.name} cannot have API keys yet. {_bot_gap_copy(gaps)}", "danger")
+        return _after()
+
+    household = Household.query.get(hid)
+    boxes = api_inboxes(user)
+    ok, msg, pair = mint_pair(
+        user,
+        scope,
+        label=(request.form.get("label") or "").strip(),
+        created_by=current_user.id,
+        days=request.form.get("days") or 90,
+    )
+    if not ok:
+        flash(msg or "Could not make keys for that account.", "danger")
+        return _after()
+    db.session.commit()
+    mailed, detail = deliver_pair(
+        user=user,
+        household=household,
+        scope=scope,
+        pair=pair,
+        base_url=request.host_url.rstrip("/"),
+        reason=do,
+    )
+    db.session.commit()
+    # Show both halves once, here. After this they exist only in the inboxes.
+    stash_issued_key(
+        pair["primary"],
+        f"Bot API keys ({scope_label(scope)})",
+        (
+            "Copied to both inboxes. The login key went to "
+            f"{boxes['login']} and the second factor to {boxes['twofa']}. "
+            "Only hashes are stored, so a resend always makes a new pair and kills this one."
+        ),
+        extra={"twofa": pair["twofa"], "twofa_inbox": boxes["twofa"]},
+    )
+    flash(
+        f"Keys for {user.name} ({scope_label(scope)}). "
+        + ("Both halves were emailed." if mailed else "The mail server did not take both."),
+        "success" if mailed else "warning",
+    )
+    return _after()
+
+
+def _bot_gap_copy(gaps: list[str]) -> str:
+    from app.utils.bot_api_keys import BLOCKER_COPY
+
+    return " ".join(BLOCKER_COPY.get(g, g) for g in gaps)
+
+
+@members_bp.route("/<int:user_id>/bot-api/revoke", methods=["POST"])
+@login_required
+@require_perm("members")
+def bot_api_revoke(user_id):
+    """Kill one issued pair and every session made from it."""
+    from app.utils.bot_api_keys import revoke_pair, scope_label
+
+    hid = household_id()
+    user = User.query.filter_by(id=user_id, household_id=hid, is_active=True).first_or_404()
+    pair_id = (request.form.get("pair_id") or "").strip()
+    if not pair_id:
+        flash("No key pair named that.", "danger")
+        return _after()
+    from app.builddb.table_bot_api_keys import BotApiKey
+
+    owned = BotApiKey.query.filter_by(
+        pair_id=pair_id, household_id=hid, user_id=user.id
+    ).first()
+    if owned is None:
+        flash("That key pair is not on anyone in this household.", "danger")
+        return _after()
+    count = revoke_pair(pair_id, revoked_by=current_user.id)
+    db.session.commit()
+    flash(
+        f"{scope_label(owned.scope)} keys for {user.name} are dead ({count} keys, "
+        "and any session they made).",
+        "info",
+    )
     return _after()
 
 

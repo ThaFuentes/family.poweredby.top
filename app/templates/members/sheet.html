@@ -66,6 +66,53 @@
     <button class="btn sm secondary" type="submit">{% if m.is_bot %}Unmark BOT account{% else %}Mark as BOT account{% endif %}</button>
   </form>
   {% endif %}
+
+  {# ---- Bot API keys (leaders, BOT accounts only) ---- #}
+  {% set api = bot_api.get(m.id) if bot_api else none %}
+  {% if api and m.id != current_user.id and can('members') %}
+  <div class="bot-api" style="margin:.6rem 0 0;border-top:1px solid var(--line,#eee);padding-top:.5rem">
+    <div class="kicker">Bot API</div>
+    {% if not api.ready %}
+      <p class="muted" style="margin:.2rem 0">Not ready: {{ api.message }}</p>
+    {% else %}
+      <p class="muted" style="margin:.2rem 0">
+        Login key &rarr; <strong>{{ api.inboxes.login }}</strong><br>
+        Second factor &rarr; <strong>{{ api.inboxes.twofa }}</strong>
+      </p>
+      {% if api.pairs %}
+      <ul class="muted" style="margin:.25rem 0;padding-left:1.1rem">
+        {% for p in api.pairs %}
+        <li>
+          {{ p.scope_label }} &mdash; {% if p.live %}live{% else %}ended{% endif %}{% if p.tails.primary %} (&hellip;{{ p.tails.primary }}){% endif %}
+          {% if p.live %}
+          <form method="post" action="{{ url_for('members.bot_api_revoke', user_id=m.id) }}" style="display:inline" onsubmit="return confirm('Kill these keys for {{ m.name }}?');">
+            {% include "members/_next.html" %}
+            <input type="hidden" name="pair_id" value="{{ p.pair_id }}">
+            <button class="btn sm secondary" type="submit">Revoke</button>
+          </form>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted" style="margin:.2rem 0">No keys issued yet.</p>
+      {% endif %}
+      <form method="post" action="{{ url_for('members.bot_api_keys', user_id=m.id) }}">
+        {% include "members/_next.html" %}
+        <select name="scope">
+          <option value="fos_bot_">House &mdash; vehicles, notes, files, inventory, records (read + write)</option>
+          <option value="fos_vault_">Vault &mdash; read-only</option>
+        </select>
+        <div class="btn-row" style="margin:.35rem 0 0">
+          <button class="btn sm" type="submit" name="do" value="issue">Send keys</button>
+          <button class="btn sm secondary" type="submit" name="do" value="reset">Reset (kills old keys)</button>
+          <button class="btn sm secondary" type="submit" name="do" value="resent">Resend (new pair)</button>
+        </div>
+        <p class="muted" style="margin:.35rem 0 0">Only hashes are stored, so every one of these makes a new pair and stops the old one working. Each half goes to a different inbox.</p>
+      </form>
+    {% endif %}
+  </div>
+  {% endif %}
   <form method="post" action="{{ url_for('members.set_member_calendar', user_id=m.id) }}" style="margin:.35rem 0 0">
     {% include "members/_next.html" %}
     <input type="email" name="calendar_email" value="{{ m.calendar_email or m.email or '' }}" placeholder="their calendar inbox">

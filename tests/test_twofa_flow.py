@@ -468,7 +468,7 @@ class TwofaFlowTests(unittest.TestCase):
         r = self._plain_login(founder, "FamilyTest1!")
         self.assertEqual(r.status_code, 302)
         target_id = self._uid(bot)
-        r = self._post(f"/members/{target_id}/bot", data={"is_bot": "0"}, follow_redirects=True)
+        r = self.client.post(f"/members/{target_id}/bot", data={"is_bot": "0"}, follow_redirects=True)
         self.assertEqual(r.status_code, 200)
         with self.app.app_context():
             user = User.query.filter_by(id=target_id).first()
@@ -481,7 +481,7 @@ class TwofaFlowTests(unittest.TestCase):
         bot = f"bot_{self.suffix}"
         founder = f"founder_{self.suffix}"
         self.client.get("/auth/logout")
-        # founder (regular account) never sees the card
+        # founder (regular account) never sees the two-factor card
         self._plain_login(founder, "FamilyTest1!")
         look = self.client.get("/appearance/")
         self.assertEqual(look.status_code, 200)

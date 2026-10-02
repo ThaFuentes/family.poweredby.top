@@ -38,7 +38,7 @@
   {% endif %}
   {% if can('settings') %}
   <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='mail') }}" data-sheet-title="Email">
-    <span class="kicker">{% if mail.ready %}On{% else %}Off{% endif %}</span>
+    <span class="kicker">{% if mail.ready %}On · own{% elif platform_mail.ready %}On · Family OS{% else %}Off{% endif %}</span>
     <span class="label">Mailbox</span>
     <span class="count">Invites and reminders From</span>
   </button>

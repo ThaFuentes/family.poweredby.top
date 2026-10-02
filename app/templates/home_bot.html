@@ -26,6 +26,49 @@
   </form>
 </section>
 
+<section class="card" id="bot-api" style="margin-top:.8rem" aria-label="Bot API keys">
+  <h2 style="margin:.1rem 0 .4rem;font-size:1.05rem">Bot API keys</h2>
+  {% if not bot_api.ready %}
+    <p class="muted">No API keys yet. A bot needs all of this first:</p>
+    <p class="muted">{{ bot_api.message }}</p>
+    <p class="muted">A household leader can set the inboxes on People.</p>
+  {% else %}
+    <p class="muted">
+      Keys are never shown here. Each scope is a pair: the login half goes to
+      <strong>{{ bot_api.inboxes.login }}</strong> and the second factor to
+      <strong>{{ bot_api.inboxes.twofa }}</strong>. The bot trades both for a short-lived
+      token at <code>/api/v1/auth/exchange</code>. HTTPS only.
+    </p>
+    {% if bot_api.pairs %}
+    <ul class="muted" style="margin:.3rem 0 .6rem;padding-left:1.1rem">
+      {% for p in bot_api.pairs %}
+      <li>
+        {{ p.scope_label }} &mdash;
+        {% if p.live %}live{% else %}revoked{% endif %}
+        {% if p.tails.primary %}(&hellip;{{ p.tails.primary }}){% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <form method="post" action="{{ url_for('auth.bot_own_api_keys') }}" autocomplete="off">
+      <label>Scope</label>
+      <select name="scope">
+        <option value="fos_bot_">House (vehicles, notes, files, inventory, records)</option>
+        <option value="fos_vault_">Vault (read-only)</option>
+      </select>
+      <input type="hidden" name="do" value="resent">
+      <label>Prove it is you</label>
+      <input type="password" name="current_password" autocomplete="current-password">
+      {% if twofa_method == 'app' %}
+      <label>or a fresh 2FA code</label>
+      <input name="twofa_code" inputmode="numeric" maxlength="7" placeholder="123456" autocapitalize="off">
+      {% endif %}
+      <p class="muted">This sends a <strong>new</strong> pair and stops the old one working — only hashes are kept, so a resend cannot repeat the old key.</p>
+      <div class="btn-row"><button class="btn" type="submit">Send me new keys</button></div>
+    </form>
+  {% endif %}
+</section>
+
 <section class="card" style="margin-top:.8rem">
   <h2 style="margin:.1rem 0 .4rem;font-size:1.05rem">This bot's security</h2>
   <p class="muted">

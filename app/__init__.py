@@ -269,6 +269,9 @@ def create_app():
     from app.routes.security import security_bp
     from app.routes.vault import vault_bp
     from app.routes.ask import ask_bp
+    from app.routes.bot_api import bot_api_bp
+    from app.routes import bot_api_house  # noqa: F401  registers fos_bot_ routes
+    from app.routes import bot_api_vault  # noqa: F401  registers fos_vault_ routes
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(home_bp)
@@ -290,6 +293,7 @@ def create_app():
     app.register_blueprint(security_bp)
     app.register_blueprint(vault_bp)
     app.register_blueprint(ask_bp)
+    app.register_blueprint(bot_api_bp)
 
     @app.before_request
     def _block_paused_household():

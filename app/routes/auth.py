@@ -220,23 +220,11 @@ def bot_reset_own_password():
     Current password OR a fresh 2FA code (their own) proves it is really the
     operator driving this browser. Bots only.
     """
-    from app.utils import twofa as twofa_util
-
     if not bool(getattr(current_user, "is_bot", False)):
         abort(403)
     new = request.form.get("new_password") or ""
     confirm = request.form.get("confirm_password") or ""
-    current = request.form.get("current_password") or ""
-    code = (request.form.get("twofa_code") or "").strip()
-    proved = bool(current) and current_user.check_password(current)
-    if not proved and code:
-        from app.utils import twofa as t
-
-        if t.twofa_method(current_user) == "app":
-            proved = t.totp_ok((t.twofa_settings(current_user).get("secret") or ""), code) and not t.totp_replay_recent(current_user, code)
-            if proved:
-                t.mark_totp_used(current_user, code)
-    if not proved:
+    if not _bot_prove(request.form.get("current_password") or "", request.form.get("twofa_code") or ""):
         flash("Prove it is you: current password, or a fresh 2FA code.", "danger")
         return redirect(url_for("home.home") + "#bot-password")
     if len(new) < 8:
@@ -251,6 +239,81 @@ def bot_reset_own_password():
     db.session.commit()
     flash("Password updated. Use it on the next sign-in.", "success")
     return redirect(url_for("home.home") + "#bot-password")
+
+
+def _bot_prove(current_password: str, code: str) -> bool:
+    """Prove the operator driving this browser: password OR a fresh 2FA code."""
+    from app.utils import twofa as t
+
+    current = (current_password or "").strip()
+    if current and current_user.check_password(current):
+        return True
+    code = (code or "").strip()
+    if not code or t.twofa_method(current_user) != "app":
+        return False
+    secret = t.twofa_settings(current_user).get("secret") or ""
+    if not t.totp_ok(secret, code) or t.totp_replay_recent(current_user, code):
+        return False
+    t.mark_totp_used(current_user, code)
+    return True
+
+
+@auth_bp.route("/bot/api-keys", methods=["POST"])
+@login_required
+def bot_own_api_keys():
+    """A bot can re-mint its own API pair, proved like a password reset.
+
+    It can never see the keys here — they only ever go to its two inboxes.
+    A leader can always do this from People instead.
+    """
+    from app.builddb.table_households import Household
+    from app.utils.bot_api_keys import (
+        SCOPE_ALL,
+        bot_api_blockers,
+        deliver_pair,
+        mint_pair,
+        normalize_scope,
+        scope_label,
+    )
+
+    if not bool(getattr(current_user, "is_bot", False)):
+        abort(403)
+    back = url_for("home.home") + "#bot-api"
+    if not _bot_prove(
+        request.form.get("current_password") or "", request.form.get("twofa_code") or ""
+    ):
+        flash("Prove it is you: current password, or a fresh 2FA code.", "danger")
+        return redirect(back)
+    scope = normalize_scope(request.form.get("scope") or SCOPE_ALL)
+    do = (request.form.get("do") or "resent").strip().lower()
+    if do not in ("issue", "reset", "resent"):
+        do = "resent"
+    gaps = bot_api_blockers(current_user)
+    if gaps:
+        from app.utils.bot_api_keys import BLOCKER_COPY
+
+        flash(" ".join(BLOCKER_COPY.get(g, g) for g in gaps), "danger")
+        return redirect(back)
+    ok, msg, pair = mint_pair(current_user, scope, created_by=current_user.id)
+    if not ok:
+        flash(msg or "Could not make keys.", "danger")
+        return redirect(back)
+    db.session.commit()
+    mailed, _detail = deliver_pair(
+        user=current_user,
+        household=Household.query.get(int(current_user.household_id or 0)),
+        scope=scope,
+        pair=pair,
+        base_url=request.host_url.rstrip("/"),
+        reason=do,
+    )
+    db.session.commit()
+    flash(
+        f"New {scope_label(scope)} keys are on their way to your two inboxes. "
+        "The old pair stopped working the moment this was sent.",
+        "success" if mailed else "warning",
+    )
+    return redirect(back)
 
 
 def _register_ctx(**extra):

@@ -8,7 +8,7 @@
       <button type="button" class="btn" data-copy="{{ issued_key.code }}">Copy</button>
     </div>
     {% if issued_key.extra %}
-    <div class="muted" style="margin:.75rem 0 .35rem">Login we made for them</div>
+    <div class="muted" style="margin:.75rem 0 .35rem">{% if issued_key.extra.twofa %}Both halves of the key pair{% else %}Login we made for them{% endif %}</div>
     {% if issued_key.extra.handle %}
     <p class="muted" style="margin:0">Household handle: <strong>{{ issued_key.extra.handle }}</strong></p>
     {% endif %}
@@ -19,6 +19,13 @@
     <div class="key-copy-row">
       <input readonly value="{{ issued_key.extra.password }}" onclick="this.select()" aria-label="Password">
       <button type="button" class="btn secondary" data-copy="{{ issued_key.extra.password }}">Copy password</button>
+    </div>
+    {% endif %}
+    {% if issued_key.extra.twofa %}
+    <p class="muted" style="margin:.5rem 0 0">Second factor, emailed to <strong>{{ issued_key.extra.twofa_inbox }}</strong>:</p>
+    <div class="key-copy-row">
+      <input readonly value="{{ issued_key.extra.twofa }}" onclick="this.select()" aria-label="Second factor key">
+      <button type="button" class="btn secondary" data-copy="{{ issued_key.extra.twofa }}">Copy second factor</button>
     </div>
     {% endif %}
     {% endif %}
