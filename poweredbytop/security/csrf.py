@@ -58,6 +58,8 @@ _EXEMPT_PREFIXES = (
     "/billing/webhook",
     "/stripe/webhook",
     "/webhooks/",
+    # Bearer bot API. A cookie must not turn these into CSRF failures.
+    "/api/v1/",
     # Public marketing / onboard forms that may be first-hit POSTs
     "/onboard",
     "/subscribe",

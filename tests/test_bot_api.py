@@ -456,11 +456,96 @@ class BotApiTests(unittest.TestCase):
         token = self._exchange(*self._pair_of(u))
         self.app.config["BOT_API_ALLOW_INSECURE"] = False
         try:
-            blocked = self._api(token, "/api/v1/whoami")
-            self.assertEqual(blocked.status_code, 403)
+            c = self.app.test_client()
+            auth = {"Authorization": f"Bearer {token}"}
+            blocked = c.get("/api/v1/whoami", headers=auth, base_url="http://localhost")
+            self.assertEqual(blocked.status_code, 403, blocked.data[:300])
             self.assertEqual(json.loads(blocked.data)["code"], "https_required")
+            # The test client speaks HTTPS by default. That must be allowed.
+            direct = c.get("/api/v1/whoami", headers=auth)
+            self.assertEqual(direct.status_code, 200, direct.data[:300])
+            local = c.get(
+                "/api/v1/whoami",
+                headers={**auth, "X-Forwarded-Proto": "https"},
+                base_url="http://localhost",
+            )
+            self.assertEqual(local.status_code, 200, local.data[:300])
+            cf = c.get(
+                "/api/v1/whoami",
+                headers={**auth, "CF-Visitor": '{"scheme":"https"}'},
+                base_url="http://localhost",
+                environ_base={"REMOTE_ADDR": "104.16.1.1"},
+            )
+            self.assertEqual(cf.status_code, 200, cf.data[:300])
+            spoof = c.get(
+                "/api/v1/whoami",
+                headers={**auth, "X-Forwarded-Proto": "https"},
+                base_url="http://localhost",
+                environ_base={"REMOTE_ADDR": "8.8.8.8"},
+            )
+            self.assertEqual(spoof.status_code, 403, spoof.data[:300])
+            self.assertEqual(json.loads(spoof.data)["code"], "https_required")
+            # ProxyFix rewrites REMOTE_ADDR to the visitor. The socket peer
+            # is still Cloudflare or loopback, so this is HTTPS.
+            behind = c.get(
+                "/api/v1/whoami",
+                headers={
+                    **auth,
+                    "X-Forwarded-For": "203.0.113.9",
+                    "X-Forwarded-Proto": "https",
+                },
+                base_url="http://localhost",
+                environ_base={"REMOTE_ADDR": "104.16.1.1"},
+            )
+            self.assertEqual(behind.status_code, 200, behind.data[:300])
+            local_forwarded = c.get(
+                "/api/v1/whoami",
+                headers={
+                    **auth,
+                    "X-Forwarded-For": "203.0.113.9",
+                    "X-Forwarded-Proto": "https",
+                },
+                base_url="http://localhost",
+            )
+            self.assertEqual(local_forwarded.status_code, 200, local_forwarded.data[:300])
+            # Claiming a Cloudflare address in X-Forwarded-For does not make
+            # a stranger's socket trusted.
+            pretend = c.get(
+                "/api/v1/whoami",
+                headers={
+                    **auth,
+                    "X-Forwarded-For": "104.16.1.1",
+                    "X-Forwarded-Proto": "https",
+                },
+                base_url="http://localhost",
+                environ_base={"REMOTE_ADDR": "8.8.8.8"},
+            )
+            self.assertEqual(pretend.status_code, 403, pretend.data[:300])
+            self.assertEqual(json.loads(pretend.data)["code"], "https_required")
         finally:
             self.app.config["BOT_API_ALLOW_INSECURE"] = True
+
+    def test_13b_curl_on_the_bot_api_is_not_blocked(self):
+        u = self._add_bot("curlbot")
+        token = self._exchange(*self._pair_of(u))
+        r = self._get_post(
+            "/api/v1/whoami",
+            headers={"Authorization": f"Bearer {token}", "User-Agent": "curl/8.7.1"},
+        )
+        self.assertEqual(r.status_code, 200, r.data[:300])
+        posted = self._get_post(
+            "/api/v1/auth/exchange",
+            method="post",
+            headers={
+                "Authorization": "Bearer fos_bot_not-a-real-key",
+                "X-FOS-2FA": "nope",
+                "User-Agent": "python-requests/2.32.0",
+                "Origin": "https://evil.example",
+                "Sec-Fetch-Site": "cross-site",
+            },
+        )
+        self.assertNotEqual(posted.status_code, 403, posted.data[:300])
+        self.assertEqual(posted.status_code, 401, posted.data[:300])
 
     def test_14_rate_limit_stops_a_run(self):
         u = self._add_bot("rate")

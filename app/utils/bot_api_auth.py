@@ -225,7 +225,12 @@ def enforce_rate(*, subject: str, limit: int, scope: str, event: str = "rate") -
 
 
 def https_required() -> bool:
-    """Off only when the deployment explicitly opts in (local tests)."""
+    """True when this call is not HTTPS and must be refused.
+
+    Local tests set BOT_API_ALLOW_INSECURE. Cloudflare and the local web
+    server may connect in clear text and report the visitor scheme. Those
+    headers count only from loopback or a Cloudflare address.
+    """
     try:
         if current_app.config.get("BOT_API_ALLOW_INSECURE"):
             return False
@@ -234,9 +239,11 @@ def https_required() -> bool:
     if (os.getenv("BOT_API_ALLOW_INSECURE") or "").strip().lower() in ("1", "true", "yes", "on"):
         return False
     try:
-        return bool(request.is_secure)
+        from app.utils.edge_https import request_is_https
+
+        return not request_is_https()
     except Exception:
-        return False
+        return True
 
 
 # --------------------------------------------------------------- tokens
@@ -346,7 +353,7 @@ def _gate(wanted: tuple[str, ...], *, write: bool = False, exchange: bool = Fals
     def deco(fn):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
-            # https_required() is True when HTTPS is mandatory.
+            # https_required() is True when this call is not HTTPS.
             if https_required():
                 audit(event="denied", status=403, outcome="https_required", scope=label)
                 return api_error(

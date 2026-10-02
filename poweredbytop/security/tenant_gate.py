@@ -39,6 +39,8 @@ _ORIGIN_SKIP_PREFIXES = (
     "/billing/webhook",
     "/stripe/webhook",
     "/webhooks/",
+    # Bearer bot API. Cookie cross-site checks must not 403 it.
+    "/api/v1",
 )
 
 

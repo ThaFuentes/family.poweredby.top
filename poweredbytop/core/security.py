@@ -441,6 +441,12 @@ def _background_full_check(ip):
         logger(f"BACKGROUND PIPELINE ERROR: {str(e)}")
 
 # ====================== MAIN PIPELINE WITH EARLY THREAT TERMINATION ======================
+def _is_bot_api_path(path: str) -> bool:
+    """Family bot API. The security pipeline must not 403, ban, or rate-limit it."""
+    p = (path or "").split("?", 1)[0]
+    return p == "/api/v1" or p.startswith("/api/v1/")
+
+
 def _is_public_safe_path(path: str) -> bool:
     """Never 403 assets, health, login, or guest-home (site profile)."""
     if not path:
@@ -581,6 +587,11 @@ def run_full_security_pipeline():
     ip = get_real_ip()
     path = request.path if has_request_context() else ""
     rep = {}
+
+    if _is_bot_api_path(path):
+        g.pbt_bot_api = True
+        g.rate_limited = False
+        return True
 
     if _is_public_safe_path(path):
         try:
@@ -838,6 +849,8 @@ def before_request_security():
     return None
 
 def teardown_security(exception=None):
+    if getattr(g, "pbt_bot_api", False):
+        return
     if hasattr(g, "rate_limited") and g.rate_limited:
         # Log only — check_rate_limit already applied any reputation hit.
         # Do not stack refresh_spam on top (was triple-penalizing one throttle).
