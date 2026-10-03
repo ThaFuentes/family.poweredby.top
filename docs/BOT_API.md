@@ -3,10 +3,10 @@
 Machine access for the bots that drive a household. Bot accounts only, HTTPS
 only, read and write scoped by the key itself, and every call audited.
 
-HTTPS includes a Cloudflare or local-proxy request whose `X-Forwarded-Proto`
-or `CF-Visitor` scheme is `https`. Those headers are ignored from any other
-address. ProxyFix may replace the socket address with the visitor; the trust
-check uses the original peer. The security pipeline, CSRF, and cross-site
+HTTPS includes the scheme ProxyFix copies from `X-Forwarded-Proto`, and a
+`CF-Visitor` scheme of `https`. A later hop may append `http` for its own
+clear-text connection; `https` anywhere in that chain still counts. Plain
+HTTP with neither is refused. The security pipeline, CSRF, and cross-site
 checks do not block, ban, or rate-limit `/api/v1/`.
 
 ---

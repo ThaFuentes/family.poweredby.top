@@ -477,51 +477,38 @@ class BotApiTests(unittest.TestCase):
                 environ_base={"REMOTE_ADDR": "104.16.1.1"},
             )
             self.assertEqual(cf.status_code, 200, cf.data[:300])
-            spoof = c.get(
-                "/api/v1/whoami",
-                headers={**auth, "X-Forwarded-Proto": "https"},
-                base_url="http://localhost",
-                environ_base={"REMOTE_ADDR": "8.8.8.8"},
-            )
-            self.assertEqual(spoof.status_code, 403, spoof.data[:300])
-            self.assertEqual(json.loads(spoof.data)["code"], "https_required")
-            # ProxyFix rewrites REMOTE_ADDR to the visitor. The socket peer
-            # is still Cloudflare or loopback, so this is HTTPS.
-            behind = c.get(
+            # HostM/Cloudflare: the socket address is the visitor, and the
+            # proxy says the visitor used https. That must be allowed.
+            visitor = c.get(
                 "/api/v1/whoami",
                 headers={
                     **auth,
                     "X-Forwarded-For": "203.0.113.9",
                     "X-Forwarded-Proto": "https",
+                    "CF-Ray": "a447f3f5ed66f2f6-DFW",
+                    "CF-Visitor": '{"scheme":"https"}',
                 },
                 base_url="http://localhost",
-                environ_base={"REMOTE_ADDR": "104.16.1.1"},
+                environ_base={"REMOTE_ADDR": "203.0.113.9"},
             )
-            self.assertEqual(behind.status_code, 200, behind.data[:300])
-            local_forwarded = c.get(
+            self.assertEqual(visitor.status_code, 200, visitor.data[:300])
+            # A later hop appends its own clear-text scheme. Cloudflare's
+            # visitor scheme still counts.
+            appended = c.get(
                 "/api/v1/whoami",
-                headers={
-                    **auth,
-                    "X-Forwarded-For": "203.0.113.9",
-                    "X-Forwarded-Proto": "https",
-                },
+                headers={**auth, "X-Forwarded-Proto": "https, http"},
                 base_url="http://localhost",
+                environ_base={"REMOTE_ADDR": "203.0.113.9"},
             )
-            self.assertEqual(local_forwarded.status_code, 200, local_forwarded.data[:300])
-            # Claiming a Cloudflare address in X-Forwarded-For does not make
-            # a stranger's socket trusted.
-            pretend = c.get(
+            self.assertEqual(appended.status_code, 200, appended.data[:300])
+            plain = c.get(
                 "/api/v1/whoami",
-                headers={
-                    **auth,
-                    "X-Forwarded-For": "104.16.1.1",
-                    "X-Forwarded-Proto": "https",
-                },
+                headers={**auth, "X-Forwarded-Proto": "http"},
                 base_url="http://localhost",
-                environ_base={"REMOTE_ADDR": "8.8.8.8"},
+                environ_base={"REMOTE_ADDR": "203.0.113.9"},
             )
-            self.assertEqual(pretend.status_code, 403, pretend.data[:300])
-            self.assertEqual(json.loads(pretend.data)["code"], "https_required")
+            self.assertEqual(plain.status_code, 403, plain.data[:300])
+            self.assertEqual(json.loads(plain.data)["code"], "https_required")
         finally:
             self.app.config["BOT_API_ALLOW_INSECURE"] = True
 
