@@ -43,6 +43,8 @@ SCOPE_SURFACE = {
     BOT: {
         "label": "House (read + write)",
         "read": [
+            "GET /api/v1/helper",
+            "GET /api/v1/me",
             "GET /api/v1/whoami",
             "GET /api/v1/vehicles",
             "GET /api/v1/vehicles/<id>",
@@ -89,6 +91,8 @@ SCOPE_SURFACE = {
     VAULT: {
         "label": "Vault (read-only)",
         "read": [
+            "GET /api/v1/helper",
+            "GET /api/v1/me",
             "GET /api/v1/whoami",
             "GET /api/v1/vault",
             "GET /api/v1/vault/<id>",
@@ -284,6 +288,8 @@ def _whoami_payload():
             "bot": (getattr(user, "username", None) or ""),
             "household": (getattr(getattr(user, "household", None), "handle", None) or ""),
             "session_expires_at": iso(session.expires_at),
+            "helper": "GET /api/v1/helper",
+            "me": "GET /api/v1/me",
             "account": account_snapshot(),
             "available": SCOPE_SURFACE.get(session.scope, {}),
             "keys": [
@@ -308,9 +314,21 @@ def _revoke_session():
 
 
 @bot_api_bp.route("/whoami")
+@bot_api_bp.route("/me")
 @bot_api_any(BOT, VAULT)
 def whoami():
     return _whoami_payload()
+
+
+@bot_api_bp.route("/helper")
+@bot_api_bp.route("/help")
+@bot_api_any(BOT, VAULT)
+def helper():
+    """The route map. Same shape as AEGIS /api/bot/help: lines live in data."""
+    from app.utils.bot_api_help import help_for
+
+    body = help_for(g.bot_session.scope)
+    return ok({"greeting": body["greeting"], "data": body})
 
 
 @bot_api_bp.route("/auth/revoke", methods=["POST"])

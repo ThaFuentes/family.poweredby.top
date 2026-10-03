@@ -248,6 +248,40 @@ class BotApiTests(unittest.TestCase):
         self.assertEqual(again.status_code, 401, again.data[:300])
         self.assertEqual(self._api(token, "/api/v1/whoami").status_code, 200)
 
+    def test_01c_helper_lists_routes_and_me_is_whoami(self):
+        u = self._add_bot("map")
+        pair = self._issue(u)["pair"]
+        token = self._exchange(pair["primary"], pair["twofa"])
+        missing = self._get_post("/api/v1/helper")
+        self.assertEqual(missing.status_code, 401, missing.data[:200])
+
+        helper = self._api(token, "/api/v1/helper")
+        self.assertEqual(helper.status_code, 200, helper.data[:400])
+        body = json.loads(helper.data)
+        self.assertTrue(body["ok"])
+        self.assertIn("glad you're looking", body["greeting"])
+        lines = body["data"]["lines"]
+        self.assertIn("GET /api/v1/me", "\n".join(lines))
+        self.assertIn("GET /api/v1/vehicles", "\n".join(lines))
+        self.assertIn("GET /api/v1/vault", "\n".join(lines))
+        same = json.loads(self._api(token, "/api/v1/help").data)
+        self.assertEqual(same["data"]["lines"], lines)
+
+        me = json.loads(self._api(token, "/api/v1/me").data)
+        who = json.loads(self._api(token, "/api/v1/whoami").data)
+        self.assertEqual(me["bot"], u)
+        self.assertEqual(me["bot"], who["bot"])
+        self.assertEqual(me["me"], "GET /api/v1/me")
+        self.assertEqual(me["helper"], "GET /api/v1/helper")
+
+        vault_user = self._add_bot("mapv", house="b")
+        vault_pair = self._issue(vault_user, "fos_vault_")["pair"]
+        vault_token = self._exchange(vault_pair["primary"], vault_pair["twofa"])
+        vault_lines = "\n".join(json.loads(self._api(vault_token, "/api/v1/helper").data)["data"]["lines"])
+        self.assertIn("GET /api/v1/vault", vault_lines)
+        self.assertNotIn("POST /api/v1/vehicles", vault_lines)
+        self.assertNotIn("GET /api/v1/notes", vault_lines)
+
     def test_02_only_hashes_are_stored(self):
         u = self._add_bot("hash")
         pair = self._issue(u)["pair"]

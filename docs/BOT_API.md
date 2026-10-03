@@ -133,7 +133,9 @@ curl -X POST https://family.poweredby.top/api/v1/auth/revoke \
 |---|---|---|
 | `POST` | `/api/v1/auth/present` | Login key in. Emails a 2FA key that expires in 1 hour. |
 | `POST` | `/api/v1/auth/exchange` | Login key plus that 2FA key → session token. |
+| `GET` | `/api/v1/helper` | The route map for this key. `/api/v1/help` is the same call. JSON is `{ok, greeting, data:{lines, calls}}`, the same shape as AEGIS `/api/bot/help`. A path that is not listed is 404. |
 | `GET` | `/api/v1/whoami` | Bot, scope, `account.role`, `account.can`, session expiry, and routes. |
+| `GET` | `/api/v1/me` | Same as whoami. |
 | `GET` | `/api/v1/meta` | The documented v1 surface for both scopes. |
 | `POST` | `/api/v1/auth/revoke` | Kills the calling session only. |
 

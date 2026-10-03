@@ -450,6 +450,10 @@ def _sign_in_steps(base_url: str) -> str:
             "",
             "4. Call the API with the token that comes back:",
             "   Authorization: Bearer fos_s1_...",
+            "",
+            "5. The route map is:",
+            f"GET {root}/api/v1/helper",
+            "You are GET /api/v1/me (same as /api/v1/whoami).",
         ]
     )
 
