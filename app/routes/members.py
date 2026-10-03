@@ -753,17 +753,21 @@ def bot_api_keys(user_id):
     # Show both halves once, here. After this they exist only in the inboxes.
     stash_issued_key(
         pair["primary"],
-        f"Bot API keys ({scope_label(scope)})",
+        f"Bot API login key ({scope_label(scope)})",
         (
-            "Copied to both inboxes. The login key went to "
-            f"{boxes['login']} and the second factor to {boxes['twofa']}. "
-            "Only hashes are stored, so a resend always makes a new pair and kills this one."
+            "This key does not expire. It was emailed to "
+            f"{boxes['login']}. Present it at /api/v1/auth/present and a 2FA key "
+            f"that lasts 1 hour goes to {boxes['twofa']}. "
+            "Only the hash is stored, so a resend always makes a new login key and kills this one."
         ),
-        extra={"twofa": pair["twofa"], "twofa_inbox": boxes["twofa"]},
     )
     flash(
-        f"Keys for {user.name} ({scope_label(scope)}). "
-        + ("Both halves were emailed." if mailed else "The mail server did not take both."),
+        f"Login key for {user.name} ({scope_label(scope)}). "
+        + (
+            f"Emailed to {boxes['login']}. It does not expire."
+            if mailed
+            else "The mail server did not take it. Copy it from this screen."
+        ),
         "success" if mailed else "warning",
     )
     return _after()

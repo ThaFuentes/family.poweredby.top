@@ -134,7 +134,7 @@ class BotApiTests(unittest.TestCase):
         return u
 
     def _issue(self, username: str, scope: str = "fos_bot_") -> dict:
-        """Mint a pair and hand back the two raw keys plus what was mailed."""
+        """Mint the permanent login key, then a one-hour 2FA key for the tests."""
         sent: list[tuple[str, str, str]] = []
 
         def fake_send(to, subject, body, **kw):
@@ -149,7 +149,11 @@ class BotApiTests(unittest.TestCase):
                     user, scope, household=hh, base_url="https://family.poweredby.top"
                 )
             self.assertTrue(ok, detail)
-            self.assertEqual(len(sent), 2, sent)
+            self.assertEqual(len(sent), 1, sent)
+            row = BotApiKey.query.filter_by(key_hash=keys.hash_key(pair["primary"])).one()
+            _two, raw = keys.mint_twofa(row)
+            db.session.commit()
+            pair["twofa"] = raw
             return {"pair": pair, "sent": sent}
 
     def _exchange(self, primary: str, second: str) -> str:
@@ -178,7 +182,7 @@ class BotApiTests(unittest.TestCase):
 
     # --------------------------------------------------------------- tests
 
-    def test_01_pair_is_mailed_to_two_different_inboxes(self):
+    def test_01_login_key_is_permanent_and_2fa_lasts_an_hour(self):
         u = self._add_bot("mail")
         issued = self._issue(u)
         pair = issued["pair"]
@@ -186,14 +190,63 @@ class BotApiTests(unittest.TestCase):
         self.assertTrue(pair["twofa"].startswith("fos_bot_"), pair["twofa"])
         self.assertNotEqual(pair["primary"], pair["twofa"])
         inboxes = {t for t, _, _ in issued["sent"]}
-        self.assertIn(f"{u}@family.test", inboxes)
-        self.assertIn(f"{u}.codes@family.test", inboxes)
-        bodies = "\n".join(b for _, _, b in issued["sent"])
-        self.assertIn(pair["primary"], bodies)
-        self.assertIn(pair["twofa"], bodies)
-        # The emailed half must not appear in the login-inbox message.
-        login_body = next(b for t, _, b in issued["sent"] if t == f"{u}@family.test")
+        self.assertEqual(inboxes, {f"{u}@family.test"})
+        login_body = issued["sent"][0][2]
+        self.assertIn(pair["primary"], login_body)
         self.assertNotIn(pair["twofa"], login_body)
+        self.assertIn("does not expire", login_body)
+        with self.app.app_context():
+            rows = {
+                r.key_role: r
+                for r in BotApiKey.query.filter_by(
+                    user_id=User.query.filter_by(username=u).first().id, revoked_at=None
+                ).all()
+            }
+            self.assertIsNone(rows["primary"].expires_at)
+            left = (keys._naive(rows["twofa"].expires_at) - keys._utcnow()).total_seconds()
+            self.assertGreater(left, 3500)
+            self.assertLess(left, 3700)
+
+    def test_01b_present_emails_a_one_hour_key_and_exchange_spends_it(self):
+        u = self._add_bot("present")
+        sent: list[tuple[str, str, str]] = []
+
+        def fake_send(to, subject, body, **kw):
+            sent.append((to, subject, body))
+            return True, "ok"
+
+        with self.app.app_context():
+            user = User.query.filter_by(username=u).first()
+            with patch("app.utils.mail.send_mail", side_effect=fake_send):
+                ok, detail, pair = keys.issue_keys(
+                    user, "fos_bot_", household=user.household, base_url="https://family.poweredby.top"
+                )
+            self.assertTrue(ok, detail)
+        sent.clear()
+        with patch("app.utils.mail.send_mail", side_effect=fake_send):
+            presented = self._get_post(
+                "/api/v1/auth/present",
+                method="post",
+                headers={"Authorization": f"Bearer {pair['primary']}"},
+            )
+        self.assertEqual(presented.status_code, 200, presented.data[:400])
+        payload = json.loads(presented.data)
+        self.assertTrue(payload["sent"])
+        self.assertEqual(payload["expires_in"], 3600)
+        self.assertEqual(len(sent), 1, sent)
+        self.assertEqual(sent[0][0], f"{u}.codes@family.test")
+        self.assertNotIn(pair["primary"], sent[0][2])
+        raw = next(line.strip() for line in sent[0][2].splitlines() if line.strip().startswith("fos_"))
+        self.assertNotIn(raw, presented.get_data(as_text=True))
+        token = self._exchange(pair["primary"], raw)
+        self.assertTrue(token.startswith("fos_s1_"))
+        again = self._get_post(
+            "/api/v1/auth/exchange",
+            method="post",
+            headers={"Authorization": f"Bearer {pair['primary']}", "X-FOS-2FA": raw},
+        )
+        self.assertEqual(again.status_code, 401, again.data[:300])
+        self.assertEqual(self._api(token, "/api/v1/whoami").status_code, 200)
 
     def test_02_only_hashes_are_stored(self):
         u = self._add_bot("hash")
@@ -650,9 +703,9 @@ class BotApiTests(unittest.TestCase):
                 follow_redirects=True,
             )
         self.assertEqual(r.status_code, 200, r.data[-400:])
-        self.assertIn(b"Bot API keys", r.data)
-        self.assertIn(b"Second factor", r.data)
-        self.assertEqual(len(sent), 2, sent)
+        self.assertIn(b"does not expire", r.data)
+        self.assertIn(b"1 hour", r.data)
+        self.assertEqual(len(sent), 1, sent)
         with self.app.app_context():
             pair = (
                 BotApiKey.query.filter_by(
@@ -660,7 +713,9 @@ class BotApiTests(unittest.TestCase):
                 )
                 .all()
             )
-            self.assertEqual(len(pair), 2)
+            self.assertEqual(len(pair), 1)
+            self.assertEqual(pair[0].key_role, "primary")
+            self.assertIsNone(pair[0].expires_at)
 
     def test_22_leader_revoke_kills_the_pair(self):
         u = self._add_bot("revoke_ui")
@@ -744,13 +799,14 @@ class BotApiTests(unittest.TestCase):
                 data={"scope": "fos_bot_", "twofa_code": twofa.totp_at(self.secret)},
                 follow_redirects=True,
             )
-        self.assertIn(b"New House", proved.data)
-        self.assertEqual(len(sent), 2, sent)
+        self.assertIn(b"does not expire", proved.data)
+        self.assertEqual(len(sent), 1, sent)
         with self.app.app_context():
             live = BotApiKey.query.filter_by(
                 user_id=User.query.filter_by(username=u).first().id, revoked_at=None
-            ).count()
-        self.assertEqual(live, 2)
+            ).all()
+        self.assertEqual(len(live), 1)
+        self.assertEqual(live[0].key_role, "primary")
 
     def test_25_list_endpoints_page(self):
         # Its own household: the shared one already holds rows from other tests.

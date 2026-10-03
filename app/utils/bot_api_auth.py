@@ -4,8 +4,9 @@ Normal traffic sends one header:
 
     Authorization: Bearer fos_s1_<session token>
 
-The token came from one exchange call that spent both halves of a key pair,
-so the emailed second factor is not on the wire afterwards.
+The login key does not expire. Presenting it emails a 2FA key that lasts
+one hour. Exchange spends that 2FA key and returns a session token, so the
+2FA key is not sent on later calls.
 
 Every route is gated by three checks, in this order, all of them before the
 view runs: HTTPS, a live non-revoked session for an active bot in an active
@@ -468,12 +469,89 @@ def _exchange_denied(outcome: str, *, status: int = 401, code: str = "invalid_ke
     )
 
 
-def exchange_keys():
-    """Spend one (primary, twofa) pair and hand back a session token.
+def present_key():
+    """Email a one-hour 2FA key for this login key. The session stays closed."""
+    primary = bearer_token()
+    ip = client_ip()
+    allowed, _retry = bump_rate(f"x:{ip}", limit_for("", exchange=True))
+    if not allowed:
+        audit(event="rate_limit", status=429, outcome="present_ip", detail={"ip": ip})
+        resp = api_error("Too many sign-in attempts. Wait a minute.", 429, "rate_limited")
+        resp.headers["Retry-After"] = "60"
+        return resp
+    if not primary or not keys.scope_of(primary):
+        audit(event="present", status=401, outcome="bad_key")
+        return api_error("That sign-in was not accepted.", 401, "invalid_key")
 
-    The pair stays usable until it is reset — it is a long-lived second
-    factor, not a one-shot code — but every exchange is audited and a reset
-    kills the pair and all its sessions.
+    prow = keys.find_key(primary)
+    if prow is None or prow.key_role != "primary":
+        audit(event="present", status=401, outcome="unknown_key")
+        return api_error("That sign-in was not accepted.", 401, "invalid_key")
+    ok, why = keys.key_state(prow)
+    if not ok:
+        audit(event="present", status=401, outcome=why, key_id=prow.id, scope=prow.scope)
+        return api_error("That sign-in was not accepted.", 401, "invalid_key")
+
+    from app.builddb.table_users import User
+
+    user = User.query.get(int(prow.user_id or 0))
+    if user is None or not bool(getattr(user, "is_active", True)) or not bool(getattr(user, "is_bot", False)):
+        return api_error("That sign-in was not accepted.", 401, "invalid_key")
+    if not _household_ok(user):
+        return api_error("That household is paused.", 403, "house_paused")
+    gaps = keys.bot_api_blockers(user)
+    if gaps:
+        return api_error(keys.blocker_message(user), 403, "setup_incomplete")
+
+    twofa_row, raw = keys.mint_twofa(prow)
+    from app.builddb.table_households import Household
+
+    household = getattr(user, "household", None) or Household.query.get(int(user.household_id or 0))
+    mailed, detail = keys.deliver_twofa_key(
+        user=user,
+        household=household,
+        scope=prow.scope,
+        raw_key=raw,
+        base_url=request.host_url.rstrip("/"),
+    )
+    if not mailed:
+        twofa_row.revoked_at = _utcnow()
+        db.session.add(twofa_row)
+        db.session.commit()
+        audit(
+            event="present",
+            status=502,
+            outcome="mail_failed",
+            user_id=user.id,
+            key_id=prow.id,
+            scope=prow.scope,
+            detail={"mail": detail},
+        )
+        return api_error("The 2FA key could not be sent.", 502, "mail_failed")
+    db.session.commit()
+    audit(
+        event="present",
+        status=200,
+        outcome="sent",
+        user_id=user.id,
+        key_id=prow.id,
+        scope=prow.scope,
+        detail={"expires_in": keys.TWOFA_TTL_SECONDS},
+    )
+    return jsonify(
+        {
+            "sent": True,
+            "expires_in": keys.TWOFA_TTL_SECONDS,
+            "detail": "A 2FA key was sent to the other inbox. It expires in 1 hour. Send it as X-FOS-2FA with this same login key.",
+        }
+    )
+
+
+def exchange_keys():
+    """Spend the one-hour 2FA key and hand back a session token.
+
+    The login key stays. The 2FA key is revoked when the session opens.
+    A reset kills the login key and every session it produced.
     """
     primary = bearer_token()
     second = twofa_token()
@@ -575,6 +653,9 @@ def exchange_keys():
     db.session.add(row)
     keys.mark_used(prow)
     keys.mark_used(srow)
+    # The 2FA key is spent. The login key stays until a leader resets it.
+    srow.revoked_at = _utcnow()
+    db.session.add(srow)
     db.session.commit()
 
     audit(

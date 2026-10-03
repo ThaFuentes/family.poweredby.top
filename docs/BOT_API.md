@@ -33,14 +33,14 @@ Writes follow the same permissions as the page (a child can check the basket
 and cannot file a legal record or edit a vehicle). Leaders can read
 `GET /api/v1/activity`. There is still no delete.
 
-## Two keys, two inboxes
+## One login key, one 2FA key
 
-Each scope is issued as a **pair**, never a single key:
+Each scope has one login key. It does not expire.
 
-| Half | Goes to | Used as |
-|---|---|---|
-| `primary` | the bot's login email (`users.email`) | `Authorization: Bearer` |
-| `twofa` | the bot's 2FA email (`users.security_email`) | `X-FOS-2FA` |
+| Key | Goes to | Lifetime | Used as |
+|---|---|---|---|
+| Login key | the bot's login email (`users.email`) | does not expire | `Authorization: Bearer` on present and exchange |
+| 2FA key | the bot's 2FA email (`users.security_email`) | 1 hour | `X-FOS-2FA`, once |
 
 The 2FA inbox must be a different address from the login inbox. The bot
 account also needs 2FA turned on and a separate reset inbox, or no key can be
@@ -51,19 +51,13 @@ is completely independent of the house bot's key.
 
 ### Why there are two, and what "reset" does
 
-The two halves go to different people-facing inboxes on purpose: the login key
-alone is not enough to use the API, so a leak of one inbox is not a working
-credential.
+The login key alone is not enough to use the API. Presenting it emails a
+fresh 2FA key to the other inbox. That key lasts one hour and is spent when
+the session opens, so a leak of one inbox is not a working credential.
 
-Only the SHA-256 hash of each key is stored. That is a deliberate trade:
-
-- a database copy cannot be replayed as a key, and
-- **a resend cannot repeat the old key — it issues a fresh pair and revokes
-  the previous one.**
-
-So `Send keys`, `Reset`, and `Resend` on People all rotate the pair. At any
-moment exactly one pair per scope is live. Resetting also kills every session
-token that pair produced.
+Only the SHA-256 hash of each key is stored. A resend cannot repeat the old
+login key. `Send login key`, `Reset`, and `Resend` on People all rotate it
+and kill its sessions.
 
 ## Getting keys
 
@@ -73,8 +67,9 @@ token that pair produced.
 - `Reset` — new pair, old pair dead
 - `Resend` — new pair, old pair dead (same thing; the label says why)
 
-Both halves are also shown once in the copy window so the operator can hand
-them over directly. After that they exist only in the two inboxes.
+The login key is shown once in the copy window and emailed to the login
+inbox. The 2FA key is never shown there. It is emailed only when the bot
+presents the login key.
 
 **The bot itself**, from its own dashboard (`/`), proved by its current
 password or a fresh authenticator code — exactly like the password reset card.
@@ -82,12 +77,20 @@ A bot can never see its own keys on that page; it can only ask for new ones.
 
 ## Using it
 
-### 1. Exchange the pair for a session token (once)
+### 1. Present the login key, then exchange
+
+```bash
+curl -X POST https://family.poweredby.top/api/v1/auth/present \
+  -H "Authorization: Bearer fos_bot_<login key>"
+```
+
+That returns `sent: true` and `expires_in: 3600`. The 2FA key is in the other
+inbox, not in this response.
 
 ```bash
 curl -X POST https://family.poweredby.top/api/v1/auth/exchange \
-  -H "Authorization: Bearer fos_bot_<primary key>" \
-  -H "X-FOS-2FA: fos_bot_<emailed key>"
+  -H "Authorization: Bearer fos_bot_<login key>" \
+  -H "X-FOS-2FA: fos_bot_<2FA key>"
 ```
 
 ```json
@@ -102,10 +105,9 @@ curl -X POST https://family.poweredby.top/api/v1/auth/exchange \
 }
 ```
 
-The emailed half is spent here and is **not** sent on any later request.
-
-The pair stays reusable until it is reset — it is a long-lived second factor,
-like a hardware token, not a one-shot code. Every exchange is audited.
+The 2FA key is spent here and is **not** sent on any later request. The
+login key stays until a leader resets it. Ask for a new 2FA key with
+`/api/v1/auth/present` when the hour is up or the key was already used.
 
 ### 2. Call the API
 
@@ -129,7 +131,8 @@ curl -X POST https://family.poweredby.top/api/v1/auth/revoke \
 
 | Method | Path | Notes |
 |---|---|---|
-| `POST` | `/api/v1/auth/exchange` | Pair → session token. Unauthenticated by design. |
+| `POST` | `/api/v1/auth/present` | Login key in. Emails a 2FA key that expires in 1 hour. |
+| `POST` | `/api/v1/auth/exchange` | Login key plus that 2FA key → session token. |
 | `GET` | `/api/v1/whoami` | Bot, scope, `account.role`, `account.can`, session expiry, and routes. |
 | `GET` | `/api/v1/meta` | The documented v1 surface for both scopes. |
 | `POST` | `/api/v1/auth/revoke` | Kills the calling session only. |

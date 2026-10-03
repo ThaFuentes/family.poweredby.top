@@ -1,23 +1,17 @@
-"""Bot API keys: mint a pair, mail each half to a different inbox, revoke.
+"""Bot API keys: one permanent login key, one short-lived 2FA key.
 
 A scope lives in the key prefix, so a `fos_vault_` key can never pass a
 `fos_bot_` check by accident:
 
-    fos_bot_<secret>     read + write vehicles / notes / files / inventory / records
+    fos_bot_<secret>     the household content this account can already open
     fos_vault_<secret>   read-only vault
 
-Every scope is issued as a **pair**:
+The login key does not expire. It is mailed once, to the bot's login inbox.
+Presenting it (`POST /api/v1/auth/present`) mails a fresh 2FA key to the
+other inbox. That 2FA key lasts one hour. Exchange spends it and returns a
+session token. A reset mints a new login key and kills the old one.
 
-    primary  -> the bot's login inbox          (the key you sign in with)
-    twofa    -> the bot's 2FA inbox            (the key emailed as the second factor)
-
-The bot posts both once to `/api/v1/auth/exchange` and gets a short-lived
-session token back. The emailed half is spent at that moment and is never
-sent on a later request.
-
-Only the hash is stored. That is why a "resend" cannot repeat the old key: it
-issues a fresh pair and revokes the previous one, so exactly one pair per
-scope is ever live.
+Only the hash is stored. A resend cannot repeat the old key.
 """
 from __future__ import annotations
 
@@ -35,6 +29,7 @@ SCOPE_VAULT = "fos_vault_"
 DEFAULT_DAYS = 90
 MAX_DAYS = 365
 KEY_BODY_BYTES = 30
+TWOFA_TTL_SECONDS = 3600
 
 REASONS = ("issued", "reset", "resent")
 
@@ -170,8 +165,8 @@ def bot_api_ready(user) -> bool:
 BLOCKER_COPY = {
     "account": "That account is not active.",
     "not_bot": "Mark this person as a BOT account first (People -> Mark as BOT).",
-    "login_email": "This bot has no login email. That is where the first key goes.",
-    "twofa_email": "Name a 2FA email. The second factor is emailed there.",
+    "login_email": "This bot has no login email. That is where the login key goes.",
+    "twofa_email": "Name a 2FA email. The one-hour key is emailed there.",
     "twofa_email_same_as_login": "The 2FA email must not be the login email — the two keys go to different inboxes.",
     "reset_email": "A bot also needs a reset inbox that is not the login email.",
     "twofa": "Turn on 2FA for this bot first (its own Look page or the setup wall).",
@@ -227,56 +222,79 @@ def mint_pair(
     created_by=None,
     days: int = DEFAULT_DAYS,
 ) -> tuple[bool, str, dict]:
-    """Revoke any live pair on this scope, then issue a fresh one.
+    """Revoke any live key on this scope, then issue a permanent login key.
 
-    Returns the raw keys. They exist only in this return value — the caller
-    mails or displays them and the database keeps hashes.
+    `days` is ignored. The login key does not expire. The 2FA key is minted
+    later, when that login key is presented. The raw key exists only in this
+    return value.
     """
     blockers = bot_api_blockers(user)
     if blockers:
         return False, blocker_message(user), {}
     scope = normalize_scope(scope)
-    try:
-        life = max(1, min(int(days or DEFAULT_DAYS), MAX_DAYS))
-    except Exception:
-        life = DEFAULT_DAYS
-
     pair_id = secrets.token_hex(16)
-    expires = _utcnow() + timedelta(days=life)
-    raw = {"primary": new_key(scope), "twofa": new_key(scope)}
+    raw = new_key(scope)
     issued = _utcnow()
-    # Revoke the outgoing pair FIRST. Doing it after adding the new rows
-    # would autoflush them into the query and revoke the pair we just made.
+    # Revoke the outgoing key FIRST. Doing it after adding the new row
+    # would autoflush it into the query and revoke the key we just made.
     revoked = revoke_live_pair(user, scope, revoked_by=created_by)
-    rows = []
-    for role in KEY_ROLES:
-        row = BotApiKey(
-            household_id=int(getattr(user, "household_id", 0) or 0),
-            user_id=int(getattr(user, "id", 0) or 0),
-            scope=scope,
-            key_role=role,
-            key_hash=hash_key(raw[role]),
-            key_tail=key_tail(raw[role]),
-            pair_id=pair_id,
-            label=(label or "").strip()[:120] or None,
-            created_by=int(created_by or getattr(user, "id", 0) or 0) or None,
-            issued_at=issued,
-            expires_at=expires,
-            use_count=0,
-        )
-        db.session.add(row)
-        rows.append(row)
+    row = BotApiKey(
+        household_id=int(getattr(user, "household_id", 0) or 0),
+        user_id=int(getattr(user, "id", 0) or 0),
+        scope=scope,
+        key_role="primary",
+        key_hash=hash_key(raw),
+        key_tail=key_tail(raw),
+        pair_id=pair_id,
+        label=(label or "").strip()[:120] or None,
+        created_by=int(created_by or getattr(user, "id", 0) or 0) or None,
+        issued_at=issued,
+        expires_at=None,
+        use_count=0,
+    )
+    db.session.add(row)
     db.session.flush()
     return True, "", {
         "pair_id": pair_id,
         "scope": scope,
-        "expires_at": expires,
-        "days": life,
-        "primary": raw["primary"],
-        "twofa": raw["twofa"],
-        "rows": rows,
+        "expires_at": None,
+        "days": None,
+        "primary": raw,
+        "rows": [row],
         "revoked_count": revoked,
     }
+
+
+def mint_twofa(primary: BotApiKey) -> tuple[BotApiKey, str]:
+    """Replace any open 2FA key on this login key with one that lasts an hour.
+
+    The permanent key and its open sessions stay. The raw 2FA key is returned
+    once, for the caller to email. It is not stored.
+    """
+    now = _utcnow()
+    for old in BotApiKey.query.filter_by(
+        pair_id=primary.pair_id, key_role="twofa", revoked_at=None
+    ).all():
+        old.revoked_at = now
+        db.session.add(old)
+    raw = new_key(primary.scope)
+    row = BotApiKey(
+        household_id=int(primary.household_id or 0),
+        user_id=int(primary.user_id or 0),
+        scope=primary.scope,
+        key_role="twofa",
+        key_hash=hash_key(raw),
+        key_tail=key_tail(raw),
+        pair_id=primary.pair_id,
+        label=primary.label,
+        created_by=primary.created_by,
+        issued_at=now,
+        expires_at=now + timedelta(seconds=TWOFA_TTL_SECONDS),
+        use_count=0,
+    )
+    db.session.add(row)
+    db.session.flush()
+    return row, raw
 
 
 def revoke_live_pair(user, scope: str | None = None, *, revoked_by=None) -> int:
@@ -354,6 +372,9 @@ def key_status(user) -> list[dict]:
             }
             pairs[row.pair_id] = entry
         entry["tails"][row.key_role] = row.key_tail
+        if row.key_role == "primary":
+            entry["expires_at"] = row.expires_at
+            entry["issued_at"] = row.issued_at or entry["issued_at"]
         if row.revoked_at:
             if entry["revoked_at"] is None or row.revoked_at < entry["revoked_at"]:
                 entry["revoked_at"] = row.revoked_at
@@ -400,23 +421,36 @@ def summary(user) -> dict:
 REASON_SUBJECT = {
     "issued": "Your Family OS bot API key",
     "reset": "Your Family OS bot API key was reset",
-    "resent": "Your Family OS bot API keys (new pair)",
+    "resent": "Your Family OS bot API key (new key)",
 }
 
 REASON_LEAD = {
-    "issued": "These keys were just issued for your bot account.",
-    "reset": "Your old bot API keys are dead. These replace them.",
-    "resent": "Here is a fresh pair of bot API keys. The previous pair was revoked when this was sent.",
+    "issued": "A login key was just issued for your bot account. It does not expire.",
+    "reset": "Your old bot API key is dead. This one replaces it. It does not expire.",
+    "resent": "Here is a new login key. The previous one was revoked when this was sent. It does not expire.",
 }
 
 
-def exchange_example(base_url: str, scope: str) -> str:
-    return (
-        f"curl -X POST {base_url.rstrip('/')}/api/v1/auth/exchange \\\n"
-        f'  -H "Authorization: Bearer <primary key>" \\\n'
-        f'  -H "X-FOS-2FA: <emailed key>"\n\n'
-        f"That returns a short-lived token. Send it as:\n"
-        f'  Authorization: Bearer fos_s1_...'
+def _sign_in_steps(base_url: str) -> str:
+    root = base_url.rstrip("/")
+    return "\n".join(
+        [
+            "This key does not expire. The 2FA key is separate and lasts 1 hour.",
+            "",
+            "1. Present this login key:",
+            f"curl -X POST {root}/api/v1/auth/present \\",
+            '  -H "Authorization: Bearer <this login key>"',
+            "",
+            "2. A 2FA key arrives in the other inbox. It expires in 1 hour.",
+            "",
+            "3. Trade both for a session token:",
+            f"curl -X POST {root}/api/v1/auth/exchange \\",
+            '  -H "Authorization: Bearer <this login key>" \\',
+            '  -H "X-FOS-2FA: <the 2FA key>"',
+            "",
+            "4. Call the API with the token that comes back:",
+            "   Authorization: Bearer fos_s1_...",
+        ]
     )
 
 
@@ -428,26 +462,24 @@ def primary_email_body(*, user, household, scope: str, raw_key: str, base_url: s
         [
             f"Hi {who},",
             "",
-            REASON_LEAD.get(reason, "These keys were issued for your bot account."),
+            REASON_LEAD.get(reason, "A login key was issued for your bot account. It does not expire."),
             "",
             f"Scope: {scope_label(scope)}",
             f"Household: {house}",
             "",
-            f"LOGIN KEY (one half of the pair):",
+            "LOGIN KEY (does not expire):",
             f"  {raw_key}",
             "",
-            "The other half went to your 2FA inbox, not this address. You need both.",
+            "This inbox does not receive the 2FA key.",
             "",
-            "Trade them for a session token:",
-            "",
-            exchange_example(base_url, scope),
+            _sign_in_steps(base_url),
             "",
             f"Sent to {box}. If this is not your bot, ignore this email and tell a leader.",
         ]
     )
 
 
-def twofa_email_body(*, user, household, scope: str, raw_key: str, base_url: str, reason: str) -> str:
+def twofa_email_body(*, user, household, scope: str, raw_key: str, base_url: str, reason: str = "issued") -> str:
     who = (getattr(user, "name", None) or getattr(user, "username", None) or "there").strip()
     house = (getattr(household, "name", None) or "your household").strip()
     box = twofa_inbox(user)
@@ -455,56 +487,84 @@ def twofa_email_body(*, user, household, scope: str, raw_key: str, base_url: str
         [
             f"Hi {who},",
             "",
-            REASON_LEAD.get(reason, "These keys were just issued for your bot account."),
+            "A 2FA key was requested for your bot. It expires in 1 hour.",
             "",
             f"Scope: {scope_label(scope)}",
             f"Household: {house}",
             "",
-            "SECOND FACTOR KEY (the half that is NOT the login key):",
+            "2FA KEY (expires in 1 hour):",
             f"  {raw_key}",
             "",
-            "Send it once, as X-FOS-2FA, when trading keys for a session token.",
+            "Send it once, as X-FOS-2FA, with the login key:",
             "",
-            exchange_example(base_url, scope),
+            f"curl -X POST {base_url.rstrip('/')}/api/v1/auth/exchange \\",
+            '  -H "Authorization: Bearer <login key>" \\',
+            '  -H "X-FOS-2FA: <this key>"',
             "",
+            "This inbox does not receive the login key.",
             f"Sent to {box}. Nobody else should be reading this inbox.",
         ]
     )
 
 
-def deliver_pair(*, user, household, scope: str, pair: dict, base_url: str, reason: str = "issued") -> tuple[bool, str]:
-    """Mail each half of the pair to its own inbox. Returns (all_ok, detail)."""
+def deliver_login_key(*, user, household, scope: str, raw_key: str, base_url: str, reason: str = "issued") -> tuple[bool, str]:
+    """Mail the permanent login key. The 2FA key is not included."""
     from app.utils.mail import send_mail
 
     reason = reason if reason in REASONS else "issued"
     scope = normalize_scope(scope)
-    lines: list[str] = []
-    all_ok = True
-    for role, inbox, builder, subject in (
-        ("primary", login_inbox(user), primary_email_body, REASON_SUBJECT[reason]),
-        ("twofa", twofa_inbox(user), twofa_email_body, REASON_SUBJECT[reason] + " — second factor"),
-    ):
-        if not inbox:
-            all_ok = False
-            lines.append(f"{role}: no inbox on file")
-            continue
-        ok, msg = send_mail(
-            inbox,
-            f"{subject} ({scope_label(scope)})",
-            builder(
-                user=user,
-                household=household,
-                scope=scope,
-                raw_key=pair[role],
-                base_url=base_url,
-                reason=reason,
-            ),
-            household=getattr(user, "household", None) or household,
-        )
-        if not ok:
-            all_ok = False
-        lines.append(f"{role} -> {inbox}: {'sent' if ok else msg}")
-    return all_ok, "; ".join(lines)
+    inbox = login_inbox(user)
+    if not inbox:
+        return False, "primary: no inbox on file"
+    ok, msg = send_mail(
+        inbox,
+        f"{REASON_SUBJECT[reason]} ({scope_label(scope)})",
+        primary_email_body(
+            user=user,
+            household=household,
+            scope=scope,
+            raw_key=raw_key,
+            base_url=base_url,
+            reason=reason,
+        ),
+        household=getattr(user, "household", None) or household,
+    )
+    return ok, f"primary -> {inbox}: {'sent' if ok else msg}"
+
+
+def deliver_twofa_key(*, user, household, scope: str, raw_key: str, base_url: str) -> tuple[bool, str]:
+    """Mail the one-hour 2FA key. The login key is not included."""
+    from app.utils.mail import send_mail
+
+    scope = normalize_scope(scope)
+    inbox = twofa_inbox(user)
+    if not inbox or inbox.lower() == login_inbox(user).lower():
+        return False, "twofa: no separate inbox on file"
+    ok, msg = send_mail(
+        inbox,
+        f"Your Family OS bot 2FA key ({scope_label(scope)})",
+        twofa_email_body(
+            user=user,
+            household=household,
+            scope=scope,
+            raw_key=raw_key,
+            base_url=base_url,
+        ),
+        household=getattr(user, "household", None) or household,
+    )
+    return ok, f"twofa -> {inbox}: {'sent' if ok else msg}"
+
+
+def deliver_pair(*, user, household, scope: str, pair: dict, base_url: str, reason: str = "issued") -> tuple[bool, str]:
+    """Mail the login key. Kept so older callers still send the permanent key."""
+    return deliver_login_key(
+        user=user,
+        household=household,
+        scope=scope,
+        raw_key=pair["primary"],
+        base_url=base_url,
+        reason=reason,
+    )
 
 
 def issue_keys(
@@ -518,7 +578,7 @@ def issue_keys(
     days: int = DEFAULT_DAYS,
     reason: str = "issued",
 ) -> tuple[bool, str, dict]:
-    """Rotate the pair on this scope and mail both halves out. The one call."""
+    """Rotate the login key on this scope and mail it. The 2FA key comes later."""
     from app.builddb.table_households import Household
 
     hh = household or getattr(user, "household", None) or Household.query.get(

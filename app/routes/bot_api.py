@@ -253,10 +253,20 @@ def note_activity(
 # ----------------------------------------------------------------- auth
 
 
+@bot_api_bp.route("/auth/present", methods=["POST"])
+@bot_api(BOT, exchange=True)
+def present():
+    """Login key in. A one-hour 2FA key goes to the other inbox."""
+    from app.utils.bot_api_auth import present_key
+
+    g.bot_api_audited = True
+    return present_key()
+
+
 @bot_api_bp.route("/auth/exchange", methods=["POST"])
 @bot_api(BOT, exchange=True)
 def exchange():
-    """Spend a (login key, emailed key) pair for a short-lived token."""
+    """Spend the one-hour 2FA key for a session token. The login key stays."""
     g.bot_api_audited = True
     return exchange_keys()
 

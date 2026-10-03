@@ -309,8 +309,8 @@ def bot_own_api_keys():
     )
     db.session.commit()
     flash(
-        f"New {scope_label(scope)} keys are on their way to your two inboxes. "
-        "The old pair stopped working the moment this was sent.",
+        f"A new {scope_label(scope)} login key is on its way to your login inbox. "
+        "It does not expire. The old key stopped working the moment this was sent.",
         "success" if mailed else "warning",
     )
     return redirect(back)
