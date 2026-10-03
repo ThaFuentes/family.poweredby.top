@@ -577,7 +577,7 @@ def ask_history():
 @bot_api_bp.route("/activity")
 @bot_api(BOT)
 def activity_list():
-    from app.utils.activity import recent
+    from app.utils.activity import newest_at, recent
 
     blocked = gate("override")
     if blocked:
@@ -586,8 +586,16 @@ def activity_list():
         hours = int(request.args.get("hours") or 48)
     except (TypeError, ValueError):
         hours = 48
-    rows = recent(api_household_id(), limit=limit_arg(default=40, ceiling=80), hours=hours or None)
+    hid = api_household_id()
+    rows = recent(hid, limit=limit_arg(default=40, ceiling=80), hours=hours or None)
     for row in rows:
         row["when"] = iso(row.get("when"))
         row["reversed_at"] = iso(row.get("reversed_at"))
-    return ok({"activity": rows, "count": len(rows)})
+    last = newest_at(hid)
+    return ok({
+        "activity": rows,
+        "count": len(rows),
+        "window_hours": hours,
+        "newest_at": iso(last),
+        "recording": True,
+    })

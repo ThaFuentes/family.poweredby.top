@@ -95,6 +95,18 @@ def log_grocery(item, g, action: str, prev_qty, new_qty, amount, user_id=None):
     )
 
 
+def newest_at(hid: int):
+    """The last row this house stored, outside the recent window."""
+    from app.builddb.table_household_activity import HouseholdActivity
+
+    row = (
+        HouseholdActivity.query.filter_by(household_id=int(hid))
+        .order_by(HouseholdActivity.id.desc())
+        .first()
+    )
+    return row.created_at if row is not None else None
+
+
 def recent(hid: int, *, limit: int = 40, hours: int | None = 48):
     from datetime import timedelta
     from app.builddb.table_household_activity import HouseholdActivity

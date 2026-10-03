@@ -52,7 +52,7 @@ HELP_CALLS = (
     ("GET", "/api/v1/find", "fos_bot_", "view", "Query q. Records and cases are included only with legal."),
     ("GET", "/api/v1/people", "fos_bot_", "not a child", "Names and roles. No passwords, no security inboxes."),
     ("GET", "/api/v1/ask", "fos_bot_", "not a child", "This bot's own Ask history. Query room, limit, offset."),
-    ("GET", "/api/v1/activity", "fos_bot_", "override", "What happened. Query hours, limit, offset. Leaders and admins."),
+    ("GET", "/api/v1/activity", "fos_bot_", "override", "What happened. Query hours, limit, offset. newest_at is the last row stored, even when this window is empty. Leaders and admins."),
     ("GET", "/api/v1/vault", "either", "vault, never a child", "Card names only. No secrets."),
     ("GET", "/api/v1/vault/<id>", "either", "vault, never a child", "Open one card. A card this account cannot see is 404."),
 )
