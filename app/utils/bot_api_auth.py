@@ -653,7 +653,7 @@ def exchange_keys():
     db.session.add(row)
     keys.mark_used(prow)
     keys.mark_used(srow)
-    # The 2FA key is spent. The login key stays until a leader resets it.
+    # The 2FA key is spent. The login key stays until /api/v1/auth/reset or a leader reset.
     srow.revoked_at = _utcnow()
     db.session.add(srow)
     db.session.commit()

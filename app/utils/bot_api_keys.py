@@ -454,6 +454,11 @@ def _sign_in_steps(base_url: str) -> str:
             "5. The route map is:",
             f"GET {root}/api/v1/helper",
             "You are GET /api/v1/me (same as /api/v1/whoami).",
+            "",
+            "6. When that session is finished, replace this login key:",
+            f"curl -X POST {root}/api/v1/auth/reset \\",
+            '  -H "Authorization: Bearer fos_s1_..."',
+            "The next login key comes back to this inbox. It does not expire. The old key and that session end.",
         ]
     )
 
@@ -605,3 +610,41 @@ def issue_keys(
     pair["mailed"] = mailed
     pair["mail_detail"] = detail
     return True, detail, pair
+
+
+def reset_own_key(user, scope: str, *, household=None, base_url: str = "") -> tuple[bool, str]:
+    """Replace this scope's login key and mail the new one to the login inbox.
+
+    The old key and its sessions stay until that mail sends. The raw key is
+    never returned.
+    """
+    from app.builddb.table_households import Household
+
+    hh = household or getattr(user, "household", None) or Household.query.get(
+        int(getattr(user, "household_id", 0) or 0)
+    )
+    try:
+        ok, msg, pair = mint_pair(
+            user,
+            scope,
+            created_by=getattr(user, "id", None),
+        )
+        if not ok:
+            db.session.rollback()
+            return False, msg or "That login key could not be replaced."
+        mailed, detail = deliver_login_key(
+            user=user,
+            household=hh,
+            scope=normalize_scope(scope),
+            raw_key=pair["primary"],
+            base_url=base_url,
+            reason="reset",
+        )
+        if not mailed:
+            db.session.rollback()
+            return False, detail or "The new login key could not be emailed."
+        db.session.commit()
+        return True, detail
+    except Exception:
+        db.session.rollback()
+        return False, "That login key could not be replaced."

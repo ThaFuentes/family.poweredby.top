@@ -17,6 +17,7 @@ HELP_CALLS = (
     ("POST", "/api/v1/auth/present", "login", "", "Send the login key. A 2FA key is emailed to the other inbox for 1 hour."),
     ("POST", "/api/v1/auth/exchange", "login", "", "Login key as Bearer, 2FA key as X-FOS-2FA. Returns fos_s1_."),
     ("POST", "/api/v1/auth/revoke", "either", "", "End this session only. The login key stays."),
+    ("POST", "/api/v1/auth/reset", "either", "", "End this session and replace the login key. The new key does not expire and is emailed to the login inbox. Call this when the session is finished."),
     ("GET", "/api/v1/vehicles", "fos_bot_", "view", "Vehicles. Query limit, offset."),
     ("GET", "/api/v1/vehicles/<id>", "fos_bot_", "view", "One vehicle."),
     ("POST", "/api/v1/vehicles", "fos_bot_", "maintain or edit_meta", "Body name, and optional year, make, model, category, notes, current_mileage, oil_needs."),

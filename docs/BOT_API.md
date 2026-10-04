@@ -106,8 +106,8 @@ curl -X POST https://family.poweredby.top/api/v1/auth/exchange \
 ```
 
 The 2FA key is spent here and is **not** sent on any later request. The
-login key stays until a leader resets it. Ask for a new 2FA key with
-`/api/v1/auth/present` when the hour is up or the key was already used.
+login key stays until the bot replaces it, or a leader does. Ask for a new
+2FA key with `/api/v1/auth/present` when the hour is up or the key was already used.
 
 ### 2. Call the API
 
@@ -116,12 +116,18 @@ curl https://family.poweredby.top/api/v1/vehicles \
   -H "Authorization: Bearer fos_s1_…"
 ```
 
-### 3. Revoke the session when done
+### 3. Replace the login key when the session is finished
 
 ```bash
-curl -X POST https://family.poweredby.top/api/v1/auth/revoke \
+curl -X POST https://family.poweredby.top/api/v1/auth/reset \
   -H "Authorization: Bearer fos_s1_…"
 ```
+
+That emails a new login key to the login inbox. The new key does not expire.
+The previous login key and this session stop working. The response does not
+contain the new key. Sign in again with present, then exchange.
+
+`POST /api/v1/auth/revoke` still ends the session only and leaves the login key.
 
 ---
 
@@ -138,6 +144,7 @@ curl -X POST https://family.poweredby.top/api/v1/auth/revoke \
 | `GET` | `/api/v1/me` | Same as whoami. |
 | `GET` | `/api/v1/meta` | The documented v1 surface for both scopes. |
 | `POST` | `/api/v1/auth/revoke` | Kills the calling session only. |
+| `POST` | `/api/v1/auth/reset` | Session only. Emails a new login key to the login inbox, kills the old key, and ends this session. The new key does not expire. |
 
 ### `fos_bot_` — read
 

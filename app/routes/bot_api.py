@@ -22,6 +22,7 @@ from flask import Blueprint, g, jsonify, request
 from app.builddb.builddb import db
 from app.utils.bot_api_keys import SCOPE_ALL, SCOPE_VAULT
 from app.utils.bot_api_auth import (
+    api_error,
     api_household_id,
     api_user,
     audit,
@@ -335,6 +336,57 @@ def helper():
 @bot_api_any(BOT, VAULT, write=True)
 def revoke():
     return _revoke_session()
+
+
+@bot_api_bp.route("/auth/reset", methods=["POST"])
+@bot_api_any(BOT, VAULT, write=True)
+def reset_login_key():
+    """Session only. Mail a new login key to the login inbox and end this session."""
+    from app.utils.bot_api_keys import reset_own_key
+
+    g.bot_api_audited = True
+    user = api_user()
+    session = g.bot_session
+    ok_reset, detail = reset_own_key(
+        user,
+        session.scope,
+        base_url=request.host_url.rstrip("/"),
+    )
+    if not ok_reset:
+        audit(
+            event="reset",
+            status=502,
+            outcome="mail_failed",
+            user_id=getattr(user, "id", None),
+            key_id=getattr(session, "key_id", None),
+            session_id=getattr(session, "id", None),
+            scope=getattr(session, "scope", None),
+        )
+        return api_error(
+            "The new login key could not be emailed, so this key and session still work.",
+            502,
+            "mail_failed",
+        )
+    audit(
+        event="reset",
+        status=200,
+        outcome="mailed",
+        user_id=getattr(user, "id", None),
+        key_id=getattr(session, "key_id", None),
+        session_id=getattr(session, "id", None),
+        scope=getattr(session, "scope", None),
+    )
+    return ok(
+        {
+            "reset": True,
+            "expires": "never",
+            "detail": (
+                "A new login key was emailed to the login inbox. It does not expire. "
+                "This session and the previous login key are finished. "
+                "Sign in again with the new key."
+            ),
+        }
+    )
 
 
 @bot_api_bp.route("/meta")

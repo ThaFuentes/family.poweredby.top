@@ -670,6 +670,78 @@ class BotApiTests(unittest.TestCase):
         self.assertEqual(gone.status_code, 200, gone.data[:300])
         self.assertEqual(self._api(token, "/api/v1/whoami").status_code, 401)
 
+    def test_17b_session_can_replace_the_login_key(self):
+        u = self._add_bot("rotate")
+        primary, twofa = self._pair_of(u)
+        token = self._exchange(primary, twofa)
+        helper = self._api(token, "/api/v1/helper")
+        self.assertIn("POST /api/v1/auth/reset", helper.get_data(as_text=True))
+        sent: list[tuple[str, str, str]] = []
+
+        def fake_send(to, subject, body, **kw):
+            sent.append((to, subject, body))
+            return True, "ok"
+
+        with patch("app.utils.mail.send_mail", side_effect=fake_send):
+            reset = self._api(token, "/api/v1/auth/reset", method="post")
+        self.assertEqual(reset.status_code, 200, reset.data[:400])
+        body = json.loads(reset.data)
+        self.assertTrue(body["reset"])
+        self.assertEqual(body["expires"], "never")
+        text = reset.get_data(as_text=True)
+        self.assertNotIn(primary, text)
+        self.assertEqual(len(sent), 1, sent)
+        self.assertEqual(sent[0][0], f"{u}@family.test")
+        self.assertNotIn(f"{u}.codes@family.test", sent[0][2])
+        self.assertIn("does not expire", sent[0][2])
+        self.assertIn("/api/v1/auth/reset", sent[0][2])
+        fresh = next(line.strip() for line in sent[0][2].splitlines() if line.strip().startswith("fos_bot_"))
+        self.assertNotEqual(fresh, primary)
+        self.assertNotIn(fresh, text)
+        self.assertEqual(self._api(token, "/api/v1/whoami").status_code, 401)
+        with patch("app.utils.mail.send_mail", side_effect=fake_send):
+            old = self._get_post(
+                "/api/v1/auth/present",
+                method="post",
+                headers={"Authorization": f"Bearer {primary}"},
+            )
+        self.assertEqual(old.status_code, 401, old.data[:300])
+        with self.app.app_context():
+            row = BotApiKey.query.filter_by(key_hash=keys.hash_key(fresh)).one()
+            self.assertIsNone(row.expires_at)
+            self.assertIsNone(row.revoked_at)
+            self.assertEqual(row.key_role, "primary")
+        denied = self._get_post(
+            "/api/v1/auth/reset",
+            method="post",
+            headers={"Authorization": f"Bearer {fresh}"},
+        )
+        self.assertEqual(denied.status_code, 401, denied.data[:300])
+
+        def fail_send(to, subject, body, **kw):
+            return False, "down"
+
+        sent_twofa: list[tuple[str, str, str]] = []
+
+        def fake_twofa(to, subject, body, **kw):
+            sent_twofa.append((to, subject, body))
+            return True, "ok"
+
+        with patch("app.utils.mail.send_mail", side_effect=fake_twofa):
+            presented = self._get_post(
+                "/api/v1/auth/present",
+                method="post",
+                headers={"Authorization": f"Bearer {fresh}"},
+            )
+        self.assertEqual(presented.status_code, 200, presented.data[:300])
+        code = next(line.strip() for line in sent_twofa[0][2].splitlines() if line.strip().startswith("fos_"))
+        token2 = self._exchange(fresh, code)
+        with patch("app.utils.mail.send_mail", side_effect=fail_send):
+            failed = self._api(token2, "/api/v1/auth/reset", method="post")
+        self.assertEqual(failed.status_code, 502, failed.data[:400])
+        self.assertNotIn(fresh, failed.get_data(as_text=True))
+        self.assertEqual(self._api(token2, "/api/v1/whoami").status_code, 200)
+
     def test_18_a_bot_without_its_inboxes_cannot_get_a_key(self):
         u = self._add_bot("noinbox")
         with self.app.app_context():
