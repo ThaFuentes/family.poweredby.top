@@ -182,34 +182,10 @@ def resolve_legal_file(row) -> Path:
     return path
 
 
-def _form_record(row=None):
-    title = (request.form.get("title") or "").strip()
-    if not title:
-        return None, "Say what it is — parking ticket, code notice, whatever they handed you."
-    kind = _kind(request.form.get("kind"), row.kind if row else "citation")
-    status = _status(request.form.get("status"), row.status if row else "open")
-    extra = {}
-    if row is not None and isinstance(getattr(row, "extra_data", None), dict):
-        extra = dict(row.extra_data)
-    detail = (request.form.get("kind_detail") or "").strip()[:200]
-    if detail:
-        extra["kind_detail"] = detail
-    else:
-        extra.pop("kind_detail", None)
-    return {
-        "title": title[:500],
-        "kind": kind,
-        "status": status,
-        "agency": (request.form.get("agency") or "").strip()[:400] or None,
-        "case_number": (request.form.get("case_number") or "").strip()[:120] or None,
-        "location": (request.form.get("location") or "").strip()[:400] or None,
-        "issued_on": _parse_date(request.form.get("issued_on")),
-        "due_on": _parse_date(request.form.get("due_on")),
-        "amount": _parse_amount(request.form.get("amount")),
-        "body": (request.form.get("body") or "").strip() or None,
-        "outcome": (request.form.get("outcome") or "").strip() or None,
-        "extra_data": extra or None,
-    }, None
+def _form_record(row=None, form=None):
+    from app.services.legal import form_record
+
+    return form_record(request.form if form is None else form, row)
 
 
 @legal_bp.route("/")
@@ -270,9 +246,9 @@ def add():
     if err:
         flash(err, "danger")
         return redirect(url_for("legal.index"))
-    row = LegalRecord(household_id=household_id(), created_by=current_user.id, **fields)
-    db.session.add(row)
-    db.session.flush()
+    from app.services.legal import create_record
+
+    row = create_record(hid=household_id(), user_id=current_user.id, fields=fields)
     files = request.files.getlist("file") or []
     saved = 0
     for f in files:
@@ -307,21 +283,18 @@ def _open_case_from_record(row: LegalRecord, title=None):
 def add_case():
     if request.method == "GET":
         return redirect(url_for("legal.index", view="cases"))
+    from app.services.legal import open_case as _open_case
+
     hid = household_id()
-    title = (request.form.get("title") or "").strip()
-    if not title:
-        flash("Name the case.", "danger")
-        return redirect(url_for("legal.index", view="cases"))
-    case = LegalCase(
-        household_id=hid,
-        number=next_case_number(hid),
-        title=title[:500],
-        status="open",
-        summary=(request.form.get("summary") or "").strip() or None,
-        created_by=current_user.id,
+    case, err = _open_case(
+        hid=hid,
+        user_id=current_user.id,
+        title=request.form.get("title"),
+        summary=request.form.get("summary"),
     )
-    db.session.add(case)
-    db.session.flush()
+    if err:
+        flash(err, "danger")
+        return redirect(url_for("legal.index", view="cases"))
     rec_id = request.form.get("record_id")
     if rec_id:
         rec = scoped(LegalRecord).filter_by(id=int(rec_id)).first()
@@ -380,14 +353,11 @@ def edit_case(case_id):
     case = scoped(LegalCase).filter_by(id=case_id).first_or_404()
     if not _can_edit(case):
         abort(403)
-    title = (request.form.get("title") or "").strip()
-    if title:
-        case.title = title[:500]
-    st = (request.form.get("status") or "").strip().lower()
-    if st in CASE_STATUSES:
-        case.status = st
-    case.summary = (request.form.get("summary") or "").strip() or None
-    case.updated_at = datetime.utcnow()
+    from app.services.legal import edit_case as _edit_case
+
+    form = dict(request.form.items())
+    form.setdefault("summary", "")
+    _edit_case(case, form)
     db.session.commit()
     flash(f"{case_label(case)} updated.", "success")
     return redirect(url_for("legal.case_detail", case_id=case.id))
@@ -531,16 +501,11 @@ def delete_followup(followup_id):
     if not _can_edit(case):
         abort(403)
     cid = case.id
-    for f in list(fu.files or []):
-        try:
-            path = resolve_legal_file(f)
-            path.unlink(missing_ok=True)
-        except Exception:
-            pass
-        db.session.delete(f)
-    db.session.delete(fu)
+    from app.services.legal import remove_followup
+
+    remove_followup(fu, actor_id=current_user.id, via="ui")
     db.session.commit()
-    flash("Follow-up removed.", "info")
+    flash("Follow-up removed. A leader can put it back from the recycle bin.", "info")
     return redirect(url_for("legal.case_detail", case_id=cid))
 
 
@@ -584,9 +549,9 @@ def edit(record_id):
     if err:
         flash(err, "danger")
         return redirect(url_for("legal.detail", record_id=row.id))
-    for key, val in fields.items():
-        setattr(row, key, val)
-    row.updated_at = datetime.utcnow()
+    from app.services.legal import update_record
+
+    update_record(row, fields)
     db.session.commit()
     flash("Record updated.", "success")
     return redirect(url_for("legal.detail", record_id=row.id))
@@ -599,21 +564,11 @@ def delete(record_id):
     row = scoped(LegalRecord).filter_by(id=record_id).first_or_404()
     if not _can_edit(row):
         abort(403)
-    hid = row.household_id
-    folder = Path(_uploads_root()) / str(hid) / "legal" / str(row.id)
-    root = Path(_uploads_root()).resolve()
-    if folder.exists():
-        try:
-            folder.resolve().relative_to(root)
-            import shutil
+    from app.services.legal import remove_record
 
-            shutil.rmtree(folder, ignore_errors=True)
-        except ValueError:
-            pass
-    LegalFile.query.filter_by(household_id=hid, record_id=row.id).delete(synchronize_session=False)
-    db.session.delete(row)
+    remove_record(row, actor_id=current_user.id, via="ui")
     db.session.commit()
-    flash("Record removed.", "info")
+    flash("Record removed. A leader can put it back from the recycle bin.", "info")
     return redirect(url_for("legal.index"))
 
 

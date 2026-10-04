@@ -183,6 +183,10 @@ def _schema_ready() -> bool:
             return False
         if "bot_api_audit" not in names or "bot_api_rate" not in names:
             return False
+        if not {"maya_bot_accounts", "maya_bot_permissions", "maya_bot_perm_log"} <= names:
+            return False
+        if not {"household_trash", "household_file_versions"} <= names:
+            return False
         items = {c["name"] for c in inspect(db.engine).get_columns("items")}
         if "removed_at" not in items:
             return False
@@ -275,6 +279,7 @@ def init_tenant_system(app):
                 "table_platform_invites",
                 "table_platform_settings",
                 "table_platform_audit",
+                "table_maya_bot",
             ]
             evolve_ok = True
             for module_name in ordered_modules:

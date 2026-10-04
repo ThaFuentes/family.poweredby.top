@@ -393,47 +393,21 @@ def list_add():
     if not raw:
         flash("Name required.", "danger")
         return _basket_back()
+    from app.services.basket import add_names
+
     note = (request.form.get("note") or request.form.get("store") or "").strip()[:120] or None
-    names = [p.strip()[:200] for p in raw.replace("\n", ",").split(",") if p.strip()]
-    if not names:
+    rows = add_names(hid=household_id(), user_id=current_user.id, raw=raw, note=note)
+    if not rows:
         flash("Name required.", "danger")
         return _basket_back()
-    hid = household_id()
-    for name in names[:40]:
-        db.session.add(
-            GroceryListEntry(
-                household_id=hid,
-                name=name,
-                status="open",
-                added_reason="want",
-                note=note,
-                created_by=current_user.id,
-            )
-        )
     db.session.commit()
     return _basket_back()
 
 
 def _check_off(row, *, restock=True):
-    if restock and row.item_id:
-        item = Item.query.filter_by(id=row.item_id, household_id=row.household_id).first()
-        if item and item.grocery:
-            apply_grocery_stock(
-                item.grocery,
-                item,
-                "restock",
-                row.quantity_needed or 1,
-                current_user.id,
-            )
-    row.status = "done"
-    row.completed_at = datetime.utcnow()
-    if row.item_id:
-        extras = GroceryListEntry.query.filter_by(
-            household_id=row.household_id, item_id=row.item_id, status="open"
-        ).all()
-        for extra in extras:
-            extra.status = "done"
-            extra.completed_at = row.completed_at
+    from app.services.basket import check_off
+
+    check_off(row, user_id=current_user.id, restock=restock)
 
 
 @groceries_bp.route("/list/<int:entry_id>/done", methods=["POST"])
@@ -459,8 +433,9 @@ def list_toggle(entry_id):
     if row.status == "open":
         _check_off(row)
     else:
-        row.status = "open"
-        row.completed_at = None
+        from app.services.basket import reopen
+
+        reopen(row)
     db.session.commit()
     return jsonify({"ok": True, "id": row.id, "status": row.status})
 
@@ -496,7 +471,9 @@ def list_bulk():
     drop = action in ("remove", "drop")
     for row in rows:
         if drop:
-            db.session.delete(row)
+            from app.services.basket import remove_entry
+
+            remove_entry(row, actor_id=current_user.id, via="ui")
         else:
             _check_off(row)
         n += 1
@@ -543,7 +520,9 @@ def list_remove(entry_id):
         flash("Ask a grown-up to take that off.", "warning")
         return redirect(url_for("groceries.grocery_list"))
     row = scoped(GroceryListEntry).filter_by(id=entry_id).first_or_404()
-    db.session.delete(row)
+    from app.services.basket import remove_entry
+
+    remove_entry(row, actor_id=current_user.id, via="ui")
     db.session.commit()
     if request.is_json or request.headers.get("X-Requested-With") == "fetch":
         return jsonify({"ok": True, "id": entry_id, "removed": True})

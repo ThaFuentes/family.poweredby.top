@@ -560,23 +560,14 @@ def remove_trusted(tid):
 def set_role(user_id):
     hid = household_id()
     user = User.query.filter_by(id=user_id, household_id=hid).first_or_404()
-    if user.id == current_user.id:
-        flash("You cannot change your own role here.", "warning")
-        return _after()
-    role = (request.form.get("role") or "").strip().lower()
-    if role not in ROLES:
-        flash("Invalid role.", "danger")
-        return _after()
-    if role == "child" and user.is_leader:
-        from app.utils.leaders import leader_count
+    from app.services.people import set_member_role
 
-        if leader_count(hid) <= 1:
-            flash("Promote another leader before making this person a child.", "warning")
-            return _after()
-        user.is_leader = False
-    user.role = role
+    ok, msg = set_member_role(user, request.form.get("role"), actor=current_user)
+    if not ok:
+        flash(msg, "warning" if "own role" in msg or "Promote" in msg else "danger")
+        return _after()
     db.session.commit()
-    flash(f"{user.name} is now {role}.", "success")
+    flash(msg, "success")
     return _after()
 
 
@@ -1040,14 +1031,15 @@ def test_ai():
 @login_required
 @require_perm("settings")
 def rename_household():
-    name = (request.form.get("name") or "").strip()
+    from app.services.people import rename_household as _rename
+
     h = Household.query.get(household_id())
-    if not name:
-        flash("Name your household. We will not name it for you.", "danger")
+    ok, msg = _rename(h, request.form.get("name"))
+    if not ok:
+        flash(msg, "danger")
         return _after()
-    h.name = name
     db.session.commit()
-    flash("Household name saved.", "success")
+    flash(msg, "success")
     return _after()
 
 

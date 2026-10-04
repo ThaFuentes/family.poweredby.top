@@ -452,48 +452,29 @@ def _enrich_from_lookups(item):
 @items_bp.route("/create", methods=["POST"])
 @login_required
 def create_item():
-    hid = household_id()
-    name = (request.form.get("name") or "").strip()
-    item_type = (request.form.get("item_type") or "custom").strip().lower()
-    barcode = (request.form.get("barcode") or "").strip() or None
-    if not name:
-        flash("Name is required.", "danger")
-        return redirect(url_for("items.new_item", barcode=barcode or "", type=item_type))
-    if item_type not in ITEM_TYPES:
-        item_type = "custom"
-    if not can_create_type(item_type):
+    from app.services.items import create_item as _create
+
+    item, err, status = _create(
+        hid=household_id(),
+        user_id=current_user.id,
+        form=request.form,
+        photo=request.files.get("photo"),
+        lookup=True,
+    )
+    if status == "invalid":
+        flash(err, "danger")
+        return redirect(
+            url_for(
+                "items.new_item",
+                barcode=(request.form.get("barcode") or "").strip(),
+                type=(request.form.get("item_type") or "custom").strip().lower(),
+            )
+        )
+    if status == "forbidden":
         abort(403)
-    if barcode:
-        exists = Item.query.filter_by(household_id=hid, barcode=barcode).first()
-        if exists:
-            flash("That barcode is already in this household.", "warning")
-            return redirect(url_for("items.detail", item_id=exists.id))
-    item = Item(
-        household_id=hid,
-        name=name,
-        item_type=item_type,
-        category=(request.form.get("category") or "").strip() or None,
-        barcode=barcode,
-        notes=(request.form.get("notes") or "").strip() or None,
-        created_by=current_user.id,
-    )
-    tags = (request.form.get("tags") or "").strip()
-    if tags:
-        item.tags = [t.strip() for t in tags.split(",") if t.strip()]
-    linked_raw = (request.form.get("linked_item_id") or "").strip()
-    if linked_raw.isdigit():
-        linked = scoped(Item).filter_by(id=int(linked_raw)).first()
-        if linked:
-            item.linked_item_id = linked.id
-    db.session.add(item)
-    db.session.flush()
-    if not item.barcode:
-        item.barcode = item_payload(hid, item.id)
-    _attach_type_row(item, request.form)
-    _enrich_from_lookups(item)
-    save_item_photo(
-        item, request.files.get("photo"), request.form.get("caption"), current_user.id
-    )
+    if status == "exists":
+        flash(err, "warning")
+        return redirect(url_for("items.detail", item_id=item.id))
     db.session.commit()
     flash(f"{item.name} saved.", "success")
     return redirect(url_for("items.detail", item_id=item.id))
@@ -708,32 +689,13 @@ def detail(item_id):
 @login_required
 @require_perm("edit_meta")
 def edit_item(item_id):
+    from app.services.items import edit_item as _edit
+
     item = _item_or_404(item_id)
-    item.name = (request.form.get("name") or item.name).strip()
-    item.category = (request.form.get("category") or "").strip() or None
-    item.notes = (request.form.get("notes") or "").strip() or None
-    barcode = (request.form.get("barcode") or "").strip() or None
-    if barcode:
-        clash = (
-            Item.query.filter_by(household_id=item.household_id, barcode=barcode)
-            .filter(Item.id != item.id)
-            .first()
-        )
-        if clash:
-            flash("Barcode already used on another item.", "danger")
-            return redirect(url_for("items.detail", item_id=item.id))
-        item.barcode = barcode
-    tags = (request.form.get("tags") or "").strip()
-    item.tags = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
-    linked_raw = (request.form.get("linked_item_id") or "").strip()
-    if linked_raw.isdigit():
-        linked = scoped(Item).filter_by(id=int(linked_raw)).first()
-        item.linked_item_id = linked.id if linked else None
-    elif linked_raw in ("", "0"):
-        item.linked_item_id = None
-    _attach_type_row(item, request.form)
-    if (request.form.get("lookup_now") or "").strip():
-        _enrich_from_lookups(item)
+    err = _edit(item, request.form, lookup=bool((request.form.get("lookup_now") or "").strip()))
+    if err:
+        flash(err, "danger")
+        return redirect(url_for("items.detail", item_id=item.id))
     db.session.commit()
     flash("Saved.", "success")
     return redirect(url_for("items.detail", item_id=item.id, tab="overview"))
@@ -899,31 +861,9 @@ def qty(item_id):
     action = (payload.get("action") or request.form.get("action") or "consume").strip().lower()
     amount = payload.get("amount") if payload.get("amount") is not None else request.form.get("amount") or 1
     place = (payload.get("place") or request.form.get("place") or "").strip() or None
-    remember = True
-    if action in ("plus", "add", "inc"):
-        action = "restock"
-        remember = False
-    elif action in ("minus", "sub", "dec"):
-        action = "consume"
-        remember = False
-    if action in ("need_more", "needs_more"):
-        stock = flag_need_more(item.grocery, item, current_user.id)
-    elif action in ("freeze", "fridge", "freezer"):
-        from app.utils.shelf_life import set_meat_storage
+    from app.services.items import stock_action
 
-        frozen = action in ("freeze", "freezer")
-        exp = set_meat_storage(item, item.grocery, frozen=frozen)
-        stock = {
-            "status": "ok",
-            "message": (
-                f"{item.name} in the {'freezer' if frozen else 'fridge'}."
-                + (f" Use by {exp}." if exp else "")
-            ),
-        }
-    else:
-        stock = apply_grocery_stock(
-            item.grocery, item, action, amount, current_user.id, remember=remember, place=place
-        )
+    stock = stock_action(item, action, amount, user_id=current_user.id, place=place)
     db.session.commit()
     if wants_json:
         return jsonify(
@@ -1509,31 +1449,17 @@ def set_mileage(item_id):
     if not (can("scan") or can("maintain") or can("edit_meta")):
         abort(403)
     item = _item_or_404(item_id)
-    raw = (request.form.get("mileage") or request.form.get("hours") or "").replace(",", "").strip()
-    from app.utils.item_log import add_item_log
+    from app.services.items import set_reading
 
-    if item.item_type == "vehicle" and item.vehicle:
-        try:
-            miles = int(raw)
-        except Exception:
-            flash("Type the miles as a number.", "danger")
-            return redirect(url_for("items.detail", item_id=item.id))
-        item.vehicle.current_mileage = miles
-        add_item_log(item, kind="miles", user_id=current_user.id, reading=miles)
-        db.session.commit()
-        flash(f"{item.name} is at {item.vehicle.current_mileage:,} miles.", "success")
-    elif item.item_type == "tool" and item.tool:
-        try:
-            hours = _dec(raw, "0")
-        except Exception:
-            flash("Type the hours as a number.", "danger")
-            return redirect(url_for("items.detail", item_id=item.id))
-        item.tool.hours_used = hours
-        add_item_log(item, kind="hours", user_id=current_user.id, reading=hours)
-        db.session.commit()
-        flash(f"{item.name} is at {item.tool.hours_used} hours.", "success")
-    else:
+    if item.item_type not in ("vehicle", "tool") or not (item.vehicle or item.tool):
         abort(404)
+    raw = request.form.get("mileage") or request.form.get("hours") or ""
+    ok, msg = set_reading(item, raw, user_id=current_user.id)
+    if not ok:
+        flash(msg, "danger")
+        return redirect(url_for("items.detail", item_id=item.id))
+    db.session.commit()
+    flash(msg, "success")
     nxt = (request.form.get("next") or "").strip()
     if nxt == "scan":
         return redirect(url_for("scan.scan_page"))
@@ -1733,24 +1659,10 @@ def retire_part(item_id, part_id):
             id=part_id, household_id=household_id(), vehicle_item_id=item.id
         ).first_or_404()
     )
-    row.is_current = False
-    row.status = "retired"
-    from datetime import date as _date
+    from app.services.items import retire_part as _retire
 
-    if not getattr(row, "removed_on", None):
-        row.removed_on = _date.today()
     try:
-        from app.utils.activity import record
-
-        record(
-            action="part.off",
-            summary=f"{current_user.name or current_user.username} took {row.name} off {item.name}",
-            target_table="vehicle_parts",
-            target_id=row.id,
-            item_id=item.id,
-            old_json={"status": "installed", "is_current": True, "name": row.name, "system": row.system},
-            new_json={"status": "retired"},
-        )
+        _retire(item, row, actor=current_user)
     except Exception:
         pass
     db.session.commit()
@@ -1772,35 +1684,17 @@ def edit_part(item_id, part_id):
             id=part_id, household_id=household_id(), vehicle_item_id=item.id
         ).first_or_404()
     )
-    name = (request.form.get("name") or "").strip()
-    if name:
-        row.name = name[:200]
-    if "brand" in request.form:
-        row.brand = (request.form.get("brand") or "").strip()[:120] or None
-    if "spec" in request.form:
-        row.spec = (request.form.get("spec") or "").strip()[:160] or None
-    if "part_number" in request.form:
-        row.part_number = (request.form.get("part_number") or "").strip()[:80] or None
-    if "model" in request.form:
-        row.model = (request.form.get("model") or "").strip()[:120] or None
-    if "serial_number" in request.form or "serial" in request.form:
-        row.serial_number = (request.form.get("serial_number") or request.form.get("serial") or "").strip()[:120] or None
-    if "asset_id" in request.form:
-        row.asset_id = (request.form.get("asset_id") or "").strip()[:80] or None
-    row.notes = (request.form.get("part_notes") or request.form.get("notes") or "").strip() or None
-    row.source = (request.form.get("source") or "").strip()[:200] or None
-    if "cost" in request.form:
-        row.cost = parse_cost(request.form.get("cost"))
-    if "warranty_until" in request.form:
-        row.warranty_until = parse_day(request.form.get("warranty_until"))
-    if request.form.get("installed_on"):
-        row.installed_on = parse_day(request.form.get("installed_on"))
-    miles = (request.form.get("installed_mileage") or "").replace(",", "").strip()
-    if miles:
-        try:
-            row.installed_mileage = int(miles)
-        except Exception:
-            pass
+    from app.services.items import update_part
+
+    form = request.form
+    if "part_notes" not in form and "notes" not in form:
+        # The page always clears notes/source when the boxes are blank.
+        form = dict(form.items())
+        form["notes"] = ""
+    if "source" not in form:
+        form = dict(form.items())
+        form["source"] = ""
+    update_part(row, form)
     nfiles = attach_part_uploads(item, row, current_user.id)
     db.session.commit()
     flash(f"{row.name} updated." + (f" {nfiles} file(s)." if nfiles else ""), "success")
@@ -1811,27 +1705,10 @@ def edit_part(item_id, part_id):
 @login_required
 @require_perm("edit_meta")
 def delete_item(item_id):
-    from datetime import datetime as _dt
-    from app.utils.activity import record
-    from sqlalchemy.orm.attributes import flag_modified
+    from app.services.items import remove_item
 
     item = _item_or_404(item_id)
-    extra = dict(item.extra_data) if isinstance(item.extra_data, dict) else {}
-    if item.barcode:
-        extra["removed_barcode"] = item.barcode
-        item.barcode = None
-        item.extra_data = extra
-        flag_modified(item, "extra_data")
-    item.removed_at = _dt.utcnow()
-    record(
-        action="item.remove",
-        summary=f"{current_user.name or current_user.username} removed {item.name}",
-        target_table="items",
-        target_id=item.id,
-        item_id=item.id,
-        old_json={"name": item.name, "item_type": item.item_type},
-        reversible=True,
-    )
+    remove_item(item, actor=current_user)
     db.session.commit()
     flash(f"{item.name} is out of the house. A parent can put it back on Happened.", "info")
     return redirect(stay_path(item))

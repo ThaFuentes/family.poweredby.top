@@ -57,15 +57,15 @@ def _visible(hid, user_id, item_id=None):
 
 
 def _can_edit(note) -> bool:
-    if note.user_id == current_user.id:
-        return True
-    return bool(getattr(current_user, "is_admin", False))
+    from app.services.notes import can_edit
+
+    return can_edit(note, current_user)
 
 
 def _can_see(note) -> bool:
-    if note.user_id == current_user.id:
-        return True
-    return (note.visibility or "") == "household"
+    from app.services.notes import can_see
+
+    return can_see(note, current_user)
 
 
 def _pin_items(hid):
@@ -200,30 +200,20 @@ def index():
 @notes_bp.route("/add", methods=["POST"])
 @login_required
 def add():
-    hid = household_id()
-    title = (request.form.get("title") or "").strip()
-    body = (request.form.get("body") or "").strip() or None
-    vis = (request.form.get("visibility") or "personal").strip().lower()
-    if vis not in VISIBILITY:
-        vis = "personal"
-    raw_item = (request.form.get("item_id") or "").strip()
-    item_id = None
-    if raw_item.isdigit():
-        item = scoped(Item).filter_by(id=int(raw_item)).first()
-        item_id = item.id if item else None
-    if not title:
-        flash("Give the note a name.", "danger")
-        return redirect(request.referrer or url_for("notes.index"))
-    note = Note(
-        household_id=hid,
+    from app.services.notes import create_note, resolve_item_id
+
+    item_id = resolve_item_id(request.form.get("item_id"))
+    note, err = create_note(
+        hid=household_id(),
         user_id=current_user.id,
+        title=request.form.get("title"),
+        body=request.form.get("body"),
+        visibility=request.form.get("visibility") or "personal",
         item_id=item_id,
-        visibility=vis,
-        title=title[:500],
-        body=body,
     )
-    db.session.add(note)
-    db.session.flush()
+    if err:
+        flash(err, "danger")
+        return redirect(request.referrer or url_for("notes.index"))
     n_files = _save_uploads(note, request.form.get("caption"))
     db.session.commit()
     if n_files:
@@ -239,23 +229,19 @@ def edit(note_id):
     note = scoped(Note).filter_by(id=note_id).first_or_404()
     if not _can_edit(note):
         abort(403)
-    title = (request.form.get("title") or "").strip()
-    if not title:
-        flash("Give the note a name.", "danger")
+    from app.services.notes import resolve_item_id, update_note
+
+    item_id = resolve_item_id(request.form.get("item_id"))
+    err = update_note(
+        note,
+        title=request.form.get("title"),
+        body=request.form.get("body"),
+        visibility=request.form.get("visibility") or note.visibility,
+        item_id=item_id,
+    )
+    if err:
+        flash(err, "danger")
         return redirect(request.referrer or url_for("notes.index"))
-    vis = (request.form.get("visibility") or note.visibility).strip().lower()
-    if vis not in VISIBILITY:
-        vis = note.visibility
-    raw_item = (request.form.get("item_id") or "").strip()
-    item_id = None
-    if raw_item.isdigit():
-        item = scoped(Item).filter_by(id=int(raw_item)).first()
-        item_id = item.id if item else None
-    note.title = title[:500]
-    note.body = (request.form.get("body") or "").strip() or None
-    note.visibility = vis
-    note.item_id = item_id
-    note.updated_at = datetime.utcnow()
     n_files = _save_uploads(note, request.form.get("caption"))
     db.session.commit()
     flash("Note updated." if not n_files else "Note updated, files saved.", "success")
@@ -302,10 +288,11 @@ def delete_file(file_id):
     note = row.note
     if note is None or not _can_edit(note):
         abort(403)
-    _unlink_note_file(row)
-    db.session.delete(row)
+    from app.services.notes import remove_note_file
+
+    remove_note_file(row, actor_id=current_user.id, via="ui")
     db.session.commit()
-    flash("File removed.", "info")
+    flash("File removed. A leader can put it back from the recycle bin.", "info")
     return redirect(_after_note(note))
 
 
@@ -320,12 +307,12 @@ def delete(note_id):
     )
     if not _can_edit(note):
         abort(403)
+    from app.services.notes import remove_note
+
     item_id = note.item_id
-    for f in list(note.files or []):
-        _unlink_note_file(f)
-    db.session.delete(note)
+    remove_note(note, actor_id=current_user.id, via="ui")
     db.session.commit()
-    flash("Note removed.", "info")
+    flash("Note removed. A leader can put it back from the recycle bin.", "info")
     if item_id and (request.form.get("next") or "") == "sheet":
         return redirect(url_for("items.notes_sheet", item_id=item_id, saved=1))
     if item_id and request.form.get("from_item"):

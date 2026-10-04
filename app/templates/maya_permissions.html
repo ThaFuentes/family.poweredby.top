@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Maya permissions · Family OS{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Maya permissions</h1>
+    <p>What Maya's bot may do through her API. Owner only. Saving takes effect on her very next call. Everything she does shows on Happened as Maya.</p>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Which account is Maya</h3>
+  <form method="post" action="{{ url_for('maya_admin.set_account') }}" class="btn-row">
+    <select name="user_id">
+      {% for b in bots %}
+      <option value="{{ b.id }}" {% if maya and maya.id == b.id %}selected{% endif %}>{{ b.name or b.username }} ({{ b.username }})</option>
+      {% endfor %}
+    </select>
+    <button class="btn sm" type="submit">Set as Maya</button>
+  </form>
+  {% if not bots %}<p class="muted">No BOT accounts here yet. Mark one as a bot on People first.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h3>Never allowed (built into the code)</h3>
+  <ul>{% for line in hard_limits %}<li>{{ line }}</li>{% endfor %}</ul>
+</div>
+
+{% if maya %}
+<form method="post" action="{{ url_for('maya_admin.save') }}" id="maya-perms">
+  {% for g in groups %}
+  <div class="card" data-group>
+    <div class="row key-line">
+      <h3 style="margin:0">{{ g.name }}</h3>
+      <span class="btn-row">
+        <button type="button" class="btn sm" data-all="on">All on</button>
+        <button type="button" class="btn sm" data-all="off">All off</button>
+      </span>
+    </div>
+    {% for p in g.perms %}
+    <label class="row" style="display:flex;gap:.6rem;align-items:flex-start;padding:.35rem 0">
+      <input type="checkbox" name="perm" value="{{ p.id }}"
+             {% if state.get(p.id) %}checked{% endif %}
+             {% if not p.implemented %}disabled{% endif %}
+             {% if p.high_risk %}data-high="1"{% endif %}>
+      <span>
+        <strong>{{ p.label }}</strong>
+        {% if p.high_risk %}<span class="badge danger" style="background:#b00020;color:#fff;border-radius:4px;padding:0 .35rem;font-size:.75rem">High risk</span>{% endif %}
+        {% if not p.implemented %}<span class="muted">(not available)</span>{% endif %}
+        <div class="muted">{{ p.detail }} <code>{{ p.id }}</code></div>
+        {% if p.implemented %}
+        <div class="btn-row" style="margin-top:.25rem;gap:.35rem;align-items:center">
+          {% set running = expiry.get(p.id) %}
+          <span class="muted">Auto-off:</span>
+          <select name="exp_unit_{{ p.id }}" style="width:auto">
+            {% if running %}<option value="keep" selected>keep ({{ remaining(running) }})</option>{% endif %}
+            {% if not p.high_risk %}<option value="none" {% if not running %}selected{% endif %}>no expiry</option>{% endif %}
+            {% for u in units %}<option value="{{ u }}" {% if p.high_risk and not running and u == 'hours' %}selected{% endif %}>{{ u }}</option>{% endfor %}
+          </select>
+          <input name="exp_n_{{ p.id }}" inputmode="numeric" value="{{ 24 if p.high_risk else 1 }}" style="width:4.5rem">
+          {% if state.get(p.id) %}<span class="muted">{{ remaining(running) if running else 'no expiry' }}</span>{% endif %}
+          {% if p.high_risk %}<span class="muted">(timer required; default 24 hours)</span>{% endif %}
+        </div>
+        {% endif %}
+      </span>
+    </label>
+    {% endfor %}
+  </div>
+  {% endfor %}
+
+  <div class="card">
+    <h3>Confirm it's you (only needed to turn ON a High risk switch)</h3>
+    <p class="muted">Use your password or a 2FA code.</p>
+    <div class="btn-row">
+      <input type="password" name="confirm_password" autocomplete="current-password" placeholder="Your password">
+      <input name="confirm_code" inputmode="numeric" autocomplete="one-time-code" placeholder="2FA code" style="width:8rem">
+    </div>
+  </div>
+  <div class="btn-row"><button class="btn" type="submit">Save</button></div>
+</form>
+{% endif %}
+
+<div class="card list">
+  <h3>Recycle bin</h3>
+  {% for t in trash %}
+  <div class="row key-line">
+    <div><strong>{{ t.label }}</strong>
+      <div class="muted">{{ t.deleted_at }} · {{ names.get(t.deleted_by, 'someone') }}{% if t.via == 'maya' %} (Maya){% endif %}</div></div>
+    <form method="post" action="{{ url_for('maya_admin.restore', trash_id=t.id) }}">
+      <button class="btn sm" type="submit">Put back</button>
+    </form>
+  </div>
+  {% else %}<p class="muted">Empty.</p>{% endfor %}
+</div>
+
+<div class="card list">
+  <h3>Permission changes</h3>
+  {% for l in log %}
+  <div class="row"><span>{{ l.created_at }} · {{ names.get(l.changed_by, '?') }} · <code>{{ l.perm }}</code> {{ 'on' if l.new_value else 'off' }}{% if l.high_risk %} · High risk{% endif %}{% if l.confirmed_with %} · {{ l.confirmed_with }}{% endif %}</span></div>
+  {% else %}<p class="muted">No changes yet.</p>{% endfor %}
+</div>
+
+<script>
+document.querySelectorAll('[data-all]').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var on = btn.getAttribute('data-all') === 'on';
+    btn.closest('[data-group]').querySelectorAll('input[type=checkbox]:not([disabled])').forEach(function (cb) { cb.checked = on; });
+  });
+});
+</script>
+{% endblock %}

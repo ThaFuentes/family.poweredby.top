@@ -74,6 +74,13 @@
     <span class="count">Put a kid’s tap back</span>
   </a>
   {% endif %}
+  {% if current_user.is_leader and not current_user.is_bot %}
+  <a class="tile" href="{{ url_for('maya_admin.index') }}">
+    <span class="kicker">Bot</span>
+    <span class="label">Maya permissions</span>
+    <span class="count">What Maya's bot may do</span>
+  </a>
+  {% endif %}
   {% if can('settings') %}
   <button type="button" class="tile" data-sheet="{{ url_for('members.sheet', panel='danger') }}" data-sheet-title="Delete household" data-sheet-size="full">
     <span class="kicker">Danger</span>

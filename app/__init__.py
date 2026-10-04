@@ -273,6 +273,8 @@ def create_app():
     from app.routes import bot_api_house  # noqa: F401  registers fos_bot_ routes
     from app.routes import bot_api_content  # noqa: F401  basket, due, tools, house, photos
     from app.routes import bot_api_vault  # noqa: F401  registers fos_vault_ routes
+    from app.routes import maya_api  # noqa: F401  registers /api/v1/maya/* routes
+    from app.routes.maya_admin import maya_admin_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(home_bp)
@@ -295,6 +297,7 @@ def create_app():
     app.register_blueprint(vault_bp)
     app.register_blueprint(ask_bp)
     app.register_blueprint(bot_api_bp)
+    app.register_blueprint(maya_admin_bp)
 
     @app.before_request
     def _block_paused_household():

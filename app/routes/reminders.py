@@ -60,39 +60,21 @@ def index():
 @login_required
 @require_perm("maintain")
 def add():
-    title = (request.form.get("title") or "").strip()
-    rtype = (request.form.get("type") or "custom").strip()
-    if rtype not in {k for k, _ in REMINDER_TYPES}:
-        rtype = "custom"
-    due = (request.form.get("due_at") or "").strip()
-    linked = request.form.get("linked_item_id") or None
-    recurrence = parse_recurrence(request.form.get("recurrence"))
-    raw_via = (request.form.get("notify_via") or "").strip().lower()
-    via = raw_via if raw_via in NOTIFY_CHOICES else None
-    if not title:
-        flash("Title required.", "danger")
-        return redirect(url_for("reminders.index"))
-    due_at = None
-    if due:
-        try:
-            due_at = datetime.fromisoformat(due)
-        except ValueError:
-            due_at = None
-    linked_id = int(linked) if linked else None
-    row = Reminder(
-        household_id=household_id(),
-        title=title,
-        type=rtype,
-        due_at=due_at,
-        linked_item_id=linked_id,
-        recurrence=recurrence,
-        notify_via=via,
-        status="open",
-        created_by=current_user.id,
+    from app.services.reminders import create_reminder
+
+    row, err = create_reminder(
+        hid=household_id(),
+        user_id=current_user.id,
+        title=request.form.get("title"),
+        rtype=request.form.get("type") or "custom",
+        due_at=request.form.get("due_at"),
+        linked_item_id=request.form.get("linked_item_id"),
+        recurrence=request.form.get("recurrence"),
+        notify_via=request.form.get("notify_via"),
     )
-    db.session.add(row)
-    db.session.commit()
-    announce_reminder(row)
+    if err:
+        flash(err, "danger")
+        return redirect(url_for("reminders.index"))
     from app.utils.notify import announce_flash
 
     note = announce_flash(current_user, row)
@@ -105,8 +87,10 @@ def add():
 @login_required
 @require_perm("maintain")
 def done(rid):
+    from app.services.reminders import complete
+
     row = scoped(Reminder).filter_by(id=rid).first_or_404()
-    row.status = "done"
+    complete(row)
     db.session.commit()
     return redirect(url_for("reminders.index"))
 

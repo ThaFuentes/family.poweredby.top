@@ -65,3 +65,7 @@ tmp/
 
 # Passenger / host restart touch file
 tmp/restart.txt
+# Local review notes and backups. Not part of the app.
+MAYA_CHANGES_2026-10-04.md
+*_review_2026-10-04.md
+*.bak*
