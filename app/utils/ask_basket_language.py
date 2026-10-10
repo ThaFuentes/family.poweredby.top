@@ -32,7 +32,7 @@ def basket_add_args(text: str) -> dict | None:
         re.sub(r"\s+", " ", part).strip(" .,!?:;")
         for part in re.split(r"\s*(?:,|;|\band\b|\balso\b)\s*", names_text, flags=re.I)
     ]
-    names = [re.sub(r"^(?:the|my|our|a|an)\s+", "", name, flags=re.I) for name in names if name]
+    names = [re.sub(r"^(?:the|my|our|a|an|some)\s+", "", name, flags=re.I) for name in names if name]
     names = [re.sub(r"\s+(?:please|thanks|thank you)$", "", name, flags=re.I).strip() for name in names]
     names = [name[:200] for name in names if name]
     if not names:
@@ -55,11 +55,52 @@ def basket_remove_args(text: str) -> dict | None:
         re.I,
     )
     if not match:
+        # "cross the oat milk off the list" / "take paper towels off the list"
+        match = re.match(
+            r"^(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?"
+            r"(?:cross|take|scratch)\s+(?P<name>.+?)\s+off\s+(?:of\s+)?(?:my\s+|our\s+|the\s+)?"
+            r"(?:shopping\s+(?:list|basket)|basket|grocery\s+list|list)"
+            r"(?:[, ]+(?:please|thanks|thank you))?[.!?]*$",
+            raw,
+            re.I,
+        )
+    if not match:
         return None
     name = re.sub(r"\s+", " ", match.group("name")).strip(" .,!?:;")
     name = re.sub(r"^(?:the|my|our|a|an)\s+", "", name, flags=re.I)
     name = re.sub(r"\s+(?:please|thanks|thank you)$", "", name, flags=re.I).strip()
     return {"q": name[:200]} if name else None
+
+
+def basket_remove_reply(args: dict) -> dict | None:
+    """When the name is not on the open list, say so. None means it is there."""
+    q = str((args or {}).get("q") or "").strip()
+    if not q:
+        return None
+    try:
+        from app.builddb.table_grocery_list import GroceryListEntry
+        from app.utils.household import household_id, scoped
+
+        matches = [
+            row
+            for row in scoped(GroceryListEntry)
+            .filter_by(household_id=household_id(), status="open")
+            .order_by(GroceryListEntry.id.desc())
+            .limit(60)
+            .all()
+            if q.lower() in (row.name or "").lower()
+        ]
+    except Exception:
+        return None
+    if matches:
+        return None
+    return {
+        "ok": True,
+        "say": f"{q} isn’t on the list.",
+        "did": [],
+        "confirm": False,
+        "vault_locked": False,
+    }
 
 
 def basket_list_request(text: str) -> bool:

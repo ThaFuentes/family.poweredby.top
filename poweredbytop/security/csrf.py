@@ -83,14 +83,26 @@ def _get_csrf_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def _is_field_officer() -> bool:
-    """AegisX signed-in users and any guard role. Dead-zone CSRF must not 403 them."""
+def _site_mode() -> str:
     try:
         from flask import current_app
 
-        mode = (current_app.config.get("SITE_MODE") or "").strip().lower()
+        return (current_app.config.get("SITE_MODE") or "").strip().lower()
     except Exception:
-        mode = ""
+        return ""
+
+
+def _family_site() -> bool:
+    return _site_mode() == "family"
+
+
+def _is_field_officer() -> bool:
+    """AegisX signed-in users and any guard role. Dead-zone CSRF must not 403 them.
+
+    Family is included only so the page token is not rotated every 8 hours.
+    csrf_before_request still requires that token on Family.
+    """
+    mode = _site_mode()
     if mode in ("aegisx", "family") and _user_is_authenticated():
         return True
     try:
@@ -277,8 +289,11 @@ def csrf_before_request():
         return None
     if validate_csrf_token():
         return None
-    if _is_field_officer():
-        # Stale PWA / cached HTML / 8h token vs 12h shift. Flag, do not lock out.
+    # Family still keeps one long-lived token (see generate_csrf_token) so a
+    # phone left open does not rotate out from under the page. A missing or
+    # wrong token is still rejected. AegisX field shifts may proceed on a
+    # stale page-load token; this household app may not.
+    if _is_field_officer() and not _family_site():
         _log_field_csrf_stale()
         return None
     # Logged-in office staff: still block the request, do not drop reputation.

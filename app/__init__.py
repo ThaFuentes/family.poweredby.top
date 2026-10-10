@@ -205,7 +205,7 @@ def create_app():
             ask_room_meta = None
             ask_path = ""
         try:
-            if getattr(current_user, "is_authenticated", False) and _role_of() != "child":
+            if getattr(current_user, "is_authenticated", False):
                 from app.utils.ask import ask_window_on as _ask_window_on
 
                 ask_open = _ask_window_on(hh, current_user)
@@ -214,10 +214,25 @@ def create_app():
             ask_open = False
             ask_embed = False
         agent_name = "Ask"
+        ask_personal = {
+            "ai": False,
+            "name": "",
+            "house_name": "Ask",
+            "instructions": "",
+            "house_rules": "",
+        }
         try:
             from app.utils.ask import ask_identity as _ask_identity
 
-            agent_name = _ask_identity(hh).get("name") or "Ask"
+            ident = _ask_identity(hh)
+            agent_name = ident.get("name") or "Ask"
+            ask_personal = {
+                "ai": bool(ident.get("ai_on")),
+                "name": ident.get("user_name") or "",
+                "house_name": ident.get("house_name") or "Ask",
+                "instructions": ident.get("user_instructions") or "",
+                "house_rules": ident.get("persona") or "",
+            }
         except Exception:
             agent_name = "Ask"
         return {
@@ -236,6 +251,7 @@ def create_app():
             "ask_room": ask_room,
             "ask_room_meta": ask_room_meta,
             "agent_name": agent_name,
+            "ask_personal": ask_personal,
         }
 
     from app.utils.thumbs import item_thumb_url as _item_thumb_filter
@@ -270,8 +286,10 @@ def create_app():
     from app.routes.vault import vault_bp
     from app.routes.ask import ask_bp
     from app.routes.bot_api import bot_api_bp
+    from app.routes.bot_api_page import bot_guide_bp
     from app.routes import bot_api_house  # noqa: F401  registers fos_bot_ routes
     from app.routes import bot_api_content  # noqa: F401  basket, due, tools, house, photos
+    from app.routes import bot_api_work  # noqa: F401  tools, house, oil, parts, cases
     from app.routes import bot_api_vault  # noqa: F401  registers fos_vault_ routes
     from app.routes import maya_api  # noqa: F401  registers /api/v1/maya/* routes
     from app.routes.maya_admin import maya_admin_bp
@@ -297,6 +315,7 @@ def create_app():
     app.register_blueprint(vault_bp)
     app.register_blueprint(ask_bp)
     app.register_blueprint(bot_api_bp)
+    app.register_blueprint(bot_guide_bp)
     app.register_blueprint(maya_admin_bp)
 
     @app.before_request

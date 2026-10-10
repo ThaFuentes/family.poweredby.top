@@ -1,6 +1,7 @@
 # Threat-map queries. Imported only from threat_map.py (page-scoped).
 from __future__ import annotations
 
+import re
 import time
 from typing import Any
 
@@ -453,8 +454,21 @@ def summary_for_window(window: str = "24h") -> dict[str, Any]:
         q._close(conn)
 
 
+_ISO2 = re.compile(r"^(?:[A-Z]{2})$")
+
+
+def clean_iso2(iso2: str) -> str | None:
+    """Two letters, or XX for an unknown country. Anything else is rejected."""
+    cc = (iso2 or "").strip().upper()
+    if cc == "XX":
+        return "XX"
+    if _ISO2.fullmatch(cc):
+        return cc
+    return None
+
+
 def country_detail(iso2: str, window: str = "24h") -> dict[str, Any]:
-    cc = (iso2 or "XX").strip().upper()[:2] or "XX"
+    cc = clean_iso2(iso2) or ""
     requested = _norm_window(window)
     time_sql = _time_sql(requested)
     skip_sql, skip_params = _skip_sql()
@@ -474,6 +488,11 @@ def country_detail(iso2: str, window: str = "24h") -> dict[str, Any]:
         "events_24h": None,
         "lifetime_total": None,
     }
+    if not cc:
+        out["error"] = "bad_iso"
+        if conn is not None:
+            q._close(conn)
+        return out
     if conn is None:
         return out
     try:
@@ -621,7 +640,7 @@ def country_detail(iso2: str, window: str = "24h") -> dict[str, Any]:
 
 def country_history_totals(iso2: str) -> dict[str, Any]:
     """Lifetime family totals for one country. Counts only + a few recent IPs."""
-    cc = (iso2 or "XX").strip().upper()[:2] or "XX"
+    cc = clean_iso2(iso2) or ""
     skip_sql, skip_params = _skip_sql()
     out = {
         "iso2": cc,
@@ -635,6 +654,9 @@ def country_history_totals(iso2: str) -> dict[str, Any]:
         "first_seen": None,
         "lifetime_total": 0,
     }
+    if not cc:
+        out["error"] = "bad_iso"
+        return out
     conn = q._sec()
     if conn is None:
         return out

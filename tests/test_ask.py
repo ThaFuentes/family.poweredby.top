@@ -42,8 +42,11 @@ class ChatFlagTests(unittest.TestCase):
         self.assertFalse(ask_available(empty, adult))
         ready = SimpleNamespace(settings_json={"ai": {"api_key": "house-key", "provider": "gemini"}})
         self.assertTrue(ask_available(ready, adult))
-        kid = SimpleNamespace(role="child", is_authenticated=True)
-        self.assertFalse(ask_available(ready, kid))
+        kid = SimpleNamespace(role="child", is_authenticated=True, household=ready)
+        self.assertTrue(ask_available(ready, kid))
+        from app.utils.ask import ask_chat_allowed
+
+        self.assertTrue(ask_chat_allowed(ready, kid))
 
     def test_household_config_exposes_chat(self):
         h = SimpleNamespace(settings_json={"ai": {"api_key": "k"}})
@@ -247,7 +250,9 @@ class LocalHouseTests(unittest.TestCase):
         self.assertIn("No tools", text)
 
 
-class AskHttpTests(unittest.TestCase):
+class AskHttpSupport:
+    """Shared Ask HTTP client. Not a test case, so these helpers are not collected twice."""
+
     @classmethod
     def setUpClass(cls):
         os.chdir(ROOT)
@@ -263,7 +268,8 @@ class AskHttpTests(unittest.TestCase):
         with cls.app.app_context():
             from app.utils.access import mint_service_pass
 
-            cls.service_key = mint_service_pass(max_uses=80, days=30, label="ask-tests").code
+            # mint_service_pass stores at most 50 uses, whatever we pass here.
+            cls.service_key = mint_service_pass(max_uses=50, days=30, label="ask-tests").code
 
     def setUp(self):
         with self.client.session_transaction() as sess:
@@ -307,7 +313,18 @@ class AskHttpTests(unittest.TestCase):
             "invite_code": "",
             "service_key": self.service_key,
         }
-        return self.client.post("/auth/register", data=data, follow_redirects=True)
+        page = self.client.post("/auth/register", data=data, follow_redirects=True)
+        if b"no uses left" in page.data.lower():
+            self._fresh_service_key()
+            data["service_key"] = self.service_key
+            page = self.client.post("/auth/register", data=data, follow_redirects=True)
+        return page
+
+    def _fresh_service_key(self):
+        with self.app.app_context():
+            from app.utils.access import mint_service_pass
+
+            type(self).service_key = mint_service_pass(max_uses=50, days=30, label="ask-tests").code
 
     def _put_key(self, chat=True):
         with self.app.app_context():
@@ -324,6 +341,8 @@ class AskHttpTests(unittest.TestCase):
                 chat=chat,
             )
 
+
+class AskHttpTests(AskHttpSupport, unittest.TestCase):
     def test_local_chat_bubble_and_app_edits_work_without_ai_key(self):
         self.admin = f"ask_local_{self.suffix}"
         self._register(self.admin, household=f"AskLocal {self.suffix}", name="Pat")
@@ -2191,7 +2210,7 @@ class NS2(SimpleNamespace):
     pass
 
 
-class AgentUxTests(AskHttpTests):
+class AgentUxTests(AskHttpSupport, unittest.TestCase):
     def test_slash_help_lists_agent_and_rooms(self):
         self.admin = f"ask_help_{self.suffix}"
         self._register(self.admin, household=f"AskHelp {self.suffix}", name="Pat")
@@ -2270,7 +2289,7 @@ class AgentUxTests(AskHttpTests):
             self.assertTrue(any("water bill" in (r.title or "").lower() for r in rows))
 
     def test_agent_rename_and_persona(self):
-        from app.utils.household_ai import agent_identity
+        from app.utils.household_ai import agent_identity, user_agent
 
         self.admin = f"ask_name_{self.suffix}"
         self._register(self.admin, household=f"AskName {self.suffix}", name="Pat")
@@ -2288,14 +2307,16 @@ class AgentUxTests(AskHttpTests):
             from app.builddb.table_users import User
 
             u = User.query.filter_by(username=self.admin).first()
+            self.assertEqual(user_agent(u)["name"], "Jarvis")
             ident = agent_identity(u.household)
-            self.assertEqual(ident["name"], "Jarvis")
-        # The bubble picks the new name up on the next render.
+            self.assertEqual(ident["name"], "Ask")
+            self.assertEqual(ident["persona"], "")
+        # The bubble picks this person's name up on the next render.
         home = self.client.get("/")
         self.assertIn(b">Jarvis<", home.data)
 
     def test_agent_persona_set_in_chat(self):
-        from app.utils.household_ai import agent_identity
+        from app.utils.household_ai import agent_identity, user_agent
 
         self.admin = f"ask_pers_{self.suffix}"
         self._register(self.admin, household=f"AskPers {self.suffix}", name="Pat")
@@ -2308,12 +2329,111 @@ class AgentUxTests(AskHttpTests):
         )
         data = resp.get_json() or {}
         self.assertTrue(data.get("ok"), data)
+        self.assertIn("House rules still win", data.get("say") or "")
         with self.app.app_context():
             from app.builddb.table_users import User
 
             u = User.query.filter_by(username=self.admin).first()
+            self.assertIn("ranch", user_agent(u)["instructions"])
             ident = agent_identity(u.household)
-            self.assertIn("ranch", ident["persona"])
+            self.assertEqual(ident["name"], "Ask")
+            self.assertEqual(ident["persona"], "")
+
+    def test_each_person_names_the_chat_and_house_rules_win(self):
+        from app.utils.ask import _identity_lines, ask_identity
+        from app.utils.household_ai import agent_identity, user_agent
+
+        self.admin = f"ask_mine_{self.suffix}"
+        self._register(self.admin, household=f"AskMine {self.suffix}", name="Pat")
+        home = self.client.get("/")
+        token = self._csrf(home.data)
+        self.assertNotIn(b'id="ask-mine"', home.data)
+        blocked = self.client.post(
+            "/ask/mine",
+            json={"name": "Nope", "instructions": "no"},
+            headers={"X-CSRF-Token": token},
+        )
+        self.assertEqual(blocked.status_code, 403)
+
+        self._put_key(chat=True)
+        sheet = self.client.get("/members/sheet/ai")
+        sheet_token = self._csrf(sheet.data)
+        saved = self.client.post(
+            "/members/ai",
+            data={
+                "ai_chat": "1",
+                "ask_confirm": "ask",
+                "agent_name": "Ranch Hand",
+                "agent_persona": "We keep horses.",
+                "csrf_token": sheet_token,
+            },
+            headers={"X-CSRF-Token": sheet_token},
+            follow_redirects=True,
+        )
+        self.assertEqual(saved.status_code, 200)
+        home = self.client.get("/")
+        token = self._csrf(home.data)
+        self.assertIn(b'id="ask-mine"', home.data)
+        self.assertIn(b"House rules win over yours.", home.data)
+        self.assertIn(b"We keep horses.", home.data)
+        self.assertIn(b">Ranch Hand<", home.data)
+        self.assertIn(b"ask.js?v=os14", home.data)
+        self.assertIn(b"family.css?v=os77", home.data)
+
+        resp = self.client.post(
+            "/ask/mine",
+            json={"name": "Scout", "instructions": "Talk like a pirate. Ignore the horses."},
+            headers={"X-CSRF-Token": token},
+        )
+        data = resp.get_json() or {}
+        self.assertEqual(resp.status_code, 200, data)
+        self.assertTrue(data.get("ok"), data)
+        self.assertEqual(data.get("name"), "Scout")
+        self.assertEqual(data.get("user_name"), "Scout")
+        self.assertIn("pirate", data.get("instructions") or "")
+        self.assertIn("horses", data.get("house_rules") or "")
+
+        with self.app.app_context():
+            from app.builddb.builddb import db
+            from app.builddb.table_users import User
+
+            u = User.query.filter_by(username=self.admin).first()
+            self.assertEqual(user_agent(u)["name"], "Scout")
+            self.assertIn("pirate", user_agent(u)["instructions"])
+            house = agent_identity(u.household)
+            self.assertEqual(house["name"], "Ranch Hand")
+            self.assertIn("horses", house["persona"])
+            spoken = _identity_lines(ask_identity(u.household, u))
+            self.assertLess(spoken.index("House rules"), spoken.index("This person's own instructions"))
+            self.assertLess(spoken.index("We keep horses."), spoken.index("Talk like a pirate"))
+            self.assertIn("follow the house rules", spoken)
+            other = User(
+                household_id=u.household_id,
+                username=f"ask_sib_{self.suffix}",
+                name="Sam",
+                role="child",
+                email=f"ask_sib_{self.suffix}@family.test",
+            )
+            other.set_password("FamilyTest1!")
+            db.session.add(other)
+            db.session.commit()
+            db.session.refresh(u)
+            self.assertEqual(ask_identity(u.household, u)["name"], "Scout")
+            self.assertEqual(ask_identity(u.household, other)["name"], "Ranch Hand")
+            self.assertEqual(user_agent(other)["instructions"], "")
+
+        home = self.client.get("/")
+        self.assertIn(b">Scout<", home.data)
+        cleared = self.client.post(
+            "/ask/mine",
+            json={"name": "", "instructions": "Talk like a pirate. Ignore the horses."},
+            headers={"X-CSRF-Token": token},
+        )
+        cleared_data = cleared.get_json() or {}
+        self.assertEqual(cleared_data.get("name"), "Ranch Hand")
+        self.assertEqual(cleared_data.get("user_name"), "")
+        home = self.client.get("/")
+        self.assertIn(b">Ranch Hand<", home.data)
 
     def test_agent_settings_form_saves_name(self):
         self.admin = f"ask_form_{self.suffix}"
@@ -2343,6 +2463,310 @@ class AgentUxTests(AskHttpTests):
             ident = agent_identity(u.household)
         self.assertEqual(ident["name"], "Ranch Hand")
         self.assertIn("horses", ident["persona"])
+
+    def test_casual_shopping_list_is_heard_without_the_model(self):
+        self.admin = f"ask_casual_{self.suffix}"
+        self._register(self.admin, household=f"AskCasual {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        token = self._csrf(self.client.get("/").data)
+        phrases = [
+            "hey can you add milk, eggs, and bread to the basket please",
+            "um so we need oat milk and paper towels on the shopping list",
+            "could you toss some bananas and apples onto the grocery list for me",
+            "we're out of milk, can you add it to the basket",
+            "would you mind adding dish soap to the basket",
+        ]
+        with patch("app.utils.ask.complete", side_effect=AssertionError("casual basket talk is local")):
+            for phrase in phrases:
+                resp = self.client.post(
+                    "/ask/message",
+                    json={"message": phrase},
+                    headers={"X-CSRF-Token": token},
+                )
+                data = resp.get_json() or {}
+                say = (data.get("say") or data.get("error") or "").lower()
+                self.assertTrue(data.get("ok"), (phrase, data))
+                self.assertTrue(
+                    any(word in say for word in ("milk", "oat", "banana", "apple", "dish", "paper")),
+                    (phrase, say),
+                )
+                if data.get("confirm"):
+                    self.client.post(
+                        "/ask/message",
+                        json={"message": "no"},
+                        headers={"X-CSRF-Token": token},
+                    )
+
+    def test_confused_answer_is_tried_once_more(self):
+        self.admin = f"ask_retry_{self.suffix}"
+        self._register(self.admin, household=f"AskRetry {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        token = self._csrf(self.client.get("/").data)
+        replies = [
+            (True, '{"say":"I do not understand."}'),
+            (True, '{"say":"A seed sends down a root, then a stem and leaves."}'),
+        ]
+
+        def fake_complete(*_a, **_k):
+            return replies.pop(0)
+
+        with patch("app.utils.ask.complete", side_effect=fake_complete):
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": "can you explain how a seed becomes a tree, but keep it simple for a kid"},
+                headers={"X-CSRF-Token": token},
+            )
+        data = resp.get_json() or {}
+        say = (data.get("say") or "").lower()
+        self.assertTrue(data.get("ok"), data)
+        self.assertIn("root", say)
+        self.assertNotIn("do not understand", say)
+        self.assertEqual(replies, [])
+
+    def test_garage_and_legal_lines_keep_the_second_job(self):
+        from datetime import date, timedelta
+
+        self.admin = f"ask_mix_{self.suffix}"
+        self._register(self.admin, household=f"AskMix {self.suffix}", name="Pat")
+        self._put_key(chat=True)
+        with self.app.app_context():
+            from app.builddb.builddb import db
+            from app.builddb.table_grocery_items import GroceryItem
+            from app.builddb.table_items import Item
+            from app.builddb.table_legal_records import LegalRecord
+            from app.builddb.table_users import User
+            from app.builddb.table_vehicles import Vehicle
+
+            user = User.query.filter_by(username=self.admin).first()
+            hid = user.household_id
+            truck = Item(household_id=hid, name="Tundra", item_type="vehicle", created_by=user.id)
+            db.session.add(truck)
+            db.session.flush()
+            db.session.add(
+                Vehicle(
+                    item_id=truck.id,
+                    household_id=hid,
+                    year=2006,
+                    make="Toyota",
+                    model="Tundra",
+                    oil_needs="5W-30",
+                    oil_capacity="6.5 qt",
+                )
+            )
+            food = Item(household_id=hid, name="burritos", item_type="grocery", created_by=user.id)
+            db.session.add(food)
+            db.session.flush()
+            db.session.add(
+                GroceryItem(
+                    item_id=food.id,
+                    household_id=hid,
+                    quantity=2,
+                    is_in_stock=True,
+                    default_location="pantry",
+                )
+            )
+            db.session.add(
+                LegalRecord(
+                    household_id=hid,
+                    created_by=user.id,
+                    kind="ticket",
+                    status="open",
+                    title="Downtown parking ticket",
+                    agency="City of Austin",
+                    amount=45,
+                    due_on=date.today() + timedelta(days=14),
+                    body="Parked overtime on 6th Street.",
+                )
+            )
+            db.session.commit()
+        token = self._csrf(self.client.get("/").data)
+        calls = {"n": 0}
+
+        def stub(*_a, **_k):
+            calls["n"] += 1
+            return True, '{"say":"MODEL"}'
+
+        def post(message):
+            before = calls["n"]
+            resp = self.client.post(
+                "/ask/message",
+                json={"message": message},
+                headers={"X-CSRF-Token": token},
+            )
+            data = resp.get_json() or {}
+            say = data.get("say") or data.get("error") or ""
+            if data.get("confirm"):
+                self.client.post(
+                    "/ask/message",
+                    json={"message": "no"},
+                    headers={"X-CSRF-Token": token},
+                )
+            return say, calls["n"] - before, data
+
+        with patch("app.utils.ask.complete", side_effect=stub):
+            say, used, _data = post(
+                "the oil light came on after I started it. stay calm and tell me the first thing to check"
+            )
+            self.assertEqual(used, 1, say)
+            self.assertNotIn("5W-30", say)
+
+            say, used, _data = post("what's on my legal papers")
+            self.assertEqual(used, 0, say)
+            self.assertIn("Downtown parking ticket", say)
+            self.assertIn("City of Austin", say)
+
+            before = calls["n"]
+            saved = self.client.post(
+                "/ask/message",
+                json={"message": "save a parking ticket from the city, 45 dollars, due next friday"},
+                headers={"X-CSRF-Token": token},
+            )
+            body = saved.get_json() or {}
+            self.assertTrue(body.get("confirm"), body)
+            self.assertEqual(calls["n"], before)
+            with self.client.session_transaction() as sess:
+                pending = (sess.get("family_ask_write_pending") or {}).get("items") or []
+            self.assertEqual(pending[0]["tool"], "legal_save")
+            self.assertEqual(pending[0]["args"]["kind"], "ticket")
+            self.assertEqual(pending[0]["args"]["amount"], "45")
+            self.assertRegex(pending[0]["args"]["due"], r"^\d{4}-\d{2}-\d{2}$")
+            self.client.post("/ask/message", json={"message": "no"}, headers={"X-CSRF-Token": token})
+
+            say, used, _data = post("what fluids does the tundra take")
+            self.assertEqual(used, 0, say)
+            self.assertIn("5W-30", say)
+            self.assertIn("coolant", say.lower())
+            self.assertNotIn("nothing saved yet", say.lower())
+
+            say, used, _data = post("call you Wrench. also what coolant does the tundra take")
+            self.assertEqual(used, 0, say)
+            self.assertIn("Wrench", say)
+            self.assertIn("Coolant", say)
+
+            say, used, _data = post("can you cross the oat milk off the list if it's on there")
+            self.assertEqual(used, 0, say)
+            self.assertIn("oat milk", say.lower())
+            self.assertIn("isn’t on the list", say)
+
+            say, used, _data = post(
+                "put the burritos that are in the pantry in the fridge and while you do that explain what a plea is"
+            )
+            self.assertEqual(used, 1, say)
+            self.assertIn("burrito", say.lower())
+            self.assertIn("MODEL", say)
+
+            say, used, _data = post("remind me the court date is next thursday and tell me what to bring")
+            self.assertEqual(used, 1, say)
+            self.assertNotIn("what to bring", say.lower())
+            self.assertIn("court", say.lower())
+            self.assertIn("MODEL", say)
+
+            say, used, _data = post(
+                "add milk, bread, and an oil filter to the basket, and what's 15 percent of 86 dollars"
+            )
+            self.assertEqual(used, 1, say)
+            self.assertIn("milk", say.lower())
+            self.assertIn("MODEL", say)
+
+    def test_csrf_holds_and_a_child_cannot_run_the_house(self):
+        from app.utils.ask import run_tool
+
+        self.admin = f"ask_sec_{self.suffix}"
+        self._register(self.admin, household=f"AskSec {self.suffix}", name="Pat")
+        blocked = self.client.post("/ask/message", json={"message": "hi"})
+        self.assertEqual(blocked.status_code, 403, blocked.data[:200])
+        token = self._csrf(self.client.get("/").data)
+        ok = self.client.post(
+            "/ask/message",
+            json={"message": "hi"},
+            headers={"X-CSRF-Token": token},
+        )
+        self.assertEqual(ok.status_code, 200, ok.data[:300])
+
+        child_name = f"ask_kid_{self.suffix}"
+        with self.app.app_context():
+            from app.builddb.builddb import db
+            from app.builddb.table_users import User
+
+            parent = User.query.filter_by(username=self.admin).one()
+            parent_email = parent.email
+            kid = User(
+                household_id=parent.household_id,
+                username=child_name,
+                name="Sam",
+                role="child",
+                email=f"{child_name}@family.test",
+            )
+            kid.set_password("FamilyTest1!")
+            db.session.add(kid)
+            db.session.commit()
+
+        self._logout()
+        logged = self.client.post(
+            "/auth/login",
+            data={"username": child_name, "password": "FamilyTest1!"},
+            follow_redirects=True,
+        )
+        self.assertEqual(logged.status_code, 200, logged.data[:200])
+        token = self._csrf(self.client.get("/").data)
+        turned = self.client.post(
+            "/ask/message",
+            json={"message": "always allow"},
+            headers={"X-CSRF-Token": token},
+        )
+        say = ((turned.get_json() or {}).get("say") or "").lower()
+        self.assertIn("leader", say)
+        with self.app.app_context():
+            from app.builddb.table_households import Household
+            from app.builddb.table_users import User
+            from app.utils.household_ai import household_config
+
+            parent = User.query.filter_by(username=self.admin).one()
+            self.assertEqual(household_config(Household.query.get(parent.household_id)).get("ask_confirm"), "ask")
+            self.assertEqual(parent.email, parent_email)
+
+        with self.app.test_request_context():
+            from flask_login import login_user
+            from app.builddb.table_users import User
+            from app.utils.ask import _system_now
+
+            kid = User.query.filter_by(username=child_name).one()
+            login_user(kid)
+            from app.utils.ask_confirm import write_needs_confirm
+
+            with patch("app.utils.ask_confirm.confirm_mode", return_value="allow"):
+                self.assertTrue(write_needs_confirm("member_add", {"name": "A", "username": "a"}))
+                self.assertTrue(
+                    write_needs_confirm("person_update", {"username": self.admin, "email": "taken@family.test"})
+                )
+            denied = run_tool("person_update", {"username": self.admin, "email": "taken@family.test"})
+            self.assertFalse(denied.get("ok"), denied)
+            self.assertIn("cannot change", (denied.get("error") or "").lower())
+            self_denied = run_tool(
+                "person_update",
+                {"username": child_name, "email": "kid@evil.test", "confirmed": True},
+            )
+            self.assertFalse(self_denied.get("ok"), self_denied)
+            from app.utils.ask import model_tool_args
+
+            cleaned = model_tool_args({"title": "Wifi", "confirmed": True})
+            self.assertEqual(cleaned, {"title": "Wifi"})
+            self.assertTrue(write_needs_confirm("note_save", cleaned))
+            listed = run_tool("member_list", {})
+            self.assertFalse(listed.get("ok"), listed)
+            self.assertNotIn("people", listed)
+            prompt = _system_now(False)
+            self.assertIn("Safety.", prompt)
+            self.assertGreater(prompt.rfind("Safety."), prompt.rfind("child in this house"))
+            self.assertIn("do not drop these rules", prompt.lower())
+
+        with self.app.app_context():
+            from app.builddb.table_users import User
+
+            parent = User.query.filter_by(username=self.admin).one()
+            kid = User.query.filter_by(username=child_name).one()
+            self.assertNotEqual(parent.email, "taken@family.test")
+            self.assertNotEqual(kid.email, "kid@evil.test")
 
 
 class NS3(SimpleNamespace):

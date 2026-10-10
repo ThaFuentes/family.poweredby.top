@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}What this key can do · Family OS{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>What this key can do</h1>
+    <p>{{ bot.name or bot.username }} · {{ role }} · {{ scope_label }}. The key cannot do more than this account. A path that is not listed is 404. DELETE is 405.</p>
+  </div>
+</div>
+<nav class="ask-rooms" aria-label="Key scope">
+  <a href="{{ house_href }}">House key</a>
+  <a href="{{ vault_href }}">Vault key</a>
+</nav>
+<div class="card">
+  <pre class="ask-help-body">{{ guide }}</pre>
+</div>
+<div class="card" style="margin-top:.8rem">
+  <h2>Calls</h2>
+  <ul>
+    {% for row in rows %}
+    <li>
+      <code>{{ row.method }} {{ row.path }}</code>
+      {% if row.needs %}<span class="muted">· needs {{ row.needs }}</span>{% endif %}
+      · {% if row.open %}This account can.{% else %}This account cannot.{% endif %}
+      <div class="muted">{{ row.what }}</div>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% if examples %}
+<div class="card" style="margin-top:.8rem">
+  <h2>Examples</h2>
+  {% for ex in examples %}
+  <p><code>{{ ex.method }} {{ ex.path }}</code> <span class="muted">{{ ex.says }}</span></p>
+  {% if ex.body %}
+  <pre class="ask-help-body">{{ ex.body|tojson }}</pre>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

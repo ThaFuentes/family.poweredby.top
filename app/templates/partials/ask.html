@@ -3,7 +3,8 @@
 {% set meta = ask_room_meta if ask_room_meta is defined else (room if room is defined and room.title is defined else none) %}
 {% set room_label = meta.title if meta else (ask_room|capitalize) %}
 {% set agent = agent_name if agent_name is defined else 'Ask' %}
-<div class="ask-root{% if ask_mode == 'desk' %} ask-desk-root{% endif %}" id="ask-root" data-room="{{ ask_room }}" data-mode="{{ ask_mode }}" data-agent="{{ agent }}">
+{% set mine = ask_personal if ask_personal is defined and ask_personal else {} %}
+<div class="ask-root{% if ask_mode == 'desk' %} ask-desk-root{% endif %}" id="ask-root" data-room="{{ ask_room }}" data-mode="{{ ask_mode }}" data-agent="{{ agent }}" data-room-label="{{ room_label }}">
   {% if ask_mode != 'desk' %}
   <button type="button" class="ask-fab" id="ask-open" aria-expanded="false" aria-controls="ask-panel">
     {{ agent }}{% if ask_room != 'house' %} · {{ room_label }}{% endif %}
@@ -12,9 +13,12 @@
   <section class="ask-panel{% if ask_mode == 'desk' %} is-open{% endif %}" id="ask-panel"{% if ask_mode != 'desk' %} hidden{% endif %}>
     <header class="ask-head">
       <div class="ask-bar">
-        <strong>{% if ask_mode == 'desk' %}{{ agent }} · {{ room_label }}{% else %}{{ agent }}{% if ask_room != 'house' %} · {{ room_label }}{% endif %}{% endif %}</strong>
+        <strong id="ask-title">{% if ask_mode == 'desk' %}{{ agent }} · {{ room_label }}{% else %}{{ agent }}{% if ask_room != 'house' %} · {{ room_label }}{% endif %}{% endif %}</strong>
         <div class="ask-actions">
           <a class="btn sm secondary" href="{{ url_for('ask.help_page') }}">Help</a>
+          {% if mine.ai %}
+          <button type="button" class="btn sm secondary" id="ask-mine" aria-expanded="false" aria-controls="ask-mine-form">Mine</button>
+          {% endif %}
           <button type="button" class="btn sm secondary" id="ask-clear">New</button>
           {% if ask_mode != 'desk' %}
           <button type="button" class="btn sm secondary" id="ask-close">Close</button>
@@ -23,6 +27,17 @@
       </div>
       <p class="ask-hint">{% if ask_mode == 'desk' %}Type /help, /vehicles, /inventory. This thread stays in {{ room_label }}.{% else %}Close keeps this chat. New wipes it. Type /help.{% endif %}</p>
     </header>
+    {% if mine.ai %}
+    <form class="ask-mine" id="ask-mine-form" hidden autocomplete="off">
+      <label for="ask-mine-name">Your name for this chat</label>
+      <input id="ask-mine-name" name="name" maxlength="24" value="{{ mine.name or '' }}" placeholder="{{ mine.house_name or 'Ask' }}">
+      <label for="ask-mine-notes">Your instructions</label>
+      <textarea id="ask-mine-notes" name="instructions" maxlength="800" rows="3">{{ mine.instructions or '' }}</textarea>
+      <p class="ask-mine-rules">House rules win over yours.{% if mine.house_rules %} {{ mine.house_rules }}{% endif %}</p>
+      <p class="ask-mine-status" id="ask-mine-status" hidden></p>
+      <button class="btn sm" type="submit" id="ask-mine-save">Save</button>
+    </form>
+    {% endif %}
     <div class="ask-log" id="ask-log" aria-live="polite"></div>
     <form class="ask-form" id="ask-form" autocomplete="off">
       <div class="ask-preview" id="ask-preview" hidden>
@@ -39,4 +54,4 @@
     </form>
   </section>
 </div>
-<script src="{{ url_for('static', filename='js/ask.js') }}?v=os12" defer></script>
+<script src="{{ url_for('static', filename='js/ask.js') }}?v=os14" defer></script>

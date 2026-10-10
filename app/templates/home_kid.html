@@ -7,6 +7,8 @@
     <p>Camera button at the bottom. In, Out, or Buy — pick once.</p>
   </div>
 </div>
+<p><a class="btn" href="{{ url_for('ask.index') }}">{{ agent_name or 'Ask' }}</a></p>
+<p class="muted">Talk to the house. The basket, oil, reminders, and what's on hand.</p>
 <button type="button" class="btn secondary home-cal-btn" data-sheet="{{ url_for('appearance.calendar_sheet') }}">
   {% if cal_links.cal_ready %}Calendar · {{ cal_links.cal_provider_label }}{% else %}Your calendar{% endif %}
 </button>

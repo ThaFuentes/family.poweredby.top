@@ -7,6 +7,15 @@ from decimal import Decimal
 from app.builddb.builddb import db
 
 
+def _in_house(obj, row) -> bool:
+    if obj is None or row is None:
+        return False
+    try:
+        return int(getattr(obj, "household_id", 0) or 0) == int(row.household_id)
+    except (TypeError, ValueError):
+        return False
+
+
 def _num(val):
     if val is None:
         return None
@@ -18,11 +27,20 @@ def _num(val):
         return val
 
 
-def _who(user=None) -> str:
+def _who(user=None, user_id=None) -> str:
     from flask_login import current_user
 
     u = user if user is not None else current_user
-    if u is None or not getattr(u, "is_authenticated", True):
+    if u is None or not getattr(u, "is_authenticated", False):
+        u = None
+        if user_id:
+            try:
+                from app.builddb.table_users import User
+
+                u = User.query.get(int(user_id))
+            except Exception:
+                u = None
+    if u is None:
         return "Someone"
     return (getattr(u, "name", None) or getattr(u, "username", None) or "Someone").split()[0]
 
@@ -38,17 +56,22 @@ def record(
     new_json=None,
     reversible: bool = True,
     user_id=None,
+    household_id=None,
 ):
     try:
         from flask_login import current_user
-        from app.utils.household import household_id
         from app.builddb.table_household_activity import HouseholdActivity
 
         uid = user_id
         if uid is None and getattr(current_user, "is_authenticated", False):
             uid = current_user.id
+        hid = household_id
+        if hid is None:
+            from app.utils.household import household_id as current_household
+
+            hid = current_household()
         row = HouseholdActivity(
-            household_id=household_id(),
+            household_id=hid,
             user_id=uid,
             action=(action or "do")[:40],
             summary=(summary or action)[:240],
@@ -70,7 +93,7 @@ def record(
 def log_grocery(item, g, action: str, prev_qty, new_qty, amount, user_id=None):
     from app.utils.scan import qty_label
 
-    who = _who()
+    who = _who(user_id=user_id)
     name = getattr(item, "name", None) or "item"
     prev_s = qty_label(prev_qty)
     new_s = qty_label(new_qty)
@@ -92,6 +115,7 @@ def log_grocery(item, g, action: str, prev_qty, new_qty, amount, user_id=None):
         },
         new_json={"quantity": _num(new_qty), "amount": _num(amount)},
         user_id=user_id,
+        household_id=getattr(item, "household_id", None),
     )
 
 
@@ -150,7 +174,12 @@ def reverse_row(row, *, by_id: int | None) -> tuple[bool, str]:
         return False, "That one can't be undone."
     action = (row.action or "")
     try:
-        if action.startswith("grocery."):
+        spec = row.old_json if isinstance(row.old_json, dict) else {}
+        if spec.get("undo"):
+            from app.utils.activity_undo import undo_recorded
+
+            ok, msg = undo_recorded(row, actor_id=by_id)
+        elif action.startswith("grocery."):
             ok, msg = _undo_grocery(row)
         elif action == "item.remove":
             ok, msg = _undo_item_remove(row)
@@ -165,6 +194,7 @@ def reverse_row(row, *, by_id: int | None) -> tuple[bool, str]:
         else:
             return False, "Don't know how to undo that."
         if not ok:
+            db.session.rollback()
             return False, msg
         row.reversed_at = datetime.utcnow()
         row.reversed_by = by_id
@@ -180,7 +210,7 @@ def _undo_grocery(row) -> tuple[bool, str]:
     from app.utils.scan import set_quantity, _sync_grocery_list, qty_label
 
     item = Item.query.get(row.item_id)
-    if item is None or item.grocery is None:
+    if item is None or item.grocery is None or not _in_house(item, row):
         return False, "That grocery is gone."
     g = item.grocery
     old = row.old_json if isinstance(row.old_json, dict) else {}
@@ -199,6 +229,8 @@ def _undo_user_remove(row) -> tuple[bool, str]:
     from app.utils.people import undo_remove
 
     user = User.query.get(row.target_id)
+    if not _in_house(user, row):
+        return False, "Can't find that person."
     old = row.old_json if isinstance(row.old_json, dict) else {}
     return undo_remove(user, old)
 
@@ -207,7 +239,7 @@ def _undo_item_remove(row) -> tuple[bool, str]:
     from app.builddb.table_items import Item
 
     item = Item.query.get(row.target_id or row.item_id)
-    if item is None:
+    if item is None or not _in_house(item, row):
         return False, "Can't find that item."
     item.removed_at = None
     extra = item.extra_data if isinstance(item.extra_data, dict) else {}
@@ -222,7 +254,7 @@ def _undo_part_off(row) -> tuple[bool, str]:
     from app.builddb.table_vehicle_parts import VehiclePart
 
     part = VehiclePart.query.get(row.target_id)
-    if part is None:
+    if part is None or not _in_house(part, row):
         return False, "Can't find that part."
     part.is_current = True
     part.status = "installed"
@@ -233,7 +265,7 @@ def _undo_part_add(row) -> tuple[bool, str]:
     from app.builddb.table_vehicle_parts import VehiclePart
 
     part = VehiclePart.query.get(row.target_id)
-    if part is None:
+    if part is None or not _in_house(part, row):
         return False, "Can't find that part."
     part.is_current = False
     part.status = "retired"
@@ -245,7 +277,7 @@ def _undo_host_attach(row) -> tuple[bool, str]:
     from app.builddb.table_vehicle_parts import VehiclePart
 
     item = Item.query.get(row.item_id)
-    if item is None:
+    if item is None or not _in_house(item, row):
         return False, "Can't find that scan."
     old = row.old_json if isinstance(row.old_json, dict) else {}
     new = row.new_json if isinstance(row.new_json, dict) else {}

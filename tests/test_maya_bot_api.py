@@ -1,9 +1,11 @@
 """Maya bot API (/api/v1/maya) and the owner's Maya permissions checklist.
 
-Safe by construction: before anything is imported the MySQL settings point at
-127.0.0.1:9 (nothing listens there) and the test asserts it cannot connect,
-so these tests can never touch the real household database. DB-backed checks
-run on an in-memory SQLite engine swapped into the app.
+Safe by construction: classes that build the app point MySQL at 127.0.0.1:9
+(nothing listens there) and the test asserts it cannot connect, so these
+tests can never touch the real household database. The process settings are
+put back afterwards, so this file can run in the same process as the
+household suites. DB-backed checks run on an in-memory SQLite engine swapped
+into the app.
 """
 from __future__ import annotations
 
@@ -20,8 +22,68 @@ os.chdir(ROOT)
 
 DEAD = {"MYSQL_HOST": "127.0.0.1", "MYSQL_PORT": "9", "MYSQL_USER": "maya_test_nobody",
         "MYSQL_PASSWORD": "not-a-real-password", "MYSQL_DATABASE": "maya_test_nodb"}
-os.environ.update(DEAD)
-os.environ.setdefault("SECRET_KEY", "maya-tests-only")
+# Captured before this file changes anything. Importing the suite must not
+# leave the household database pointed at a closed port.
+_PRIOR_MYSQL = {key: os.environ.get(key) for key in DEAD}
+
+
+def _apply_mysql(values: dict) -> None:
+    for key, value in values.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+
+
+def _publish(connector) -> None:
+    """create_app and the security connector read these names at call time."""
+    import sys
+
+    connect = sys.modules.get("poweredbytop.models.connect_db")
+    if connect is None:
+        return
+    connect.DATABASE_URI = connector.DATABASE_URI
+    connect.MYSQL_HOST = connector.MYSQL_HOST
+    connect.MYSQL_PORT = connector.MYSQL_PORT
+    connect.MYSQL_DATABASE = connector.MYSQL_DATABASE
+
+
+def use_dead_database():
+    import dbconnector
+
+    _apply_mysql(DEAD)
+    dbconnector.MYSQL_HOST = DEAD["MYSQL_HOST"]
+    dbconnector.MYSQL_PORT = DEAD["MYSQL_PORT"]
+    dbconnector.MYSQL_USER = DEAD["MYSQL_USER"]
+    dbconnector.MYSQL_PASSWORD = DEAD["MYSQL_PASSWORD"]
+    dbconnector.MYSQL_DATABASE = DEAD["MYSQL_DATABASE"]
+    dbconnector.DATABASE_URI = (
+        f"mysql+pymysql://{DEAD['MYSQL_USER']}:{DEAD['MYSQL_PASSWORD']}@"
+        f"{DEAD['MYSQL_HOST']}:{DEAD['MYSQL_PORT']}/{DEAD['MYSQL_DATABASE']}"
+    )
+    _publish(dbconnector)
+    return dbconnector
+
+
+def restore_household_database():
+    from dotenv import load_dotenv
+
+    import dbconnector
+
+    _apply_mysql(_PRIOR_MYSQL)
+    load_dotenv(os.path.join(ROOT, ".env"))
+    dbconnector.MYSQL_HOST = os.environ.get("MYSQL_HOST", "127.0.0.1")
+    dbconnector.MYSQL_PORT = os.environ.get("MYSQL_PORT", "3306")
+    dbconnector.MYSQL_USER = os.environ.get("MYSQL_USER")
+    dbconnector.MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD")
+    dbconnector.MYSQL_DATABASE = os.environ.get("MYSQL_DATABASE")
+    dbconnector.DATABASE_URI = (
+        f"mysql+pymysql://{dbconnector.MYSQL_USER}:{dbconnector.MYSQL_PASSWORD}@"
+        f"{dbconnector.MYSQL_HOST}:{dbconnector.MYSQL_PORT}/{dbconnector.MYSQL_DATABASE}"
+    )
+    _publish(dbconnector)
+    return dbconnector
+
 
 import dbconnector  # noqa: E402
 
@@ -44,18 +106,31 @@ def _png_with_exif() -> bytes:
 
 class DeadDatabase(unittest.TestCase):
     def test_points_at_dead_address(self):
-        self.assertIn("127.0.0.1:9", dbconnector.DATABASE_URI)
-        import pymysql
+        connector = use_dead_database()
+        try:
+            self.assertIn("127.0.0.1:9", connector.DATABASE_URI)
+            import pymysql
 
-        with self.assertRaises(Exception):
-            pymysql.connect(host="127.0.0.1", port=9, user="x", password="y", connect_timeout=2)
+            with self.assertRaises(Exception):
+                pymysql.connect(host="127.0.0.1", port=9, user="x", password="y", connect_timeout=2)
+        finally:
+            restore_household_database()
 
 
 class App(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.app = create_app()
-        cls.app.config["TESTING"] = True
+        use_dead_database()
+        try:
+            cls.app = create_app()
+            cls.app.config["TESTING"] = True
+        except Exception:
+            restore_household_database()
+            raise
+
+    @classmethod
+    def tearDownClass(cls):
+        restore_household_database()
 
     def test_routes_registered(self):
         rules = {r.rule for r in self.app.url_map.iter_rules()}
@@ -162,7 +237,16 @@ class Catalog(unittest.TestCase):
 class Uploads(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.app = create_app()
+        use_dead_database()
+        try:
+            cls.app = create_app()
+        except Exception:
+            restore_household_database()
+            raise
+
+    @classmethod
+    def tearDownClass(cls):
+        restore_household_database()
 
     def test_sniff_trusts_bytes(self):
         self.assertEqual(maya_store.sniff(b"%PDF-1.7 ...")[0], ".pdf")
@@ -212,6 +296,15 @@ class SqliteState(unittest.TestCase):
         from sqlalchemy import create_engine
         from sqlalchemy.pool import StaticPool
 
+        use_dead_database()
+        try:
+            cls._open_sqlite(create_engine, StaticPool)
+        except Exception:
+            restore_household_database()
+            raise
+
+    @classmethod
+    def _open_sqlite(cls, create_engine, StaticPool):
         cls.app = create_app()
         cls.ctx = cls.app.app_context()
         cls.ctx.push()
@@ -248,8 +341,11 @@ class SqliteState(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        db.session.remove()
-        cls.ctx.pop()
+        try:
+            db.session.remove()
+            cls.ctx.pop()
+        finally:
+            restore_household_database()
 
     def _users(self):
         from app.builddb.table_users import User

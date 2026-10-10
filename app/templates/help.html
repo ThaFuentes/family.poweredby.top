@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Help · Family OS{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Help</h1>
+    <p>How this house uses keys, Ask, and put-back. Anyone in the house can read this. A leader still has to paste a key.</p>
+  </div>
+  <a class="btn sm" href="{{ url_for('ask.index') }}">Ask about this</a>
+</div>
+{% for title, body in sections %}
+<section class="card" style="margin:0 0 .75rem;padding:.9rem 1rem">
+  <h2 style="margin:.1rem 0 .4rem;font-size:1.05rem">{{ title }}</h2>
+  <p style="margin:0">{{ body }}</p>
+</section>
+{% endfor %}
+<p class="muted">Ask can answer these same words with no AI key. Slash commands for Ask stay on <a href="{{ url_for('ask.help_page') }}">Ask help</a>.</p>
+{% endblock %}

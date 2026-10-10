@@ -285,20 +285,23 @@ def keep_version(*, hid: int, kind: str, row, reason: str, actor_id=None):
     return ver
 
 
-def restore_version(ver, row, *, actor_id=None) -> tuple[bool, str]:
+def restore_version(ver, row, *, actor_id=None) -> tuple[bool, str, int | None]:
     """Put an archived version back as the row's current file.
 
-    The file the row has now is archived first, so this is reversible too.
+    The file the row has now is archived first. The third value is that new
+    archive id, so Happened can put this restore back too.
     """
     if ver is None or row is None or ver.restored_at is not None:
-        return False, "That version is not available."
+        return False, "That version is not available.", None
     _model, attr = kind_model(ver.kind)
+    archived_id = None
     if getattr(row, attr, None):
-        keep_version(hid=ver.household_id, kind=ver.kind, row=row, reason="replace", actor_id=actor_id)
+        archived = keep_version(hid=ver.household_id, kind=ver.kind, row=row, reason="replace", actor_id=actor_id)
+        archived_id = int(archived.id) if archived is not None else None
     src_rel = Path(ver.stored_rel)
     new_rel = str(src_rel.parent / (secrets.token_hex(8) + "".join(src_rel.suffixes[-2:])))
     if not unarchive_file(ver.household_id, ver.archived_path, new_rel):
-        return False, "The archived bytes are missing."
+        return False, "The archived bytes are missing.", None
     setattr(row, attr, new_rel)
     if ver.original_name and hasattr(row, "original_name"):
         row.original_name = ver.original_name
@@ -306,24 +309,28 @@ def restore_version(ver, row, *, actor_id=None) -> tuple[bool, str]:
         row.mime = ver.mime
     ver.restored_at = datetime.utcnow()
     db.session.commit()
-    return True, "Old version restored."
+    return True, "Old version restored.", archived_id
 
 
-def write_replacement(*, hid: int, kind: str, row, upload: FileStorage, actor_id=None) -> tuple[bool, str]:
-    """Archive the current bytes, write the cleaned upload encrypted in place."""
+def write_replacement(*, hid: int, kind: str, row, upload: FileStorage, actor_id=None) -> tuple[bool, str, int | None]:
+    """Archive the current bytes, write the cleaned upload encrypted in place.
+
+    The third value is the archived version id. Happened uses it to put the
+    old bytes back. None means the archive did not keep a copy.
+    """
     from app.utils.crypto import write_encrypted_file
 
     _model, attr = kind_model(kind)
     rel_old = getattr(row, attr, None)
     if not rel_old:
-        return False, "That file has no stored bytes."
-    keep_version(hid=hid, kind=kind, row=row, reason="replace", actor_id=actor_id)
+        return False, "That file has no stored bytes.", None
+    ver = keep_version(hid=hid, kind=kind, row=row, reason="replace", actor_id=actor_id)
     ext = os.path.splitext(upload.filename or "")[1].lower() or ".bin"
     folder = Path(rel_old).parent
     new_rel = str(folder / (secrets.token_hex(8) + ext + ".enc"))
     dest = _safe_upload_path(hid, new_rel)
     if dest is None:
-        return False, "Bad storage path."
+        return False, "Bad storage path.", None
     dest.parent.mkdir(parents=True, exist_ok=True)
     write_encrypted_file(str(dest), upload.read())
     setattr(row, attr, new_rel)
@@ -331,7 +338,7 @@ def write_replacement(*, hid: int, kind: str, row, upload: FileStorage, actor_id
         row.original_name = upload.filename[:200]
     if hasattr(row, "mime") and upload.mimetype:
         row.mime = upload.mimetype[:80]
-    return True, "Replaced. The old version is archived."
+    return True, "Replaced. The old version is archived.", (int(ver.id) if ver is not None else None)
 
 
 # ------------------------------------------------------------- uploads

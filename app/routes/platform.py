@@ -51,8 +51,11 @@ def _ip():
 
 
 def _safe_next():
-    nxt = request.args.get("next") or request.form.get("next") or url_for("platform.home")
-    if not str(nxt).startswith("/platform"):
+    from app.utils.stay import same_site_path
+
+    nxt = same_site_path(request.args.get("next") or request.form.get("next") or "")
+    path = (nxt or "").split("?", 1)[0].rstrip("/") or "/"
+    if path != "/platform" and not path.startswith("/platform/"):
         return url_for("platform.home")
     return nxt
 

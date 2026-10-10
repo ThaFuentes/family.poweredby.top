@@ -42,9 +42,8 @@
       <div class="sheet" role="menu">
         <div class="muted" style="padding:.45rem .75rem .2rem;font-size:.75rem">{{ current_user.name or current_user.username }} · {{ current_user.role }}</div>
         <a href="{{ url_for('find.index') }}">Find</a>
-        {% if current_user.role != 'child' %}
         <a href="{{ url_for('ask.index') }}">Ask</a>
-        {% endif %}
+        <a href="{{ url_for('home.help_page') }}">Help</a>
         <a href="{{ url_for('notes.index') }}">Notes</a>
         <a href="{{ url_for('house.index') }}">House</a>
         {% if current_user.role != 'child' %}
@@ -110,9 +109,8 @@
     <a href="{{ url_for('vault.index') }}">Vault</a>
     {% endif %}
     <a href="{{ url_for('find.index') }}">Find</a>
-    {% if current_user.role != 'child' %}
     <a href="{{ url_for('ask.index') }}">Ask</a>
-    {% endif %}
+    <a href="{{ url_for('home.help_page') }}">Help</a>
     <a href="{{ url_for('reminders.index') }}">Due</a>
     {% if current_user.role != 'child' %}
     <a href="{{ url_for('sort.index') }}">Sort</a>
@@ -163,7 +161,7 @@
   </div>
   <script>window.FAMILY_CAN_CREATE = {{ 'true' if can('edit_grocery') or can('edit_meta') or can('maintain') else 'false' }};</script>
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="{{ url_for('static', filename='js/scan.js') }}?v=os40"></script>
+  <script src="{{ url_for('static', filename='js/scan.js') }}?v=os41"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}?v=os25"></script>
   {% if ask_open and ask_embed %}
   {% include "partials/ask.html" %}

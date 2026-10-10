@@ -2,14 +2,13 @@ from flask import Blueprint, jsonify, redirect, render_template, request, url_fo
 from flask_login import current_user, login_required
 
 from app.builddb.table_households import Household
-from app.utils.ask import ask_chat_allowed, ask_ready, clear_history, history_payload, run_ask
+from app.utils.ask import ask_chat_allowed, ask_identity, ask_ready, clear_history, history_payload, run_ask
 from app.utils.ask_photo import image_from_payload
 from app.utils.ask_rooms import help_text, normalize_room, room_from_path, room_meta, rooms_public
 from app.utils.household import household_id
-from app.utils.permissions import role_of
 
 ask_bp = Blueprint("ask", __name__, url_prefix="/ask")
-RESERVED = frozenset({"message", "history", "clear", "help"})
+RESERVED = frozenset({"message", "history", "clear", "help", "mine"})
 
 
 def _household():
@@ -25,8 +24,6 @@ def _room_arg(payload=None) -> str:
 
 
 def _desk(room_key: str):
-    if role_of() == "child":
-        return redirect(url_for("home.home"))
     key = normalize_room(room_key)
     h = _household()
     if not ask_chat_allowed(h, current_user):
@@ -45,8 +42,6 @@ def _desk(room_key: str):
 @ask_bp.route("/message", methods=["POST"])
 @login_required
 def message():
-    if role_of() == "child":
-        return jsonify({"ok": False, "error": "Ask is for grown-ups."}), 403
     h = _household()
     if not ask_chat_allowed(h, current_user):
         return jsonify({"ok": False, "error": "Ask is off for this household."}), 403
@@ -69,8 +64,6 @@ def message():
 @ask_bp.route("/history", methods=["GET"])
 @login_required
 def history():
-    if role_of() == "child":
-        return jsonify({"ok": False, "turns": []}), 403
     if not ask_chat_allowed(_household(), current_user):
         return jsonify({"ok": False, "turns": []}), 403
     return jsonify(history_payload(_room_arg()))
@@ -79,18 +72,46 @@ def history():
 @ask_bp.route("/clear", methods=["POST"])
 @login_required
 def clear():
-    if role_of() == "child":
-        return jsonify({"ok": False}), 403
     payload = request.get_json(silent=True) or {}
     clear_history(_room_arg(payload))
     return jsonify({"ok": True})
 
 
+@ask_bp.route("/mine", methods=["POST"])
+@login_required
+def mine():
+    """This person's chat name and instructions. House rules stay on Household."""
+    h = _household()
+    if not ask_chat_allowed(h, current_user):
+        return jsonify({"ok": False, "error": "Ask is off for this household."}), 403
+    if not ask_ready(h, current_user):
+        return jsonify({"ok": False, "error": "Turn on a household AI key before naming the chat."}), 403
+    from app.utils.household_ai import set_user_agent
+
+    payload = request.get_json(silent=True) or {}
+    fields = {}
+    if "name" in payload or "name" in request.form:
+        fields["name"] = payload["name"] if "name" in payload else request.form.get("name")
+    if "instructions" in payload or "instructions" in request.form:
+        raw_notes = payload["instructions"] if "instructions" in payload else request.form.get("instructions")
+        fields["instructions"] = raw_notes
+    if fields:
+        set_user_agent(current_user, **fields)
+    identity = ask_identity(h, current_user)
+    return jsonify(
+        {
+            "ok": True,
+            "name": identity.get("name") or "Ask",
+            "user_name": identity.get("user_name") or "",
+            "instructions": identity.get("user_instructions") or "",
+            "house_rules": identity.get("persona") or "",
+        }
+    )
+
+
 @ask_bp.route("/help", methods=["GET"])
 @login_required
 def help_page():
-    if role_of() == "child":
-        return redirect(url_for("home.home"))
     return render_template(
         "ask_help.html",
         rooms=rooms_public(),

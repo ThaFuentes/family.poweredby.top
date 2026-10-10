@@ -108,19 +108,27 @@ def write_audit(outcome: str, target=None, target_id=None):
 
 
 def done(action: str, summary: str, *, target_table=None, target_id=None, item_id=None, detail=None,
-         reversible=False):
-    """Happened row as Maya + commit + one bot_api_audit row for the write."""
+         reversible=False, old=None):
+    """Happened row as Maya + commit + one bot_api_audit row for the write.
+
+    `old` is the undo tag. A tag makes the row reversible. Permission changes
+    stay irreversible even if a tag is passed.
+    """
     from app.utils.activity import record
 
+    if isinstance(old, dict) and old.get("undo") and not action.startswith("perms"):
+        reversible = True
     record(
         action=action if action.startswith(("part.",)) else f"maya.{action}"[:40],
         summary=summary,
         target_table=target_table,
         target_id=target_id,
         item_id=item_id,
+        old_json=old if isinstance(old, dict) else None,
         new_json=detail if isinstance(detail, dict) else None,
         reversible=reversible,
         user_id=api_user().id,
+        household_id=api_household_id(),
     )
     db.session.commit()
     write_audit(action, target_table, target_id)
@@ -313,7 +321,8 @@ def items_create():
         return api_error(err, 403, "forbidden")
     if status == "exists":
         return api_error(err, 409, "exists", item_id=item.id)
-    done("item.add", f"{who()} added {item.name}", target_table="items", target_id=item.id, item_id=item.id)
+    done("item.add", f"{who()} added {item.name}", target_table="items", target_id=item.id, item_id=item.id,
+         old={"undo": "hide_item"})
     return ok({"item": _item_json(item)}, 201)
 
 
@@ -327,6 +336,14 @@ def items_edit(item_id):
     blocked = need(f"{_area(item.item_type)}.edit")
     if blocked:
         return blocked
+    from app.utils.activity_undo import fields_undo, snap_grocery, snap_item, snap_tool, snap_vehicle
+
+    before = fields_undo(
+        item=snap_item(item),
+        grocery=snap_grocery(getattr(item, "grocery", None)),
+        vehicle=snap_vehicle(getattr(item, "vehicle", None)),
+        tool=snap_tool(getattr(item, "tool", None)),
+    )
     data = payload()
     data.pop("item_type", None)
     err = edit_item(item, form_of(merged_form(item, data)), lookup=bool(data.get("lookup")))
@@ -334,7 +351,7 @@ def items_edit(item_id):
         db.session.rollback()
         return api_error(err, 409, "conflict")
     done("item.edit", f"{who()} edited {item.name}", target_table="items", target_id=item.id, item_id=item.id,
-         detail={"fields": sorted(data.keys())[:40]})
+         detail={"fields": sorted(data.keys())[:40]}, old=before)
     return ok({"item": _item_json(item)})
 
 
@@ -370,10 +387,27 @@ def items_reading(item_id):
     item = _item(item_id)
     if item is None:
         return not_found()
+    from app.builddb.table_item_logs import ItemLog
+    from app.utils.activity_undo import living_snap, trash_undo
+
+    before = living_snap(item)
     ok_, msg = set_reading(item, payload().get("reading"), user_id=api_user().id)
     if not ok_:
         return api_error(msg, 400, "bad_request")
-    done("reading", f"{who()}: {msg}", target_table="items", target_id=item.id, item_id=item.id)
+    log = (
+        ItemLog.query.filter_by(household_id=item.household_id, item_id=item.id)
+        .order_by(ItemLog.id.desc())
+        .first()
+    )
+    old = trash_undo(log.id, living=before) if log is not None else None
+    done(
+        "reading",
+        f"{who()}: {msg}",
+        target_table="item_logs" if log is not None else "items",
+        target_id=log.id if log is not None else item.id,
+        item_id=item.id,
+        old=old,
+    )
     return ok({"message": msg, "item": _item_json(item)})
 
 
@@ -439,6 +473,9 @@ def logs_add(item_id):
     item = _item(item_id)
     if item is None or item.item_type not in ("vehicle", "tool", "house"):
         return api_error("Logs are for vehicles, tools and the house.", 404, "not_found")
+    from app.utils.activity_undo import living_snap
+
+    before_living = living_snap(item)
     data = payload()
     kind = (str(data.get("kind") or "note")).strip().lower()
     if kind not in LOG_KINDS and not is_oil_kind(kind):
@@ -453,7 +490,8 @@ def logs_add(item_id):
     if row is None:
         db.session.rollback()
         return api_error("That log row was not saved.", 400, "bad_request")
-    done("log.add", f"{who()} logged {kind} on {item.name}", target_table="item_logs", target_id=row.id, item_id=item.id)
+    done("log.add", f"{who()} logged {kind} on {item.name}", target_table="item_logs", target_id=row.id, item_id=item.id,
+         old={"undo": "trash", "ids": [row.id], "living": before_living, "maintenance_id": row.maintenance_id})
     return ok({"log": _log_json(row)}, 201)
 
 
@@ -467,7 +505,8 @@ def logs_remove(log_id):
         return not_found()
     item_id = row.item_id
     entry = remove_log(row, actor_id=api_user().id, via="maya")
-    done("log.remove", f"{who()} removed a log row", target_table="household_trash", target_id=entry.id, item_id=item_id)
+    done("log.remove", f"{who()} removed a log row", target_table="household_trash", target_id=entry.id, item_id=item_id,
+         old={"undo": "untrash"})
     return ok(trashed(entry))
 
 
@@ -531,7 +570,8 @@ def parts_add(item_id):
         db.session.rollback()
         return api_error("That part was not saved.", 400, "bad_request")
     done("part.add", f"{who()} put {row.name} on {item.name}", target_table="vehicle_parts", target_id=row.id,
-         item_id=item.id, detail={"name": row.name, "system": row.system, "slot": row.slot}, reversible=True)
+         item_id=item.id, detail={"name": row.name, "system": row.system, "slot": row.slot},
+         old={"undo": "retire_part"})
     return ok({"part": _part_json(row)}, 201)
 
 
@@ -542,8 +582,12 @@ def parts_edit(part_id):
     row = _part(part_id)
     if row is None:
         return not_found()
+    from app.utils.activity_undo import fields_undo, snap_part
+
+    before = fields_undo(part=snap_part(row))
     update_part(row, payload())
-    done("part.edit", f"{who()} edited {row.name}", target_table="vehicle_parts", target_id=row.id, item_id=row.vehicle_item_id)
+    done("part.edit", f"{who()} edited {row.name}", target_table="vehicle_parts", target_id=row.id,
+         item_id=row.vehicle_item_id, old=before)
     return ok({"part": _part_json(row)})
 
 
@@ -615,7 +659,8 @@ def basket_add():
                      note=data.get("note"), item_id=item_id, quantity=data.get("quantity"))
     if not rows:
         return api_error("names is required.", 400, "bad_request")
-    done("basket.add", f"{who()} put {len(rows)} on the basket", target_table="grocery_list", target_id=rows[0].id)
+    done("basket.add", f"{who()} put {len(rows)} on the basket", target_table="grocery_list", target_id=rows[0].id,
+         old={"undo": "trash", "ids": [r.id for r in rows]})
     return ok({"added": [_basket_json(r) for r in rows]}, 201)
 
 
@@ -627,8 +672,11 @@ def basket_check(entry_id):
     row = _basket(entry_id)
     if row is None:
         return not_found()
+    from app.utils.activity_undo import fields_undo, snap_basket
+
+    before = fields_undo(basket=snap_basket(row))
     check_off(row, user_id=api_user().id, restock=payload().get("restock", True) is not False)
-    done("basket.check", f"{who()} got {row.name}", target_table="grocery_list", target_id=row.id)
+    done("basket.check", f"{who()} got {row.name}", target_table="grocery_list", target_id=row.id, old=before)
     return ok({"line": _basket_json(row)})
 
 
@@ -640,8 +688,11 @@ def basket_reopen(entry_id):
     row = _basket(entry_id)
     if row is None:
         return not_found()
+    from app.utils.activity_undo import fields_undo, snap_basket
+
+    before = fields_undo(basket=snap_basket(row))
     reopen(row)
-    done("basket.reopen", f"{who()} put {row.name} back on the basket", target_table="grocery_list", target_id=row.id)
+    done("basket.reopen", f"{who()} put {row.name} back on the basket", target_table="grocery_list", target_id=row.id, old=before)
     return ok({"line": _basket_json(row)})
 
 
@@ -654,7 +705,8 @@ def basket_remove(entry_id):
         return not_found()
     name = row.name
     entry = remove_entry(row, actor_id=api_user().id, via="maya")
-    done("basket.remove", f"{who()} took {name} off the basket", target_table="household_trash", target_id=entry.id)
+    done("basket.remove", f"{who()} took {name} off the basket", target_table="household_trash", target_id=entry.id,
+         old={"undo": "untrash"})
     return ok(trashed(entry))
 
 
@@ -694,7 +746,8 @@ def reminders_add():
     )
     if err:
         return api_error(err, 400, "bad_request")
-    done("reminder.add", f"{who()} added reminder {row.title}", target_table="reminders", target_id=row.id)
+    done("reminder.add", f"{who()} added reminder {row.title}", target_table="reminders", target_id=row.id,
+         old={"undo": "trash", "ids": [row.id]})
     return ok({"reminder": _reminder_json(row)}, 201)
 
 
@@ -705,11 +758,14 @@ def reminders_edit(rid):
     row = _reminder(rid)
     if row is None:
         return not_found()
+    from app.utils.activity_undo import fields_undo, snap_reminder
+
+    before = fields_undo(reminder=snap_reminder(row))
     err = update_reminder(row, payload())
     if err:
         db.session.rollback()
         return api_error(err, 400, "bad_request")
-    done("reminder.edit", f"{who()} edited reminder {row.title}", target_table="reminders", target_id=row.id)
+    done("reminder.edit", f"{who()} edited reminder {row.title}", target_table="reminders", target_id=row.id, old=before)
     return ok({"reminder": _reminder_json(row)})
 
 
@@ -720,8 +776,11 @@ def reminders_done(rid):
     row = _reminder(rid)
     if row is None:
         return not_found()
+    from app.utils.activity_undo import fields_undo, snap_reminder
+
+    before = fields_undo(reminder=snap_reminder(row))
     complete(row)
-    done("reminder.done", f"{who()} checked off {row.title}", target_table="reminders", target_id=row.id)
+    done("reminder.done", f"{who()} checked off {row.title}", target_table="reminders", target_id=row.id, old=before)
     return ok({"reminder": _reminder_json(row)})
 
 
@@ -732,8 +791,11 @@ def reminders_reopen(rid):
     row = _reminder(rid)
     if row is None:
         return not_found()
+    from app.utils.activity_undo import fields_undo, snap_reminder
+
+    before = fields_undo(reminder=snap_reminder(row))
     reopen(row)
-    done("reminder.reopen", f"{who()} reopened {row.title}", target_table="reminders", target_id=row.id)
+    done("reminder.reopen", f"{who()} reopened {row.title}", target_table="reminders", target_id=row.id, old=before)
     return ok({"reminder": _reminder_json(row)})
 
 
@@ -746,7 +808,8 @@ def reminders_remove(rid):
         return not_found()
     title = row.title
     entry = remove_reminder(row, actor_id=api_user().id, via="maya")
-    done("reminder.remove", f"{who()} removed reminder {title}", target_table="household_trash", target_id=entry.id)
+    done("reminder.remove", f"{who()} removed reminder {title}", target_table="household_trash", target_id=entry.id,
+         old={"undo": "untrash"})
     return ok(trashed(entry))
 
 
@@ -796,7 +859,8 @@ def notes_create():
                             item_id=resolve_item_id(data.get("item_id")))
     if err:
         return api_error(err, 400, "bad_request")
-    done("note.add", f"{who()} wrote note {note.title}", target_table="notes", target_id=note.id, item_id=note.item_id)
+    done("note.add", f"{who()} wrote note {note.title}", target_table="notes", target_id=note.id, item_id=note.item_id,
+         old={"undo": "trash", "ids": [note.id]})
     return ok({"note": _note_json(note)}, 201)
 
 
@@ -810,6 +874,9 @@ def notes_edit(note_id):
         return not_found()
     if not can_edit(note, api_user()):
         return api_error("Only the author or an admin can edit that note.", 403, "forbidden")
+    from app.utils.activity_undo import fields_undo, snap_note
+
+    before = fields_undo(note=snap_note(note))
     data = payload()
     err = update_note(
         note,
@@ -821,7 +888,8 @@ def notes_edit(note_id):
     if err:
         db.session.rollback()
         return api_error(err, 400, "bad_request")
-    done("note.edit", f"{who()} edited note {note.title}", target_table="notes", target_id=note.id, item_id=note.item_id)
+    done("note.edit", f"{who()} edited note {note.title}", target_table="notes", target_id=note.id, item_id=note.item_id,
+         old=before)
     return ok({"note": _note_json(note)})
 
 
@@ -836,7 +904,8 @@ def notes_remove(note_id):
         return api_error("Only the author or an admin can remove that note.", 403, "forbidden")
     title = note.title
     entry = remove_note(note, actor_id=api_user().id, via="maya")
-    done("note.remove", f"{who()} removed note {title}", target_table="household_trash", target_id=entry.id)
+    done("note.remove", f"{who()} removed note {title}", target_table="household_trash", target_id=entry.id,
+         old={"undo": "untrash"})
     return ok(trashed(entry))
 
 
@@ -932,7 +1001,8 @@ def note_files_add(note_id):
     if row is None:
         db.session.rollback()
         return api_error("That file was not saved.", 400, "bad_file")
-    done("file.add", f"{who()} attached {row.original_name} to {note.title}", target_table="note_files", target_id=row.id)
+    done("file.add", f"{who()} attached {row.original_name} to {note.title}", target_table="note_files", target_id=row.id,
+         old={"undo": "trash", "ids": [row.id]})
     return ok({"file": _file_json("note_file", row)}, 201)
 
 
@@ -953,7 +1023,8 @@ def photos_add(item_id):
     if row is None:
         db.session.rollback()
         return api_error("That picture was not saved.", 400, "bad_file")
-    done("photo.add", f"{who()} added a photo to {item.name}", target_table="photo_notes", target_id=row.id, item_id=item.id)
+    done("photo.add", f"{who()} added a photo to {item.name}", target_table="photo_notes", target_id=row.id, item_id=item.id,
+         old={"undo": "trash", "ids": [row.id]})
     return ok({"file": _file_json("photo", row)}, 201)
 
 
@@ -968,12 +1039,14 @@ def files_replace(kind, row_id):
     clean, err = maya_store.clean_upload(request.files.get("file"), allowed=maya_store.DOC_EXTS)
     if err:
         return api_error(err, 400, "bad_file")
-    ok_, msg = maya_store.write_replacement(hid=row.household_id, kind=kind, row=row, upload=clean,
-                                            actor_id=api_user().id)
+    ok_, msg, version_id = maya_store.write_replacement(
+        hid=row.household_id, kind=kind, row=row, upload=clean, actor_id=api_user().id
+    )
     if not ok_:
         db.session.rollback()
         return api_error(msg, 400, "bad_file")
-    done("file.replace", f"{who()} replaced a file", target_table=kind, target_id=row.id)
+    old = {"undo": "file_version", "version_id": version_id} if version_id else None
+    done("file.replace", f"{who()} replaced a file", target_table=kind, target_id=row.id, old=old)
     return ok({"file": _file_json(kind, row), "versions": f"/api/v1/maya/files/{kind}/{row.id}/versions"})
 
 
@@ -996,7 +1069,8 @@ def files_remove(kind, row_id):
 
         entry = maya_store.trash(hid=row.household_id, label=f"File: {row.original_name or row.id}",
                                  rows=[(LegalFile, row)], files=[row.stored_path], actor_id=api_user().id, via="maya")
-    done("file.remove", f"{who()} removed a file", target_table="household_trash", target_id=entry.id)
+    done("file.remove", f"{who()} removed a file", target_table="household_trash", target_id=entry.id,
+         old={"undo": "untrash"})
     return ok(trashed(entry))
 
 
@@ -1023,10 +1097,12 @@ def files_version_restore(kind, row_id, version_id):
                                                row_id=row_id).first()
     if row is None or ver is None:
         return not_found()
-    ok_, msg = maya_store.restore_version(ver, row, actor_id=api_user().id)
+    ok_, msg, archived_id = maya_store.restore_version(ver, row, actor_id=api_user().id)
     if not ok_:
+        db.session.rollback()
         return api_error(msg, 409, "conflict")
-    done("file.version_restore", f"{who()} restored an old file version", target_table=kind, target_id=row.id)
+    old = {"undo": "file_version", "version_id": archived_id} if archived_id else None
+    done("file.version_restore", f"{who()} restored an old file version", target_table=kind, target_id=row.id, old=old)
     return ok({"file": _file_json(kind, row), "message": msg})
 
 
@@ -1092,7 +1168,8 @@ def records_create():
     if err:
         return api_error(err, 400, "bad_request")
     row = create_record(hid=api_household_id(), user_id=api_user().id, fields=fields)
-    done("record.add", f"{who()} filed a record", target_table="legal_records", target_id=row.id)
+    done("record.add", f"{who()} filed a record", target_table="legal_records", target_id=row.id,
+         old={"undo": "trash", "ids": [row.id]})
     return ok({"record": _record_json(row)}, 201)
 
 
@@ -1108,13 +1185,16 @@ def records_edit(record_id):
     row = _record(record_id)
     if row is None:
         return not_found()
+    from app.utils.activity_undo import fields_undo, snap_record
+
+    before = fields_undo(record=snap_record(row))
     merged = record_form_values(row)
     merged.update({k: ("" if v is None else str(v)) for k, v in data.items()})
     fields, err = form_record(form_of(merged), row)
     if err:
         return api_error(err, 400, "bad_request")
     update_record(row, fields)
-    done("record.edit", f"{who()} edited a record", target_table="legal_records", target_id=row.id)
+    done("record.edit", f"{who()} edited a record", target_table="legal_records", target_id=row.id, old=before)
     return ok({"record": _record_json(row)})
 
 
@@ -1129,7 +1209,8 @@ def records_remove(record_id):
     if row is None:
         return not_found()
     entry = remove_record(row, actor_id=api_user().id, via="maya")
-    done("record.remove", f"{who()} removed a record", target_table="household_trash", target_id=entry.id)
+    done("record.remove", f"{who()} removed a record", target_table="household_trash", target_id=entry.id,
+         old={"undo": "untrash"})
     return ok(trashed(entry))
 
 
@@ -1151,7 +1232,8 @@ def records_file_add(record_id):
     if f is None:
         db.session.rollback()
         return api_error("That file was not saved.", 400, "bad_file")
-    done("record.file", f"{who()} attached a file to a record", target_table="legal_files", target_id=f.id)
+    done("record.file", f"{who()} attached a file to a record", target_table="legal_files", target_id=f.id,
+         old={"undo": "trash", "ids": [f.id]})
     return ok({"file": _file_json("legal_file", f)}, 201)
 
 
@@ -1194,7 +1276,8 @@ def cases_create():
                           summary=data.get("summary"), record=rec)
     if err:
         return api_error(err, 400, "bad_request")
-    done("case.add", f"{who()} opened a case", target_table="legal_cases", target_id=case.id)
+    done("case.add", f"{who()} opened a case", target_table="legal_cases", target_id=case.id,
+         old={"undo": "status", "status": "closed"})
     return ok({"case": _case_json(case)}, 201)
 
 
@@ -1209,6 +1292,9 @@ def cases_edit(case_id):
     case = _case(case_id)
     if case is None:
         return not_found()
+    from app.utils.activity_undo import fields_undo, snap_case
+
+    before = fields_undo(case=snap_case(case))
     data = payload()
     edit_case(case, data)
     if str(data.get("attach_record_id") or "").isdigit():
@@ -1219,7 +1305,7 @@ def cases_edit(case_id):
         rec = _record(int(data["detach_record_id"]))
         if rec is not None and rec.case_id == case.id:
             rec.case_id = None
-    done("case.edit", f"{who()} updated a case", target_table="legal_cases", target_id=case.id)
+    done("case.edit", f"{who()} updated a case", target_table="legal_cases", target_id=case.id, old=before)
     return ok({"case": _case_json(case, followups=True)})
 
 
@@ -1241,7 +1327,8 @@ def cases_followup(case_id):
                            body=data.get("body"), url=data.get("url"), email_from=data.get("email_from"))
     if err:
         return api_error(err, 400, "bad_request")
-    done("case.followup", f"{who()} added a follow-up", target_table="legal_followups", target_id=fu.id)
+    done("case.followup", f"{who()} added a follow-up", target_table="legal_followups", target_id=fu.id,
+         old=None if (fu.kind or "") == "email" else {"undo": "trash", "ids": [fu.id]})
     return ok({"followup_id": fu.id, "case": _case_json(case, followups=True)}, 201)
 
 
@@ -1257,7 +1344,8 @@ def followups_remove(followup_id):
     if fu is None:
         return not_found()
     entry = remove_followup(fu, actor_id=api_user().id, via="maya")
-    done("case.followup_remove", f"{who()} removed a follow-up", target_table="household_trash", target_id=entry.id)
+    done("case.followup_remove", f"{who()} removed a follow-up", target_table="household_trash", target_id=entry.id,
+         old={"undo": "untrash"})
     return ok(trashed(entry))
 
 

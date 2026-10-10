@@ -16,6 +16,7 @@ SESSION_WRITE_PENDING = "family_ask_write_pending"
 
 ALWAYS_ASK_TOOLS = frozenset(
     {
+        "member_add",
         "member_remove",
         "member_role",
         "member_password",
@@ -63,7 +64,15 @@ def confirm_mode() -> str:
 
 def set_mode(mode: str) -> dict:
     from app.utils.household_ai import set_household_ask_confirm
+    from app.utils.permissions import can
 
+    if not can("settings"):
+        return {
+            "ok": False,
+            "say": "A household leader changes that on Household.",
+            "did": [],
+            "vault_locked": False,
+        }
     house = getattr(current_user, "household", None)
     if house is None:
         return {"ok": False, "say": "Could not save that Ask setting.", "did": [], "vault_locked": False}
@@ -93,6 +102,8 @@ def write_needs_confirm(tool: str, args: dict | None = None) -> bool:
     if mode == "allow":
         if tool in ALWAYS_ASK_TOOLS:
             return True
+        if tool == "person_update" and _person_update_is_other(args):
+            return True
         if tool == "item_remove":
             return _remove_is_vehicle(args)
         return False
@@ -121,6 +132,14 @@ def _inventory_exists(args: dict) -> bool:
     if not q:
         return False
     return bool(_find_items(q, "grocery"))
+
+
+def _person_update_is_other(args: dict) -> bool:
+    username = _trim(args.get("username") or args.get("user"), 80).lower()
+    me = (getattr(current_user, "username", None) or "").strip().lower()
+    if not username or not me:
+        return True
+    return username != me
 
 
 def _remove_is_vehicle(args: dict) -> bool:
@@ -324,6 +343,10 @@ def plan_line(tool: str, args: dict | None = None) -> str:
             return "Re-file every grocery into Fridge, Pantry, and the other rooms."
         return "Put inventory with no room yet into Fridge, Pantry, and the other rooms."
     if tool == "legal_save":
+        updating = str(args.get("id") or args.get("record_id") or args.get("q") or "").strip()
+        action = str(args.get("action") or "").lower()
+        if updating or action in ("update", "edit", "attach", "add_file"):
+            return f"I’ll update {name or 'that paper'} and keep any new photo on it."
         return f"I’ll save {name or 'that paper'}."
     if tool == "basket_match":
         return "I’ll match that scan to a basket row."
@@ -475,9 +498,9 @@ def _clean_agent_name(phrase: str) -> str:
 
 
 def _apply_rename(raw: str) -> dict | None:
-    """“Call you Jarvis” / “your details are …” — the house renames its agent."""
+    """“Call you Jarvis” / “your details are …” — this person’s chat, not the house."""
     from app.utils.ask import ask_identity
-    from app.utils.household_ai import set_household_agent
+    from app.utils.household_ai import ask_available, set_user_agent
 
     m = _RENAME.match(raw)
     persona_m = _SET_PERSONA.match(raw)
@@ -486,23 +509,36 @@ def _apply_rename(raw: str) -> dict | None:
     household = getattr(current_user, "household", None)
     if household is None:
         return None
+    if not ask_available(household, current_user):
+        return {
+            "ok": True,
+            "say": "An AI key has to be on before I can take a new name or extra instructions.",
+            "did": [],
+            "vault_locked": False,
+        }
     if m:
         # Drop softeners on both ends: “call you Jarvis from now on” → Jarvis.
         name = _clean_agent_name(m.group(1))
         if not name:
             return None
-        identity = set_household_agent(household, name=name)
+        fields = {"name": name}
+        if persona_m:
+            fields["instructions"] = persona_m.group(1)
+        set_user_agent(current_user, **fields)
+        identity = ask_identity(household, current_user)
         say = f"Done — call me {identity['name']}."
         if persona_m:
-            set_household_agent(household, persona=persona_m.group(1))
-            say = f"Done — call me {identity['name']}, and I noted the details."
-        elif identity.get("persona"):
-            say = f"Done — call me {identity['name']}."
+            say = (
+                f"Done — call me {identity['name']}, and I noted your instructions. "
+                "House rules still win if they disagree."
+            )
         return {"ok": True, "say": say, "did": [], "vault_locked": False, "agent": identity}
-    identity = set_household_agent(household, persona=persona_m.group(1))
+    set_user_agent(current_user, instructions=persona_m.group(1))
+    identity = ask_identity(household, current_user)
+    noted = (identity.get("user_instructions") or "")[:160]
     return {
         "ok": True,
-        "say": f"Noted. {identity['persona'][:160]}",
+        "say": f"Noted. House rules still win if they disagree. {noted}".strip(),
         "did": [],
         "vault_locked": False,
         "agent": identity,

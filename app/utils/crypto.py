@@ -264,11 +264,16 @@ def send_bytes(data: bytes, mimetype: str, filename: str = "file"):
         abort(404)
     if data.startswith(_FILE_MAGIC) or looks_encrypted(data):
         abort(404)
-    name = os.path.basename(filename or "file").replace('"', "")
-    resp = Response(data, mimetype=mimetype or "application/octet-stream")
+    mime = mimetype or "application/octet-stream"
+    name = os.path.basename(filename or "file")
+    name = "".join(ch for ch in name if ch.isprintable() and ch not in '"\\;')
+    name = name.strip()[:180] or "file"
+    # Pictures and PDFs open in the page. Anything else is a download.
+    disp = "inline" if mime.startswith("image/") or mime == "application/pdf" else "attachment"
+    resp = Response(data, mimetype=mime)
     resp.headers["Content-Length"] = str(len(data))
-    resp.headers["Content-Disposition"] = f'inline; filename="{name}"'
-    resp.headers["Cache-Control"] = "private, max-age=86400"
+    resp.headers["Content-Disposition"] = f'{disp}; filename="{name}"'
+    resp.headers["Cache-Control"] = "private, no-store"
     resp.headers["X-Content-Type-Options"] = "nosniff"
     return resp
 

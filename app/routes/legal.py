@@ -552,8 +552,22 @@ def edit(record_id):
     from app.services.legal import update_record
 
     update_record(row, fields)
+    saved = 0
+    rejected = 0
+    for f in request.files.getlist("file") or []:
+        if not getattr(f, "filename", None):
+            continue
+        if save_legal_file(row, f, current_user.id, request.form.get("caption")):
+            saved += 1
+        else:
+            rejected += 1
     db.session.commit()
-    flash("Record updated.", "success")
+    if rejected and not saved:
+        flash("That file didn't attach. Use a photo or PDF under 20 MB.", "warning")
+    elif rejected:
+        flash("One file was skipped. Photos and PDFs under 20 MB are kept.", "warning")
+    extra = f" {saved} file(s) attached." if saved else ""
+    flash("Record updated." + extra, "success")
     return redirect(url_for("legal.detail", record_id=row.id))
 
 

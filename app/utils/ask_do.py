@@ -12,11 +12,13 @@ from decimal import Decimal, InvalidOperation
 from flask_login import current_user
 
 from app.builddb.builddb import db
+from app.utils.ask_access import ask_can
 from app.utils.permissions import can, role_of
 
 PHOTO_RULES = """A photo is attached. Read every printed code exactly (UPC, EAN, QR, VIN, serial, model, part number, brand). Do not invent a code that is not visible.
 Then call place with what you saw. A tool or part with no barcode or serial still gets identified (brand, model, type, and which system it belongs on) and place files it.
 A ticket, citation, notice, or court paper is legal_save, not inventory.
+A later photo, another page, or a paid receipt for a paper already filed is legal_save with action update and q or id, so it is added to that record. Do not file a second paper.
 If you cannot tell what it is, say so and ask. One photo at a time.
 If the photo is from an earlier message and they changed the subject, ignore it."""
 
@@ -243,8 +245,8 @@ JOBS = (
         "title": "Citation, ticket, or notice",
         "tool": "legal_save",
         "need": ["title"],
-        "optional": ["kind", "agency", "case_number", "due", "amount", "body"],
-        "how": "What the paper is. kind citation, notice, warning, ticket, court, letter, or other.",
+        "optional": ["kind", "agency", "case_number", "due", "amount", "body", "id", "q", "action", "status", "outcome", "caption"],
+        "how": "What the paper is. kind citation, notice, warning, ticket, court, letter, or other. action update with id or q adds a photo or receipt to a paper already filed and can set status paid.",
     },
     {
         "id": "place",
@@ -288,7 +290,7 @@ def _allowed(perm) -> bool:
         return can_manage_people()
     if isinstance(perm, (tuple, list, set)):
         return any(_allowed(p) for p in perm)
-    return can(perm)
+    return ask_can(perm)
 
 
 def _denied(what: str) -> dict:
@@ -351,7 +353,10 @@ def tool_guide(args: dict | None = None) -> dict:
 def tool_member_list(_args: dict | None = None) -> dict:
     from app.builddb.table_users import User
     from app.utils.household import household_id
+    from app.utils.permissions import role_of
 
+    if role_of() == "child":
+        return {"ok": False, "error": "You cannot open the people list."}
     rows = (
         User.query.filter_by(household_id=household_id(), is_active=True)
         .order_by(User.name.asc())
@@ -656,7 +661,7 @@ def _pick_host(args: dict):
 
 def tool_part_save(args: dict | None = None) -> dict:
     args = args if isinstance(args, dict) else {}
-    if not (can("maintain") or can("edit_meta")):
+    if not (ask_can("maintain") or can("edit_meta")):
         return _denied("add a part")
     from app.utils.house_systems import HOUSE_SLOTS, guess_house_slot, install_house_part
     from app.utils.vehicle_systems import guess_slot, install_part, slot_label, system_label
@@ -796,20 +801,26 @@ def tool_place(args: dict | None = None) -> dict:
     hid = household_id()
 
     if what == "legal":
-        return tool_legal_save(
-            {
-                "title": name,
-                "kind": args.get("legal_kind") or args.get("paper") or "other",
-                "agency": args.get("agency"),
-                "body": notes,
-                "due": args.get("due"),
-                "amount": args.get("amount"),
-            }
-        )
+        filed = {
+            "title": name,
+            "agency": args.get("agency"),
+            "body": notes,
+            "due": args.get("due"),
+            "amount": args.get("amount"),
+        }
+        kind = _trim(args.get("legal_kind") or args.get("paper"), 20)
+        if kind:
+            filed["kind"] = kind
+        elif not _legal_update_wanted(args):
+            filed["kind"] = "other"
+        for key in ("id", "record_id", "q", "action", "status", "outcome", "caption"):
+            if args.get(key) not in (None, ""):
+                filed[key] = args.get(key)
+        return tool_legal_save(filed)
     if what == "note":
         return tool_note_save({"title": name, "body": notes or spec, "share": args.get("share") or "household"})
     if what == "vehicle" or (vin and len(vin) >= 11):
-        if not (can("maintain") or can("edit_meta")):
+        if not (ask_can("maintain") or can("edit_meta")):
             return _denied("add a vehicle")
         return tool_vehicle_save(
             {
@@ -886,14 +897,14 @@ def tool_place(args: dict | None = None) -> dict:
         return tool_part_save(filed)
 
     if what == "part":
-        if not (can("maintain") or can("edit_meta")):
+        if not (ask_can("maintain") or can("edit_meta")):
             return _denied("add a part")
         catalog_kind = (looked.get("kind") or "").strip().lower()
         if catalog_kind in ("motor_oil", "filter", "car_battery", "auto_part") and 8 <= len(digits) <= 14:
             host, err = _pick_host(args)
             if err:
                 return err
-            if not (can("edit_grocery") or can("edit_meta")):
+            if not (ask_can("edit_grocery") or can("edit_meta")):
                 filed = dict(args)
                 filed["name"] = name or display
                 return tool_part_save(filed)
@@ -938,7 +949,7 @@ def tool_place(args: dict | None = None) -> dict:
         return tool_part_save(filed)
 
     if what == "grocery":
-        if not (can("edit_grocery") or can("edit_meta")):
+        if not (ask_can("edit_grocery") or can("edit_meta")):
             return _denied("add inventory")
         return tool_inventory(
             {
@@ -951,7 +962,7 @@ def tool_place(args: dict | None = None) -> dict:
         )
 
     if what == "tool" or serial:
-        if not (can("maintain") or can("edit_meta")):
+        if not (ask_can("maintain") or can("edit_meta")):
             return _denied("add a tool")
         return tool_tool_save(
             {
@@ -973,7 +984,7 @@ def tool_place(args: dict | None = None) -> dict:
 
 def tool_oil_save(args: dict | None = None) -> dict:
     args = args if isinstance(args, dict) else {}
-    if not (can("maintain") or can("edit_meta")):
+    if not (ask_can("maintain") or can("edit_meta")):
         return _denied("update the oil record")
     from app.utils.ask import _history, _last_assistant, _path, _pick_named_item
     from app.utils.oil import (
@@ -1043,7 +1054,7 @@ def tool_oil_save(args: dict | None = None) -> dict:
 
 def tool_log_save(args: dict | None = None) -> dict:
     args = args if isinstance(args, dict) else {}
-    if not (can("scan") or can("maintain") or can("edit_meta") or can("photo")):
+    if not (can("scan") or ask_can("maintain") or can("edit_meta") or can("photo")):
         return _denied("add a log")
     from app.builddb.table_item_logs import LOG_KINDS
     from app.utils.ask import _find_items, _path
@@ -1182,7 +1193,7 @@ def _trip_vehicle(args: dict):
 
 def tool_trip_save(args: dict | None = None) -> dict:
     args = args if isinstance(args, dict) else {}
-    if not (can("scan") or can("maintain") or can("edit_meta") or can("photo")):
+    if not (can("scan") or ask_can("maintain") or can("edit_meta") or can("photo")):
         return _denied("log a trip")
     from app.builddb.builddb import db
     from app.utils.ask import _path
@@ -1273,7 +1284,7 @@ def tool_trip_save(args: dict | None = None) -> dict:
 
 def tool_inventory_sort(args: dict | None = None) -> dict:
     args = args if isinstance(args, dict) else {}
-    if not can("edit_grocery"):
+    if not ask_can("edit_grocery"):
         return _denied("sort inventory")
     from flask_login import current_user
     from sqlalchemy.orm import joinedload
@@ -1350,12 +1361,134 @@ def _parse_amount(raw):
     return d.quantize(Decimal("0.01"))
 
 
+def _legal_update_wanted(args: dict) -> bool:
+    action = _trim(args.get("action") or "", 20).lower()
+    if action in ("update", "edit", "patch", "attach", "add_file", "file"):
+        return True
+    if str(args.get("id") or args.get("record_id") or "").strip():
+        return True
+    return bool(_trim(args.get("q"), 200))
+
+
+def _match_legal_record(hid: int, args: dict):
+    """The paper to update, or (None, None) when this call should file a new one."""
+    from app.builddb.table_legal_records import LegalRecord
+    from app.utils.crypto import decrypt_text
+
+    if not _legal_update_wanted(args):
+        return None, None
+    raw_id = args.get("id") if args.get("id") not in (None, "") else args.get("record_id")
+    if str(raw_id or "").isdigit():
+        row = LegalRecord.query.filter_by(id=int(raw_id), household_id=hid).first()
+        if row is None:
+            return None, {"ok": False, "error": "No record with that id in this house."}
+        return row, None
+    needle = _trim(args.get("q") or args.get("title") or args.get("name"), 200).lower()
+    if not needle:
+        return None, {
+            "ok": False,
+            "need": ["id"],
+            "hint": "Which paper should the photo go on? Give the id or the title.",
+        }
+    hits = []
+    rows = (
+        LegalRecord.query.filter_by(household_id=hid)
+        .order_by(LegalRecord.id.desc())
+        .limit(200)
+        .all()
+    )
+    for row in rows:
+        title = (decrypt_text(row.title) or "").lower()
+        number = (decrypt_text(row.case_number) or "").lower()
+        if needle == title or needle in title or (number and (needle == number or needle in number)):
+            hits.append(row)
+    if len(hits) == 1:
+        return hits[0], None
+    if not hits:
+        return None, {"ok": False, "error": f"No record matches {needle}."}
+    return None, {
+        "ok": False,
+        "need": ["id"],
+        "choices": [{"id": row.id, "title": decrypt_text(row.title) or ""} for row in hits[:8]],
+        "hint": "Which paper? "
+        + ", ".join(f"{row.id} {decrypt_text(row.title) or ''}".strip() for row in hits[:6]),
+    }
+
+
+def _apply_legal_update(row, args: dict) -> dict:
+    from app.builddb.table_legal_records import KINDS, STATUSES
+    from app.services.legal import update_record
+    from app.utils.crypto import decrypt_text
+
+    fields = {}
+    title = _trim(args.get("title") or args.get("name"), 500)
+    q = _trim(args.get("q"), 200)
+    if title and (not q or title.lower() != q.lower()):
+        if q or str(args.get("id") or args.get("record_id") or "").isdigit():
+            if title.lower() != (decrypt_text(row.title) or "").lower():
+                fields["title"] = title
+    if args.get("kind"):
+        kind = _trim(args.get("kind"), 20).lower()
+        if kind in KINDS and not (kind == "other" and (row.kind or "") not in ("", "other")):
+            fields["kind"] = kind
+    status = _trim(args.get("status"), 20).lower()
+    if status in STATUSES:
+        fields["status"] = status
+    for key, cap in (
+        ("agency", 400),
+        ("case_number", 120),
+        ("location", 400),
+        ("body", 8000),
+        ("outcome", 8000),
+    ):
+        raw = args.get(key)
+        if key == "body" and raw in (None, ""):
+            raw = args.get("notes")
+        if key == "case_number" and raw in (None, ""):
+            raw = args.get("number")
+        text = _trim(raw, cap)
+        if text and (key in args or raw):
+            fields[key] = text
+    issued = _parse_day(str(args.get("issued") or args.get("issued_on") or ""))
+    if issued:
+        fields["issued_on"] = issued
+    due = _parse_day(str(args.get("due") or args.get("due_on") or ""))
+    if due:
+        fields["due_on"] = due
+    if args.get("amount") not in (None, ""):
+        amount = _parse_amount(args.get("amount"))
+        if amount is not None:
+            fields["amount"] = amount
+    if fields:
+        update_record(row, fields)
+    else:
+        row.updated_at = datetime.utcnow()
+    db.session.commit()
+    return {
+        "ok": True,
+        "id": row.id,
+        "title": decrypt_text(row.title) or title,
+        "caption": _trim(args.get("caption"), 300) or None,
+        "kind": row.kind,
+        "status": row.status,
+        "href": f"/legal/{row.id}",
+        "did": "updated",
+    }
+
+
 def tool_legal_save(args: dict | None = None) -> dict:
     args = args if isinstance(args, dict) else {}
     if not can("legal"):
         return _denied("save a legal record")
     from app.builddb.table_legal_records import KINDS, STATUSES, LegalRecord
     from app.utils.household import household_id
+
+    hid = household_id()
+    existing, err = _match_legal_record(hid, args)
+    if err:
+        return err
+    if existing is not None:
+        return _apply_legal_update(existing, args)
 
     title = _trim(args.get("title") or args.get("name"), 500)
     if not title:

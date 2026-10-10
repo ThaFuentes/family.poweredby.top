@@ -9,6 +9,9 @@
   var openBtn = document.getElementById("ask-open");
   var closeBtn = document.getElementById("ask-close");
   var clearBtn = document.getElementById("ask-clear");
+  var mineBtn = document.getElementById("ask-mine");
+  var mineForm = document.getElementById("ask-mine-form");
+  var mineStatus = document.getElementById("ask-mine-status");
   var fileInput = document.getElementById("ask-file");
   var preview = document.getElementById("ask-preview");
   var previewImg = document.getElementById("ask-preview-img");
@@ -57,7 +60,7 @@
   }
 
   function canRetry(say) {
-    return /model is busy|timed out|could not reach|request failed/i.test(say || "");
+    return /model is busy|timed out|could not reach|request failed|didn.t catch|not sure what you|do not understand|don.t understand/i.test(say || "");
   }
 
   function isSensitiveAsk(text) {
@@ -271,6 +274,17 @@
     }
   }
 
+  function paintAgent(name) {
+    var label = String(name || "Ask");
+    root.setAttribute("data-agent", label);
+    var roomLabel = root.getAttribute("data-room-label") || "";
+    var withRoom = roomLabel && (mode === "desk" || room !== "house");
+    var titled = withRoom ? (label + " · " + roomLabel) : label;
+    var title = document.getElementById("ask-title");
+    if (title) title.textContent = titled;
+    if (openBtn) openBtn.textContent = (room !== "house" && roomLabel) ? (label + " · " + roomLabel) : label;
+  }
+
   if (mode === "desk") {
     setOpen(true);
     loadHistory(true);
@@ -297,6 +311,65 @@
       historyLoaded = true;
       setPreview("");
       if (fileInput) fileInput.value = "";
+    });
+  }
+  if (mineBtn && mineForm) {
+    mineBtn.addEventListener("click", function () {
+      var on = !!mineForm.hidden;
+      mineForm.hidden = !on;
+      mineBtn.setAttribute("aria-expanded", on ? "true" : "false");
+      if (on) {
+        var nameEl = document.getElementById("ask-mine-name");
+        if (nameEl) {
+          try { nameEl.focus(); } catch (e) {}
+        }
+      }
+    });
+    mineForm.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var nameEl = document.getElementById("ask-mine-name");
+      var notesEl = document.getElementById("ask-mine-notes");
+      var saveBtn = document.getElementById("ask-mine-save");
+      if (saveBtn) saveBtn.disabled = true;
+      fetch("/ask/mine", {
+        method: "POST",
+        headers: {
+          "X-CSRF-Token": csrfToken(),
+          "X-Requested-With": "fetch",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: nameEl ? nameEl.value : "",
+          instructions: notesEl ? notesEl.value : "",
+        }),
+      }).then(function (r) {
+        return r.json().then(function (data) {
+          return { ok: r.ok, data: data };
+        });
+      }).then(function (res) {
+        var data = res.data || {};
+        if (!res.ok || !data.ok) {
+          if (mineStatus) {
+            mineStatus.hidden = false;
+            mineStatus.textContent = data.error || "Could not save.";
+          }
+          return;
+        }
+        paintAgent(data.name);
+        if (nameEl) nameEl.value = data.user_name || "";
+        if (notesEl) notesEl.value = data.instructions || "";
+        if (mineStatus) {
+          mineStatus.hidden = false;
+          mineStatus.textContent = "Saved. House rules still win.";
+        }
+      }).catch(function () {
+        if (mineStatus) {
+          mineStatus.hidden = false;
+          mineStatus.textContent = "Could not save.";
+        }
+      }).then(function () {
+        if (saveBtn) saveBtn.disabled = false;
+      });
     });
   }
   if (previewClear) {

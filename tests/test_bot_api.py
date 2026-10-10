@@ -263,7 +263,13 @@ class BotApiTests(unittest.TestCase):
         lines = body["data"]["lines"]
         self.assertIn("GET /api/v1/me", "\n".join(lines))
         self.assertIn("GET /api/v1/vehicles", "\n".join(lines))
+        self.assertIn("POST /api/v1/tools", "\n".join(lines))
+        self.assertIn("POST /api/v1/items/<id>/oil", "\n".join(lines))
         self.assertIn("GET /api/v1/vault", "\n".join(lines))
+        guide = body["data"]["guide"]
+        self.assertIn("5W-30", guide)
+        self.assertIn("scope_denied", guide)
+        self.assertIn("Gas generator", guide)
         same = json.loads(self._api(token, "/api/v1/help").data)
         self.assertEqual(same["data"]["lines"], lines)
 
@@ -281,6 +287,9 @@ class BotApiTests(unittest.TestCase):
         self.assertIn("GET /api/v1/vault", vault_lines)
         self.assertNotIn("POST /api/v1/vehicles", vault_lines)
         self.assertNotIn("GET /api/v1/notes", vault_lines)
+        vault_body = json.loads(self._api(vault_token, "/api/v1/helper").data)
+        self.assertIn("cannot change the house", vault_body["data"]["guide"])
+        self.assertNotIn("POST /api/v1/tools", vault_body["data"]["guide"])
 
     def test_02_only_hashes_are_stored(self):
         u = self._add_bot("hash")
@@ -358,6 +367,63 @@ class BotApiTests(unittest.TestCase):
         self.assertEqual(listed.status_code, 200)
         self.assertEqual(json.loads(listed.data)["record"]["amount"], 45.0)
         self.assertEqual(note_id > 0, True)
+
+        import io
+
+        png = (
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00"
+            b"\x00\x01\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        added = self.app.test_client().post(
+            f"/api/v1/records/{rec_id}/files",
+            data={"caption": "Paid receipt", "file": (io.BytesIO(png), "receipt.png")},
+            content_type="multipart/form-data",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(added.status_code, 201, added.data[:400])
+        uploaded = json.loads(added.data)
+        self.assertEqual(uploaded["file"]["caption"], "Paid receipt")
+        self.assertEqual(len(uploaded["record"]["files"]), 1)
+        fid = uploaded["file"]["id"]
+        got = self._api(token, f"/api/v1/records/{rec_id}/files/{fid}")
+        self.assertEqual(got.status_code, 200, got.data[:120])
+        self.assertTrue(got.data.startswith(b"\x89PNG"))
+        paid = self.app.test_client().patch(
+            f"/api/v1/records/{rec_id}",
+            data={
+                "status": "paid",
+                "outcome": "Paid at the window",
+                "file": (io.BytesIO(png), "second.png"),
+            },
+            content_type="multipart/form-data",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(paid.status_code, 200, paid.data[:400])
+        paid_body = json.loads(paid.data)["record"]
+        self.assertEqual(paid_body["status"], "paid")
+        self.assertEqual(paid_body["outcome"], "Paid at the window")
+        self.assertEqual(len(paid_body["files"]), 2)
+        rejected = self.app.test_client().post(
+            f"/api/v1/records/{rec_id}/files",
+            data={"file": (io.BytesIO(b"hello"), "notes.txt")},
+            content_type="multipart/form-data",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(rejected.status_code, 400, rejected.data[:300])
+        child = self._add_bot("receiptkid", role="child")
+        ctoken = self._exchange(*self._pair_of(child))
+        denied = self.app.test_client().post(
+            f"/api/v1/records/{rec_id}/files",
+            data={"file": (io.BytesIO(png), "nope.png")},
+            content_type="multipart/form-data",
+            headers={"Authorization": f"Bearer {ctoken}"},
+        )
+        self.assertEqual(denied.status_code, 403, denied.data[:300])
+        other = self._add_bot("receiptb", house="b")
+        otoken = self._exchange(*self._pair_of(other))
+        missing = self._api(otoken, f"/api/v1/records/{rec_id}/files")
+        self.assertEqual(missing.status_code, 404, missing.data[:300])
 
     def test_05_no_token_and_bad_token_are_refused(self):
         u = self._add_bot("auth")
@@ -928,6 +994,377 @@ class BotApiTests(unittest.TestCase):
         last = json.loads(self._api(token, "/api/v1/inventory?limit=2&offset=4").data)
         self.assertEqual(len(last["items"]), 1)
         self.assertFalse(last["has_more"])
+
+    def test_26_a_house_key_finishes_the_work(self):
+        u = self._add_bot("work")
+        token = self._exchange(*self._pair_of(u))
+
+        made = self._api(token, "/api/v1/tools", method="post", json_body={
+            "name": "Gas generator", "oil_needs": "10W-30", "oil_capacity": "0.4 qt",
+            "power_source": "gas",
+        })
+        self.assertEqual(made.status_code, 201, made.data[:400])
+        tool = json.loads(made.data)["tool"]
+        self.assertEqual(tool["name"], "Gas generator")
+        self.assertEqual(tool["oil_needs"], "10W-30")
+        one = json.loads(self._api(token, f"/api/v1/tools/{tool['id']}").data)
+        self.assertEqual(one["tool"]["power_source"], "gas")
+
+        oil = self._api(token, f"/api/v1/items/{tool['id']}/oil", method="post", json_body={
+            "needs": "10W-30", "capacity": "0.5 qt",
+        })
+        self.assertEqual(oil.status_code, 200, oil.data[:400])
+        self.assertEqual(json.loads(oil.data)["needs"], "10W-30")
+        self.assertEqual(json.loads(oil.data)["capacity"], "0.5 qt")
+
+        place = self._api(token, "/api/v1/house", method="post", json_body={
+            "name": "Pool pump", "category": "pool",
+        })
+        self.assertEqual(place.status_code, 201, place.data[:400])
+        house_id = json.loads(place.data)["place"]["id"]
+        bare = self._api(token, f"/api/v1/items/{house_id}/oil", method="post", json_body={"needs": "5W-30"})
+        self.assertEqual(bare.status_code, 400, bare.data[:300])
+        not_a_truck = self._api(token, f"/api/v1/items/{house_id}/parts", method="post", json_body={"name": "Filter"})
+        self.assertEqual(not_a_truck.status_code, 404, not_a_truck.data[:300])
+
+        truck = json.loads(self._api(token, "/api/v1/vehicles", method="post", json_body={"name": "Work Truck"}).data)
+        vid = truck["vehicle"]["id"]
+        part = self._api(token, f"/api/v1/items/{vid}/parts", method="post", json_body={
+            "name": "Oil filter", "system": "engine", "slot": "oil_filter", "brand": "Wix",
+        })
+        self.assertEqual(part.status_code, 201, part.data[:400])
+        self.assertEqual(json.loads(part.data)["part"]["name"], "Oil filter")
+        fluid = self._api(token, f"/api/v1/items/{vid}/oil", method="post", json_body={
+            "fluid": "rear_diff", "value": "75W-90",
+        })
+        self.assertEqual(fluid.status_code, 200, fluid.data[:400])
+        self.assertEqual(json.loads(fluid.data)["fluids"].get("rear_diff"), "75W-90")
+
+        rem = json.loads(self._api(token, "/api/v1/reminders", method="post", json_body={
+            "title": "Change generator oil", "type": "oil_change",
+        }).data)
+        patched = self._api(
+            token,
+            f"/api/v1/reminders/{rem['reminder']['id']}",
+            method="patch",
+            json_body={"notes": "after 50 hours", "status": "open"},
+        )
+        self.assertEqual(patched.status_code, 200, patched.data[:400])
+        listed = json.loads(self._api(token, "/api/v1/reminders").data)["reminders"]
+        match = next(row for row in listed if row["id"] == rem["reminder"]["id"])
+        self.assertEqual(match["notes"], "after 50 hours")
+
+        case = self._api(token, "/api/v1/cases", method="post", json_body={
+            "title": "The ticket", "summary": "Follow the paper.",
+        })
+        self.assertEqual(case.status_code, 201, case.data[:400])
+        opened = json.loads(case.data)["case"]
+        self.assertEqual(opened["title"], "The ticket")
+        self.assertTrue(opened["label"].startswith("Case #"))
+
+        vault_user = self._add_bot("workv", house="workv")
+        vault_pair = self._issue(vault_user, "fos_vault_")["pair"]
+        vault_token = self._exchange(vault_pair["primary"], vault_pair["twofa"])
+        denied = self._api(vault_token, "/api/v1/tools", method="post", json_body={"name": "Nope"})
+        self.assertEqual(denied.status_code, 403, denied.data[:300])
+        self.assertEqual(json.loads(denied.data)["code"], "scope_denied")
+
+    def test_27_crawl_every_call_without_a_server_error(self):
+        """Every listed route, a child, a vault key, and hostile bodies. No 500s."""
+        import io
+        from contextlib import redirect_stdout
+
+        from sqlalchemy import inspect
+
+        from app.utils.bot_api_help import HELP_CALLS
+
+        buf = io.StringIO()
+        problems: list[str] = []
+        with redirect_stdout(buf):
+            with self.app.app_context():
+                length = getattr(
+                    next(c for c in inspect(db.engine).get_columns("bot_api_audit") if c["name"] == "scope")["type"],
+                    "length",
+                    0,
+                )
+            if not length or int(length) < 64:
+                problems.append(f"bot_api_audit.scope is {length}, want 64")
+
+            house = self._exchange(*self._pair_of(self._add_bot("crawl")))
+            child = self._exchange(*self._pair_of(self._add_bot("crawlk", role="child")))
+            vault_user = self._add_bot("crawlv", house="crawlv")
+            vault_pair = self._issue(vault_user, "fos_vault_")["pair"]
+            vault = self._exchange(vault_pair["primary"], vault_pair["twofa"])
+
+            def hit(token, method, url, json_body=None):
+                try:
+                    if token:
+                        response = self._api(token, url, method=method, json_body=json_body)
+                    else:
+                        response = self._get_post(url, method=method, json_body=json_body)
+                except Exception as exc:
+                    problems.append(f"{method} {url} raised {type(exc).__name__}: {exc}")
+                    return None
+                if response.status_code >= 500:
+                    problems.append(f"{method} {url} -> {response.status_code} {response.data[:180]!r}")
+                elif response.status_code == 404:
+                    body = response.get_json(silent=True) or {}
+                    if body.get("code") != "not_found":
+                        problems.append(f"{method} {url} is not a registered route ({response.data[:120]!r})")
+                return response
+
+            bare = hit(None, "get", "/api/v1/helper")
+            if bare is not None and bare.status_code != 401:
+                problems.append(f"helper without a token -> {bare.status_code}")
+
+            skip_session_kill = {"/api/v1/auth/reset", "/api/v1/auth/revoke"}
+            for method, path, call_scope, _needs, _what in HELP_CALLS:
+                url = re.sub(r"<[^>]+>", "999999", path)
+                if path == "/api/v1/find":
+                    url = "/api/v1/find?q=oil"
+                if path in skip_session_kill:
+                    continue
+                body = {} if method in ("POST", "PATCH") else None
+                hit(house, method.lower(), url, body)
+                if call_scope == "fos_bot_":
+                    hit(vault, method.lower(), url, body)
+                    hit(child, method.lower(), url, body)
+                hit(None, method.lower(), url, body)
+                if "<id>" in path or path.startswith("/api/v1/vehicles"):
+                    hit(house, "delete", url)
+
+            hostile = (
+                ("post", "/api/v1/tools", {"name": ""}),
+                ("post", "/api/v1/tools", []),
+                ("post", "/api/v1/house", {"name": None, "notes": {"no": "pe"}}),
+                ("post", "/api/v1/items/999999/oil", {"needs": ["5W-30"], "fluids": "nope"}),
+                ("post", "/api/v1/items/999999/parts", {
+                    "name": "x", "system": "nope", "slot": "nope", "cost": "nope", "installed_on": "yesterday",
+                }),
+                ("patch", "/api/v1/reminders/999999", {"due_at": "tomorrow", "status": "deleted", "type": "nope"}),
+                ("post", "/api/v1/cases", {"title": "", "status": "nope"}),
+                ("post", "/api/v1/records", {"title": "", "kind": "nope", "amount": "lots", "due_on": "tomorrow"}),
+                ("post", "/api/v1/reminders", {"title": "x", "due_at": "not-a-date"}),
+                ("post", "/api/v1/basket", {}),
+                ("get", "/api/v1/find", None),
+                ("get", "/api/v1/find?q=" + ("a" * 400), None),
+                ("get", "/api/v1/vehicles?limit=foo&offset=-5", None),
+                ("get", "/api/v1/photos?item_id=abc", None),
+                ("get", "/api/v1/inventory?limit=0", None),
+                ("delete", "/api/v1/tools/1", None),
+                ("delete", "/api/v1/house/1", None),
+                ("delete", "/api/v1/cases/1", None),
+                ("delete", "/api/v1/reminders/1", None),
+                ("delete", "/api/v1/items/1/oil", None),
+                ("delete", "/api/v1/items/1/parts", None),
+            )
+            for method, url, payload in hostile:
+                hit(house, method, url, payload)
+
+            spare = self._exchange(*self._pair_of(self._add_bot("crawlend")))
+            hit(spare, "post", "/api/v1/auth/revoke", {})
+            revoked = hit(spare, "get", "/api/v1/whoami")
+            if revoked is not None and revoked.status_code != 401:
+                problems.append(f"revoked session still answered {revoked.status_code}")
+            other = self._exchange(*self._pair_of(self._add_bot("crawlreset")))
+            with patch("app.utils.mail.send_mail", return_value=(True, "ok")):
+                reset = hit(other, "post", "/api/v1/auth/reset", {})
+            if reset is not None and reset.status_code != 200:
+                problems.append(f"reset -> {reset.status_code} {reset.data[:180]!r}")
+            dead = hit(other, "get", "/api/v1/me")
+            if dead is not None and dead.status_code != 401:
+                problems.append(f"reset session still answered {dead.status_code}")
+
+        noise = buf.getvalue()
+        for needle in ("audit write failed", "Data too long", "Traceback"):
+            if needle in noise:
+                problems.append(f"log contains {needle}")
+        with self.app.app_context():
+            row = (
+                BotApiAudit.query.filter_by(path="/api/v1/helper", outcome="missing_token")
+                .order_by(BotApiAudit.id.desc())
+                .first()
+            )
+            if row is None or row.scope != "fos_bot_,fos_vault_":
+                problems.append(f"missing-token audit scope is {getattr(row, 'scope', None)!r}")
+        self.assertEqual(problems, [])
+
+    def test_28_the_key_guide_is_a_page_and_a_child_can_open_ask(self):
+        from types import SimpleNamespace
+
+        from app.utils.bot_api_help import call_allowed
+
+        child_role = SimpleNamespace(role="child", is_authenticated=True, permissions_json=None, is_leader=False)
+        member_role = SimpleNamespace(role="member", is_authenticated=True, permissions_json=None, is_leader=False)
+        self.assertFalse(call_allowed(child_role, "legal"))
+        self.assertTrue(call_allowed(member_role, "legal"))
+        self.assertFalse(call_allowed(child_role, "maintain or edit_meta"))
+        self.assertTrue(call_allowed(member_role, "maintain or edit_meta"))
+        self.assertFalse(call_allowed(child_role, "vault, never a child"))
+        self.assertTrue(call_allowed(child_role, "scan or edit_grocery"))
+
+        bot = self._add_bot("guide")
+        client = self._web()
+        client.post("/auth/login", data={"username": bot, "password": "BotPass123!"})
+        self._allow_totp_reuse(bot)
+        self._post(client, "/auth/2fa", data={"code": twofa.totp_at(self.secret)})
+        page = client.get("/bot-api/guide")
+        self.assertEqual(page.status_code, 200, page.data[:300])
+        self.assertIn(b"What this key can do", page.data)
+        self.assertIn(b"POST /api/v1/tools", page.data)
+        self.assertIn(b"5W-30", page.data)
+        self.assertIn(b"This account can.", page.data)
+        vault = client.get("/bot-api/guide?scope=fos_vault_")
+        self.assertEqual(vault.status_code, 200, vault.data[:300])
+        self.assertIn(b"cannot change the house", vault.data)
+        self.assertNotIn(b"POST /api/v1/tools", vault.data)
+        dash = client.get("/")
+        self.assertIn(b"What this key can do", dash.data)
+
+        human = self._web()
+        founder = f"botapi_founder_a_{self.suffix}"
+        human.post("/auth/login", data={"username": founder, "password": "FamilyTest1!"})
+        self.assertEqual(human.get("/bot-api/guide").status_code, 404)
+        with self.app.app_context():
+            uid = User.query.filter_by(username=bot).first().id
+        led = human.get(f"/members/{uid}/bot-api/guide")
+        self.assertEqual(led.status_code, 200, led.data[:300])
+        self.assertIn(b"Gas generator", led.data)
+
+        kid_name = f"botapi_kid_{self.suffix}"
+        self._post(human, "/members/add", data={
+            "person_name": "Kid Guide",
+            "username": kid_name,
+            "email": f"{kid_name}@family.test",
+            "role": "child",
+            "password": "KidPass123!",
+        }, follow_redirects=True)
+        kid = self._web()
+        kid.post("/auth/login", data={"username": kid_name, "password": "KidPass123!"})
+        home = kid.get("/")
+        self.assertEqual(home.status_code, 200, home.data[:300])
+        self.assertIn(b'href="/ask/"', home.data)
+        self.assertNotIn(b'href="/vault/"', home.data)
+        self.assertNotIn(b'href="/legal/"', home.data)
+        desk = kid.get("/ask/")
+        self.assertEqual(desk.status_code, 200, desk.data[:300])
+        self.assertIn(b"ask-root", desk.data)
+
+    def test_29_chat_and_api_finish_the_same_household_jobs(self):
+        """The tools Ask calls, and the house key, both finish the page's jobs."""
+        from flask_login import login_user
+
+        from app.utils.ask import run_tool
+
+        bot = self._add_bot("cover")
+        token = self._exchange(*self._pair_of(bot))
+
+        truck = json.loads(self._api(token, "/api/v1/vehicles", method="post", json_body={"name": "Cover Truck"}).data)
+        vid = truck["vehicle"]["id"]
+        started = self._api(token, f"/api/v1/items/{vid}/trips", method="post", json_body={
+            "action": "start", "reading": 1000, "origin": "Home", "dest": "Store",
+        })
+        self.assertEqual(started.status_code, 201, started.data[:400])
+        self.assertEqual(json.loads(started.data)["trip"]["reading"], 1000)
+        ended = self._api(token, f"/api/v1/items/{vid}/trips", method="post", json_body={
+            "action": "end", "reading": 1012,
+        })
+        self.assertEqual(ended.status_code, 201, ended.data[:400])
+        self.assertEqual(json.loads(ended.data)["trip"]["action"], "end")
+
+        case = json.loads(self._api(token, "/api/v1/cases", method="post", json_body={
+            "title": "Cover case", "summary": "From the key.",
+        }).data)["case"]
+        note = self._api(token, f"/api/v1/cases/{case['id']}/followups", method="post", json_body={
+            "kind": "note", "body": "Called the clerk.",
+        })
+        self.assertEqual(note.status_code, 201, note.data[:400])
+        self.assertEqual(json.loads(note.data)["followup"]["body"], "Called the clerk.")
+        closed = self._api(token, f"/api/v1/cases/{case['id']}", method="patch", json_body={"status": "closed"})
+        self.assertEqual(closed.status_code, 200, closed.data[:300])
+        self.assertEqual(json.loads(closed.data)["case"]["status"], "closed")
+        paper = json.loads(self._api(token, "/api/v1/records", method="post", json_body={
+            "title": "Cover ticket", "kind": "ticket",
+        }).data)["record"]
+        tied = self._api(token, f"/api/v1/records/{paper['id']}", method="patch", json_body={"case_id": case["id"]})
+        self.assertEqual(tied.status_code, 200, tied.data[:300])
+        self.assertEqual(json.loads(tied.data)["record"]["case_id"], case["id"])
+        file_fu = self._api(token, f"/api/v1/cases/{case['id']}/followups", method="post", json_body={"kind": "file"})
+        self.assertEqual(file_fu.status_code, 400, file_fu.data[:300])
+
+        milk = json.loads(self._api(token, "/api/v1/inventory", method="post", json_body={"name": "Cover milk", "quantity": 1}).data)["item"]
+        dated = self._api(token, f"/api/v1/inventory/{milk['id']}", method="patch", json_body={"expires_on": "2026-11-01"})
+        self.assertEqual(dated.status_code, 200, dated.data[:400])
+        self.assertEqual(json.loads(dated.data)["item"]["grocery"]["expires_on"], "2026-11-01")
+        bad_day = self._api(
+            token,
+            f"/api/v1/inventory/{milk['id']}",
+            method="patch",
+            json_body={"name": "Should not stick", "expires_on": "nope"},
+        )
+        self.assertEqual(bad_day.status_code, 400, bad_day.data[:300])
+        still = json.loads(self._api(token, f"/api/v1/inventory/{milk['id']}").data)
+        self.assertEqual(still["item"]["name"], "Cover milk")
+        self.assertEqual(still["item"]["grocery"]["expires_on"], "2026-11-01")
+        line = json.loads(self._api(token, "/api/v1/basket", method="post", json_body={"name": "Cover milk"}).data)["entry"]
+        matched = self._api(token, f"/api/v1/basket/{line['id']}/match", method="post", json_body={"item_id": milk["id"]})
+        self.assertEqual(matched.status_code, 200, matched.data[:400])
+        self.assertEqual(json.loads(matched.data)["entry"]["status"], "done")
+        gone = self._api(token, f"/api/v1/inventory/{milk['id']}", method="delete")
+        self.assertEqual(gone.status_code, 405, gone.data[:200])
+
+        with self.app.test_request_context():
+            user = User.query.filter_by(username=bot).one()
+            login_user(user)
+            opened = run_tool("case_save", {"title": "Chat case", "summary": "Asked in chat"})
+            self.assertTrue(opened.get("ok"), opened)
+            followed = run_tool("case_save", {"action": "followup", "id": opened["id"], "body": "Left a message."})
+            self.assertTrue(followed.get("ok"), followed)
+            filed = run_tool("legal_save", {"title": "Chat ticket", "kind": "ticket"})
+            self.assertTrue(filed.get("ok"), filed)
+            updated = run_tool("legal_save", {
+                "action": "update",
+                "id": filed["id"],
+                "status": "paid",
+                "outcome": "Paid at the window",
+                "caption": "Paid receipt",
+            })
+            self.assertTrue(updated.get("ok"), updated)
+            self.assertEqual(updated.get("did"), "updated")
+            self.assertEqual(updated.get("id"), filed["id"])
+            self.assertEqual(updated.get("status"), "paid")
+            again = run_tool("legal_save", {"action": "update", "q": "Chat ticket", "caption": "Paid receipt"})
+            self.assertEqual(again.get("id"), filed["id"])
+            second = run_tool("legal_save", {"title": "Chat ticket", "kind": "ticket"})
+            self.assertNotEqual(second.get("id"), filed["id"])
+            both = run_tool("legal_save", {"action": "update", "q": "Chat ticket"})
+            self.assertFalse(both.get("ok"))
+            self.assertIn("id", both.get("need") or [])
+            from app.utils.ask_photo import attach_pending, stash_ask_photo
+
+            self.assertTrue(stash_ask_photo(user.household_id, b"\xff\xd8\xff" + b"receipt-bytes", "image/jpeg"))
+            self.assertTrue(attach_pending("legal_save", updated))
+            from app.builddb.table_legal_files import LegalFile
+
+            shots = LegalFile.query.filter_by(record_id=filed["id"]).all()
+            self.assertEqual(len(shots), 1)
+            self.assertEqual(shots[0].caption, "Paid receipt")
+            attached = run_tool("case_save", {"action": "attach", "id": opened["id"], "record_id": filed["id"]})
+            self.assertTrue(attached.get("ok"), attached)
+            saved = run_tool("vehicle_save", {"name": "Chat Truck"})
+            self.assertTrue(saved.get("ok"), saved)
+            trip = run_tool("trip_save", {"item": "Chat Truck", "action": "start", "reading": "5000", "origin": "Home", "dest": "Work"})
+            self.assertTrue(trip.get("ok"), trip)
+            home = run_tool("trip_save", {"item": "Chat Truck", "action": "end", "reading": "5040"})
+            self.assertTrue(home.get("ok"), home)
+            noted = run_tool("note_save", {"title": "Cover note", "body": "In the drawer."})
+            self.assertTrue(noted.get("ok"), noted)
+            basket = run_tool("basket_add", {"names": ["Cover oats"]})
+            self.assertTrue(basket.get("ok"), basket)
+            due = run_tool("reminder_save", {"title": "Cover water bill", "type": "bill"})
+            self.assertTrue(due.get("ok"), due)
+            pull = run_tool("item_remove", {"q": "Cover milk"})
+            self.assertIn("confirm", pull.get("need") or [], pull)
 
     def _uid_of(self, username: str) -> int:
         with self.app.app_context():

@@ -259,6 +259,15 @@
     });
   }
 
+  function safeColor(c) {
+    return /^#[0-9a-fA-F]{3,8}$/.test(String(c || "")) ? String(c) : "#4dabf7";
+  }
+
+  function safeIso(c) {
+    const iso = String(c || "").toUpperCase();
+    return /^[A-Z]{2}$/.test(iso) ? iso : "";
+  }
+
   function userLabel(ev) {
     if (!ev) return "";
     const name = ev.username ? String(ev.username) : "";
@@ -514,11 +523,11 @@
         const li = document.createElement("li");
         li.innerHTML =
           '<span><span class="tm-dot" style="background:' +
-          meta.color +
+          safeColor(meta.color) +
           '"></span>' +
-          meta.label +
+          esc(meta.label) +
           "</span><strong>" +
-          f.count +
+          esc(fmtCount(f.count)) +
           "</strong>";
         famBox.appendChild(li);
       });
@@ -536,14 +545,14 @@
           const btn = document.createElement("button");
           btn.type = "button";
           btn.className = "tm-cc";
-          btn.setAttribute("data-iso", c.iso2);
+          btn.setAttribute("data-iso", safeIso(c.iso2));
           btn.innerHTML =
             "<b>" +
-            c.iso2 +
+            esc(safeIso(c.iso2) || "??") +
             "</b><span>" +
-            countryName(c.iso2) +
+            esc(countryName(safeIso(c.iso2))) +
             "</span><strong>" +
-            fmtCount(c.count) +
+            esc(fmtCount(c.count)) +
             "</strong>";
           btn.addEventListener("click", () => openCountry(c.iso2));
           li.appendChild(btn);
@@ -567,11 +576,11 @@
       const li = document.createElement("li");
       li.innerHTML =
         '<span class="tm-dot" style="background:' +
-        meta.color +
+        safeColor(meta.color) +
         '"></span><b>' +
-        originLabel(ev.iso2) +
+        esc(originLabel(safeIso(ev.iso2) || ev.iso2)) +
         "</b><span>" +
-        meta.label +
+        esc(meta.label) +
         (ev.iso2 === "XX" ? " · country unknown" : "") +
         (ev.at ? " · " + esc(ev.at) : "") +
         "</span>" +

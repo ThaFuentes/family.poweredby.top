@@ -468,7 +468,7 @@ class TwofaFlowTests(unittest.TestCase):
         r = self._plain_login(founder, "FamilyTest1!")
         self.assertEqual(r.status_code, 302)
         target_id = self._uid(bot)
-        r = self.client.post(f"/members/{target_id}/bot", data={"is_bot": "0"}, follow_redirects=True)
+        r = self._post(f"/members/{target_id}/bot", data={"is_bot": "0"}, follow_redirects=True)
         self.assertEqual(r.status_code, 200)
         with self.app.app_context():
             user = User.query.filter_by(id=target_id).first()

@@ -20,14 +20,20 @@
     d.textContent = s == null ? "" : String(s);
     return d.innerHTML;
   }
+  function safeSrc(src) {
+    const s = String(src || "").trim();
+    if (!/^https?:\/\//i.test(s) && s.charAt(0) !== "/") return "";
+    if (/[\s"'<>]/.test(s)) return "";
+    return encode(s);
+  }
   function picHtml(r) {
     const letter = encode((r.name || "?").charAt(0).toUpperCase());
-    const src = r.image_url || "";
+    const src = safeSrc(r.image_url || "");
     return (
       '<span class="row-pic">' +
       (src
         ? '<img src="' +
-          encodeURI(src) +
+          src +
           '" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">'
         : "") +
       "<span>" +
@@ -66,9 +72,9 @@
       list.forEach(function (r) {
         html +=
           '<div class="basket-row" data-entry-id="' +
-          r.id +
+          encode(r.id) +
           '"><label class="basket-check-wrap"><input type="checkbox" class="basket-check" data-pick="' +
-          r.id +
+          encode(r.id) +
           '" aria-label="Select ' +
           encode(r.name || "") +
           '"></label>' +
@@ -76,12 +82,12 @@
           '<span class="basket-copy"><strong>' +
           encode(r.name || "") +
           '</strong><span class="muted">' +
-          reasonText(r.reason) +
+          encode(reasonText(r.reason)) +
           (r.note ? " · " + encode(r.note) : "") +
-          (r.quantity_needed ? " · get " + r.quantity_needed : "") +
-          (r.place ? " · " + r.place : "") +
+          (r.quantity_needed ? " · get " + encode(r.quantity_needed) : "") +
+          (r.place ? " · " + encode(r.place) : "") +
           '</span></span><button type="button" class="btn sm secondary basket-drop" data-drop="' +
-          r.id +
+          encode(r.id) +
           '" aria-label="Take ' +
           encode(r.name || "") +
           ' off the basket">Drop</button></div>';

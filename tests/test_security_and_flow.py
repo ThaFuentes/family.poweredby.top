@@ -645,6 +645,40 @@ class FamilySecurityTests(unittest.TestCase):
         self.assertEqual(img.status_code, 200)
         self.assertTrue(img.data.startswith(b"\x89PNG") or len(img.data) > 8)
 
+        page = self.client.get(f"/legal/{rec_id}")
+        self.assertIn(b"Add a photo or receipt", page.data)
+        token = self._csrf(page.data)
+        updated = self.client.post(
+            f"/legal/{rec_id}/edit",
+            data={
+                "title": "Parking ticket downtown",
+                "kind": "citation",
+                "agency": "Springfield",
+                "case_number": "T-99",
+                "location": "Main St",
+                "issued_on": "2026-09-01",
+                "amount": "75.00",
+                "status": "paid",
+                "body": "Left on the wiper.",
+                "outcome": "Paid at the window.",
+                "caption": "Paid receipt",
+                "csrf_token": token,
+                "file": (io.BytesIO(_png()), "receipt.png"),
+            },
+            content_type="multipart/form-data",
+            headers={"X-CSRF-Token": token},
+            follow_redirects=True,
+        )
+        self.assertEqual(updated.status_code, 200, updated.data[-400:])
+        self.assertIn(b"Paid", updated.data)
+        self.assertIn(b"Paid at the window.", updated.data)
+        with self.app.app_context():
+            from app.builddb.table_legal_files import LegalFile
+
+            files = LegalFile.query.filter_by(record_id=rec_id).order_by(LegalFile.id.asc()).all()
+            self.assertEqual(len(files), 2)
+            self.assertEqual(files[1].caption, "Paid receipt")
+
         html = self.client.get("/members/").data
         token = self._csrf(html)
         child_inv = self.client.post(

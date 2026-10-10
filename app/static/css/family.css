@@ -2106,10 +2106,11 @@ html.family-intro-out #family-intro{opacity:0;transition:opacity .4s ease}
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: .6rem;
 }
 .ask-head strong { font-size: 1.05rem; color: #f4f1e8; line-height: 1.1; }
-.ask-actions { display: flex; gap: .35rem; flex: 0 0 auto; }
+.ask-actions { display: flex; gap: .35rem; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; }
 .ask-actions .btn { flex: 0 0 auto; }
 .ask-hint {
   margin: 0;
@@ -2118,6 +2119,48 @@ html.family-intro-out #family-intro{opacity:0;transition:opacity .4s ease}
   font-weight: 600;
   line-height: 1.35;
 }
+.ask-mine {
+  display: grid;
+  gap: .35rem;
+  flex: 0 0 auto;
+  padding: .65rem .85rem .75rem;
+  border-bottom: 1px solid #2c332e;
+  background: #171b18;
+  color: #f4f1e8;
+}
+.ask-mine[hidden] { display: none !important; }
+.ask-mine label {
+  margin: 0;
+  color: #e6e2d6;
+  font-size: .78rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.ask-mine input,
+.ask-mine textarea {
+  width: 100%;
+  margin: 0;
+  padding: .45rem .55rem;
+  border: 1px solid #2c332e;
+  border-radius: .55rem;
+  background: #121512;
+  color: #f4f1e8;
+  font: inherit;
+  font-size: .9rem;
+  font-weight: 600;
+}
+.ask-mine textarea { min-height: 4.2rem; resize: vertical; }
+.ask-mine .btn { justify-self: start; margin: .15rem 0 0; }
+.ask-mine-rules,
+.ask-mine-status {
+  margin: 0;
+  color: #e6e2d6;
+  font-size: .82rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.ask-mine-status { color: #d7c27a; }
 .ask-panel .btn.secondary {
   background: #f3efe4;
   color: #141814;

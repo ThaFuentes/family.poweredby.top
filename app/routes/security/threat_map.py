@@ -91,7 +91,7 @@ def _flag_on() -> bool:
 
 
 def _json_denied(code=401):
-    return jsonify({"ok": False, "error": "auth"}), code
+    return _nostore({"ok": False, "error": "auth"}, code)
 
 
 def _parse_window(allow_lifetime: bool = False) -> str:
@@ -227,6 +227,22 @@ def threat_map_alert():
     return redirect(url_for("security.threat_map"))
 
 
+def _nostore(data, status: int = 200):
+    resp = jsonify(data)
+    resp.status_code = status
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
+
+
+def clamp_replay_limit(raw, default: int = 1500, ceiling: int = 1500) -> int:
+    try:
+        limit = int(raw)
+    except (TypeError, ValueError):
+        limit = default
+    return max(1, min(limit, ceiling))
+
+
 @security_bp.route("/threat-map/summary")
 @threat_map_json_required
 def threat_map_summary():
@@ -234,7 +250,7 @@ def threat_map_summary():
 
     data = tq.summary_for_window(_parse_window(allow_lifetime=True))
     data["ok"] = True
-    return jsonify(data)
+    return _nostore(data)
 
 
 @security_bp.route("/threat-map/countries")
@@ -244,7 +260,7 @@ def threat_map_countries():
 
     data = tq.countries_for_window(_parse_window(allow_lifetime=True), fill=True)
     data["ok"] = True
-    return jsonify(data)
+    return _nostore(data)
 
 
 @security_bp.route("/threat-map/country/<iso2>")
@@ -252,13 +268,16 @@ def threat_map_countries():
 def threat_map_country(iso2):
     from . import threat_queries as tq
 
+    cc = tq.clean_iso2(iso2)
+    if cc is None:
+        return _nostore({"ok": False, "error": "bad_iso"}, 400)
     window = _parse_window(allow_lifetime=True)
     if window == "lifetime":
-        data = tq.country_history_totals(iso2)
+        data = tq.country_history_totals(cc)
     else:
-        data = tq.country_detail(iso2, window)
+        data = tq.country_detail(cc, window)
     data["ok"] = True
-    return jsonify(data)
+    return _nostore(data)
 
 
 @security_bp.route("/threat-map/replay")
@@ -267,17 +286,15 @@ def threat_map_replay():
     from . import threat_queries as tq
 
     window = _parse_window(allow_lifetime=True)
-    try:
-        limit = int(request.args.get("limit") or 1500)
-    except (TypeError, ValueError):
-        limit = 1500
+    limit = clamp_replay_limit(request.args.get("limit"))
     try:
         after_id = int(request.args.get("after_id") or 0)
     except (TypeError, ValueError):
         after_id = 0
+    after_id = max(0, after_id)
     data = tq.replay_events(window, limit=limit, after_id=after_id)
     data["ok"] = True
-    return jsonify(data)
+    return _nostore(data)
 
 
 @security_bp.route("/threat-map/recent")

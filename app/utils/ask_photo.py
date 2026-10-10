@@ -219,7 +219,9 @@ def attach_pending(tool: str, result: dict) -> bool:
 
         record = scoped(LegalRecord).filter_by(id=int(row_id)).first()
         if record is not None:
-            saved = save_legal_file(record, upload, current_user.id, result.get("title"))
+            saved = save_legal_file(
+                record, upload, current_user.id, result.get("caption") or result.get("title")
+            )
     elif tool in ("place", "part_save", "tool_save", "vehicle_save", "inventory"):
         from app.builddb.builddb import db
         from app.builddb.table_items import Item

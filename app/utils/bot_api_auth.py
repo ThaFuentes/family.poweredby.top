@@ -117,7 +117,7 @@ def audit(
             user_id=int(user_id) if user_id else None,
             key_id=int(key_id) if key_id else None,
             session_id=int(session_id) if session_id else None,
-            scope=(scope or None),
+            scope=((scope or "")[:64] or None),
             event=(event or "call")[:40],
             method=(request.method or "")[:10] if request else None,
             path=(request.path or "")[:160] if request else None,

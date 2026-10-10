@@ -1,14 +1,36 @@
 """Stay on the page you were on after a POST. Never dump people on Home."""
 from __future__ import annotations
 
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from flask import request, url_for
 
 
+def _unsafe_redirect(value: str) -> bool:
+    """Protocol-relative, backslash, and control-character targets.
+
+    A full http(s) URL is checked later against this site's host. A path is
+    only a path, so it must not become //host after decoding.
+    """
+    if any(ord(ch) < 32 or ch in "\\\x7f" for ch in value):
+        return True
+    if value.startswith(("//", "/\\")):
+        return True
+    if value[:16].lower().startswith("javascript:"):
+        return True
+    return False
+
+
 def same_site_path(raw: str | None) -> str | None:
     raw = (raw or "").strip()
-    if not raw or raw.startswith("//") or raw.startswith("\\"):
+    if not raw:
+        return None
+    # Decode once so /%2f%2fevil.example cannot leave the site.
+    try:
+        decoded = unquote(raw)
+    except Exception:
+        return None
+    if _unsafe_redirect(raw) or _unsafe_redirect(decoded):
         return None
     if raw.startswith("/"):
         return raw[:2000]

@@ -2,15 +2,15 @@
 
 Two scopes, both carried by the key prefix:
 
-    fos_bot_    read + write vehicles / notes / attachments / inventory / records
+    fos_bot_    household content this account can already open
     fos_vault_  read-only vault
 
-The resource views live beside this file:
-`bot_api_house` (fos_bot_) and `bot_api_vault` (fos_vault_).
+The resource views live beside this file: `bot_api_house`, `bot_api_content`,
+`bot_api_work` (tools, house, oil, parts, cases), and `bot_api_vault`.
 
 No delete in v1. Every call is audited to `bot_api_audit`, and a write also
-lands in the household's What-happened log so the family can see the bot
-working in the same place they see a kid's tap.
+lands in the household's What-happened log. A leader puts it back there.
+A vault look-up and a sent email stay as they are.
 """
 from __future__ import annotations
 
@@ -57,12 +57,18 @@ SCOPE_SURFACE = {
             "GET /api/v1/inventory/<id>",
             "GET /api/v1/records",
             "GET /api/v1/records/<id>",
+            "GET /api/v1/records/<id>/files",
+            "GET /api/v1/records/<id>/files/<file_id>",
             "GET /api/v1/cases",
             "GET /api/v1/basket",
             "GET /api/v1/reminders",
             "GET /api/v1/tools",
+            "GET /api/v1/tools/<id>",
             "GET /api/v1/house",
+            "GET /api/v1/house/<id>",
             "GET /api/v1/items/<id>/logs",
+            "GET /api/v1/items/<id>/parts",
+            "GET /api/v1/cases/<id>",
             "GET /api/v1/photos",
             "GET /api/v1/photos/<id>",
             "GET /api/v1/find?q=",
@@ -70,6 +76,7 @@ SCOPE_SURFACE = {
             "GET /api/v1/ask",
             "GET /api/v1/activity",
             "GET /api/v1/vault",
+            "GET /api/v1/vault/<id>",
         ],
         "write": [
             "POST /api/v1/vehicles",
@@ -81,11 +88,20 @@ SCOPE_SURFACE = {
             "PATCH /api/v1/inventory/<id>",
             "POST /api/v1/records",
             "PATCH /api/v1/records/<id>",
+            "POST /api/v1/records/<id>/files",
             "POST /api/v1/basket",
             "POST /api/v1/basket/<id>/done",
             "POST /api/v1/reminders",
+            "PATCH /api/v1/reminders/<id>",
             "POST /api/v1/reminders/<id>/done",
+            "POST /api/v1/tools",
+            "PATCH /api/v1/tools/<id>",
+            "POST /api/v1/house",
+            "PATCH /api/v1/house/<id>",
             "POST /api/v1/items/<id>/logs",
+            "POST /api/v1/items/<id>/oil",
+            "POST /api/v1/items/<id>/parts",
+            "POST /api/v1/cases",
         ],
         "delete": "not in v1",
     },
@@ -224,18 +240,23 @@ def note_activity(
     target_id: int | None = None,
     item_id: int | None = None,
     detail=None,
+    old=None,
+    reversible=None,
     commit: bool = True,
 ):
     """Put the bot in the family's What-happened log.
 
     `app.utils.activity.record` reads flask_login's current_user, which is
     anonymous on a Bearer request, so the row is written here against the
-    session's household instead.
+    session's household instead. `old` is the undo tag. It is reversible
+    only when that tag names a handler.
     """
     try:
         from app.builddb.table_household_activity import HouseholdActivity
 
         user = api_user()
+        if reversible is None:
+            reversible = isinstance(old, dict) and bool(old.get("undo"))
         db.session.add(
             HouseholdActivity(
                 household_id=api_household_id(),
@@ -245,8 +266,9 @@ def note_activity(
                 target_table=target_table,
                 target_id=target_id,
                 item_id=item_id,
+                old_json=old if isinstance(old, dict) else None,
                 new_json=detail if isinstance(detail, dict) else None,
-                reversible=False,
+                reversible=bool(reversible),
             )
         )
         if commit:

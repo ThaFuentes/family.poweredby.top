@@ -528,6 +528,56 @@ def agent_identity(household) -> dict:
     }
 
 
+def normalize_user_instructions(raw) -> str:
+    """A person's own notes for the chat. Newlines stay. House rules still win."""
+    text = str(raw or "").replace("\r\n", "\n").strip()
+    lines = [" ".join(line.split()) for line in text.split("\n")]
+    return "\n".join(line for line in lines if line)[:800]
+
+
+def _user_ask_blob(user) -> dict:
+    extra = getattr(user, "extra_data", None) or {}
+    if not isinstance(extra, dict):
+        return {}
+    ask = extra.get("ask")
+    return dict(ask) if isinstance(ask, dict) else {}
+
+
+def user_agent(user) -> dict:
+    """This person's chat name and instructions. Empty name means use the house name."""
+    blob = _user_ask_blob(user)
+    return {
+        "name": normalize_agent_name(blob.get("name")),
+        "instructions": normalize_user_instructions(blob.get("instructions")),
+    }
+
+
+def set_user_agent(user, *, name: str | None = None, instructions: str | None = None) -> dict:
+    """Save this person's chat name and instructions. Blank clears that field."""
+    extra = dict(getattr(user, "extra_data", None) or {})
+    ask = _user_ask_blob(user)
+    if name is not None:
+        clean = normalize_agent_name(name)
+        if clean:
+            ask["name"] = clean
+        else:
+            ask.pop("name", None)
+    if instructions is not None:
+        clean_notes = normalize_user_instructions(instructions)
+        if clean_notes:
+            ask["instructions"] = clean_notes
+        else:
+            ask.pop("instructions", None)
+    if ask:
+        extra["ask"] = ask
+    else:
+        extra.pop("ask", None)
+    user.extra_data = extra
+    flag_modified(user, "extra_data")
+    db.session.commit()
+    return user_agent(user)
+
+
 def set_household_agent(household, *, name: str | None = None, persona: str | None = None) -> dict:
     """Rename the chat agent or change its details. Empty name resets to Ask."""
     settings = dict(household.settings_json or {})
@@ -578,11 +628,8 @@ def chat_on(household) -> bool:
 
 
 def ask_available(household, user=None) -> bool:
-    from app.utils.permissions import role_of
-
+    """Household AI is on for every signed-in person, including children."""
     if household is None:
-        return False
-    if user is not None and role_of(user) == "child":
         return False
     cfg = household_config(household)
     if not (cfg.get("has_key") or cfg.get("backup_has_key")) or not cfg.get("enabled"):

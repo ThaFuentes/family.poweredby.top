@@ -17,7 +17,7 @@ class BotApiAudit(db.Model):
     user_id = db.Column(db.Integer, nullable=True)
     key_id = db.Column(db.Integer, nullable=True)
     session_id = db.Column(db.Integer, nullable=True)
-    scope = db.Column(db.String(16), nullable=True)
+    scope = db.Column(db.String(64), nullable=True)
     event = db.Column(db.String(40), nullable=False, default="call")
     method = db.Column(db.String(10), nullable=True)
     path = db.Column(db.String(160), nullable=True)
@@ -37,7 +37,7 @@ def create_table():
             ("user_id", "INT NULL"),
             ("key_id", "INT NULL"),
             ("session_id", "INT NULL"),
-            ("scope", "VARCHAR(16) NULL"),
+            ("scope", "VARCHAR(64) NULL"),
             ("event", "VARCHAR(40) NOT NULL DEFAULT 'call'"),
             ("method", "VARCHAR(10) NULL"),
             ("path", "VARCHAR(160) NULL"),
@@ -53,3 +53,26 @@ def create_table():
             ("idx_bot_api_audit_event", "event"),
         ],
     )
+    _widen_scope()
+
+
+def _widen_scope() -> None:
+    """Existing databases keep the old VARCHAR(16). Either-key denials store
+    `fos_bot_,fos_vault_`, which does not fit, and the audit insert then fails.
+    """
+    from sqlalchemy import inspect, text
+
+    from app.builddb.builddb import db
+
+    try:
+        cols = inspect(db.engine).get_columns("bot_api_audit")
+    except Exception:
+        return
+    scope = next((col for col in cols if col["name"] == "scope"), None)
+    if scope is None:
+        return
+    length = getattr(scope.get("type"), "length", None)
+    if length is not None and int(length) >= 64:
+        return
+    with db.engine.begin() as conn:
+        conn.execute(text("ALTER TABLE `bot_api_audit` MODIFY COLUMN `scope` VARCHAR(64) NULL"))

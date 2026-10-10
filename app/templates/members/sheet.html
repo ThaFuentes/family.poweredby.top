@@ -113,6 +113,7 @@
         <p class="muted" style="margin:.35rem 0 0">The login key does not expire. Presenting it emails a 2FA key to the other inbox, and that key lasts 1 hour. Only hashes are stored, so every button here makes a new login key and stops the old one.</p>
       </form>
     {% endif %}
+    <p style="margin:.45rem 0 0"><a class="btn sm secondary" href="{{ url_for('bot_guide.for_member', user_id=m.id) }}">What this key can do</a></p>
   </div>
   {% endif %}
   <form method="post" action="{{ url_for('members.set_member_calendar', user_id=m.id) }}" style="margin:.35rem 0 0">
@@ -389,7 +390,14 @@
 
 {% elif sheet_panel == 'ai' %}
 <h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">AI keys</h1>
-<p class="muted">Add a key for Gemini, Groq, Grok, OpenAI, or any other provider. Turn on the ones Ask may use. Main goes first. If that model is busy, Ask tries the other models on the same key, then the next key. Everyday is lists and chat. Heavy is photos and oil lookup. <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Get a Groq API key</a>.</p>
+<ol class="muted">
+  <li>Copy a key from Groq, Gemini, Grok, or OpenAI. <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Get a Groq API key</a>.</li>
+  <li>Add it below. A new key does not replace one you already saved.</li>
+  <li>Leave Replace blank to keep the saved key. Pick the model, then Save model.</li>
+  <li>Main is the one Ask tries first. Press Test the main key before you leave.</li>
+  <li>Everyday is lists and short chat. Heavy is photos and oil lookup.</li>
+</ol>
+<p class="muted">If the main model is busy, Ask tries the other models on that key, then the next key that is on. House rules and Always ask sit on this page too. A bot key is separate: open the person and use What this key can do. The written steps are on <a href="{{ url_for('home.help_page') }}">Help</a>.</p>
 {% for k in ai.saved_keys or [] %}
 <details class="card ai-key fold-menu">
   <summary>
@@ -489,16 +497,16 @@
     <input type="checkbox" name="ai_chat" value="1" {% if ai.chat != False %}checked{% endif %}>
     Ask window
   </label>
-  <label>Name of the chat agent</label>
+  <label>House name for the chat</label>
   <input type="text" name="agent_name" maxlength="24" value="{{ ai.agent_name or 'Ask' }}" placeholder="Ask">
-  <label>Details about it (what it should know or how it should talk)</label>
+  <label>House rules (these win over each person's own instructions)</label>
   <input type="text" name="agent_persona" maxlength="400" value="{{ ai.agent_persona or '' }}" placeholder="Short. Example: We run a ranch; check the weather before trips.">
   <label>Before Ask adds, changes, or deletes</label>
   <select name="ask_confirm">
     <option value="ask" {% if ai.ask_confirm != 'allow' %}selected{% endif %}>Always ask — show the plan, then Allow or Don’t</option>
     <option value="allow" {% if ai.ask_confirm == 'allow' %}selected{% endif %}>Run free — do simple work; still ask before people, vault, or deleting a vehicle</option>
   </select>
-  <p class="muted">You can also say “always allow” or “always ask” in the chat, or just tell it “call you Jarvis”.</p>
+  <p class="muted">Each person sets their own name and instructions in the chat when AI is on. These house rules win. You can also say “always allow” or “always ask” in the chat. “Call you Jarvis” changes the name for you only.</p>
   <button class="btn secondary" type="submit">Save Ask</button>
 </form>
 {% if ai.has_key %}

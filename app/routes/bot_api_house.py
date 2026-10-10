@@ -178,6 +178,8 @@ def vehicles_create():
         f"A bot added the vehicle {item.name}",
         target_table="items",
         target_id=item.id,
+        item_id=item.id,
+        old={"undo": "hide_item"},
     )
     return ok({"vehicle": _vehicle_json(item)}, 201)
 
@@ -193,6 +195,9 @@ def vehicles_update(item_id):
     item = _vehicle_or_404(item_id)
     if item is None:
         return api_error("No such vehicle in this household.", 404, "not_found")
+    from app.utils.activity_undo import fields_undo, snap_item, snap_vehicle
+
+    before = fields_undo(item=snap_item(item), vehicle=snap_vehicle(item.vehicle))
     data = body()
     item.name = as_str(data, "name", 200) or item.name
     item.category = as_str(data, "category", 100) or item.category
@@ -208,6 +213,8 @@ def vehicles_update(item_id):
         f"A bot updated the vehicle {item.name}",
         target_table="items",
         target_id=item.id,
+        item_id=item.id,
+        old=before,
     )
     return ok({"vehicle": _vehicle_json(item)})
 
@@ -326,6 +333,7 @@ def notes_create():
         target_table="notes",
         target_id=note.id,
         item_id=item_id,
+        old={"undo": "trash", "ids": [note.id]},
     )
     return ok({"note": _note_json(note)}, 201)
 
@@ -344,6 +352,9 @@ def notes_update(note_id):
         return api_error("No such note in this household.", 404, "not_found")
     if not note_edit_allowed(note):
         return api_error("This account cannot change that note.", 403, "forbidden")
+    from app.utils.activity_undo import fields_undo, snap_note
+
+    before = fields_undo(note=snap_note(note))
     data = body()
     if "title" in data:
         note.title = as_str(data, "title", 500) or note.title
@@ -360,6 +371,7 @@ def notes_update(note_id):
         elif api_scope(Item).filter_by(id=item_id).first() is not None:
             note.item_id = item_id
         else:
+            db.session.rollback()
             return api_error("No such item in this household.", 404, "not_found")
     note.updated_at = datetime.utcnow()
     db.session.add(note)
@@ -369,6 +381,7 @@ def notes_update(note_id):
         f"A bot updated the note {note.title}",
         target_table="notes",
         target_id=note.id,
+        old=before,
     )
     return ok({"note": _note_json(note)})
 
@@ -420,8 +433,9 @@ def files_add(note_id):
     note_activity(
         "bot.note.file",
         f"A bot attached a file to the note {note.title}",
-        target_table="notes",
-        target_id=note.id,
+        target_table="note_files",
+        target_id=row.id,
+        old={"undo": "trash", "ids": [row.id]},
     )
     return ok({"file": _file_json(row)}, 201)
 
@@ -478,6 +492,7 @@ def _inventory_json(item):
             "brand": g.brand,
             "size": g.size,
             "unit": g.unit,
+            "expires_on": _grocery_expires(g),
             "auto_basket": bool(g.auto_basket),
             "last_consumed_at": iso(g.last_consumed_at),
             "last_restocked_at": iso(g.last_restocked_at),
@@ -486,6 +501,15 @@ def _inventory_json(item):
         "created_at": iso(item.created_at),
         "updated_at": iso(item.updated_at),
     }
+
+
+def _grocery_expires(g):
+    if g is None:
+        return None
+    from app.utils.lots import soonest
+
+    day = soonest(g)
+    return iso_date(day) if day else None
 
 
 def _sync_stock(g) -> None:
@@ -581,6 +605,8 @@ def inventory_create():
         f"A bot added {item.name} to the house",
         target_table="items",
         target_id=item.id,
+        item_id=item.id,
+        old={"undo": "hide_item"},
     )
     return ok({"item": _inventory_json(item)}, 201)
 
@@ -594,9 +620,19 @@ def inventory_update(item_id):
     item = api_scope(Item).filter_by(id=item_id).first()
     if item is None:
         return api_error("No such item in this household.", 404, "not_found")
+    from app.utils.activity_undo import fields_undo, snap_grocery, snap_item
+
+    before = fields_undo(item=snap_item(item), grocery=snap_grocery(item.grocery))
     data = body()
     if not inventory_write_allowed(item.item_type, data, creating=False):
         return api_error("This account cannot change that.", 403, "forbidden")
+    expires_day = None
+    if "expires_on" in data:
+        raw_day = as_str(data, "expires_on", 20)
+        if raw_day:
+            expires_day = as_date(data, "expires_on")
+            if expires_day is None:
+                return api_error("expires_on must be YYYY-MM-DD.", 400, "bad_request")
     item.name = as_str(data, "name", 200) or item.name
     item.category = as_str(data, "category", 100) or item.category
     if "notes" in data:
@@ -617,6 +653,10 @@ def inventory_update(item_id):
     g.brand = as_str(data, "brand", 120) or g.brand
     g.size = as_str(data, "size", 80) or g.size
     g.unit = as_str(data, "unit", 40) or g.unit
+    if expires_day is not None:
+        from app.utils.lots import apply_partial
+
+        apply_partial(g, [{"qty": g.quantity or 1, "expires_on": expires_day.isoformat()}])
     _sync_stock(g)
     db.session.add(g)
     db.session.add(item)
@@ -626,6 +666,8 @@ def inventory_update(item_id):
         f"A bot set {item.name} in the house",
         target_table="items",
         target_id=item.id,
+        item_id=item.id,
+        old=before,
     )
     return ok({"item": _inventory_json(item)})
 
@@ -655,11 +697,50 @@ def _record_json(rec, with_files: bool = True):
         "updated_at": iso(rec.updated_at),
     }
     if with_files:
-        out["files"] = [
-            {"id": f.id, "original_name": f.original_name, "mime": f.mime}
-            for f in (rec.files or [])
-        ]
+        out["files"] = [_record_file_json(rec.id, f) for f in (rec.files or [])]
     return out
+
+
+def _record_file_json(record_id: int, row) -> dict:
+    return {
+        "id": row.id,
+        "record_id": record_id,
+        "original_name": row.original_name,
+        "mime": row.mime,
+        "caption": row.caption,
+        "download": f"/api/v1/records/{record_id}/files/{row.id}",
+    }
+
+
+def _incoming_record_files():
+    """Photos sent with a record update. JSON calls send none."""
+    found = []
+    for name in ("file", "photo", "image"):
+        for upload in request.files.getlist(name) or []:
+            if getattr(upload, "filename", ""):
+                found.append(upload)
+    return found
+
+
+def _caption_for_files() -> str | None:
+    text = (request.form.get("caption") or as_str(body(), "caption", 300) or "").strip()
+    return text[:300] or None
+
+
+def _save_record_files(rec, uploads):
+    """(rows, error). One bad file rolls the caller back."""
+    from app.routes.legal import save_legal_file
+
+    caption = _caption_for_files()
+    saved = []
+    for upload in uploads:
+        row = save_legal_file(rec, upload, getattr(api_user(), "id", None), caption)
+        if row is None:
+            return None, (
+                "That file type is not allowed (jpg, jpeg, png, webp, gif, pdf) or it is over 20 MB."
+            )
+        saved.append(row)
+    return saved, None
 
 
 @bot_api_bp.route("/records")
@@ -730,6 +811,7 @@ def records_create():
         f"A bot filed the record {title}",
         target_table="legal_records",
         target_id=rec.id,
+        old={"undo": "trash", "ids": [rec.id]},
     )
     return ok({"record": _record_json(rec)}, 201)
 
@@ -745,7 +827,12 @@ def records_update(record_id):
     rec = api_scope(LegalRecord).filter_by(id=record_id).first()
     if rec is None:
         return api_error("No such record in this household.", 404, "not_found")
+    from app.utils.activity_undo import fields_undo, snap_record
+
+    before = fields_undo(record=snap_record(rec))
     data = body()
+    if not data and request.form:
+        data = request.form
     if "title" in data:
         rec.title = as_str(data, "title", 500) or rec.title
     if "kind" in data:
@@ -774,12 +861,124 @@ def records_update(record_id):
         value = as_dec(data, "amount")
         if value is not None:
             rec.amount = value
+    if "case_id" in data:
+        raw = data.get("case_id")
+        if raw in (None, "", 0, "0"):
+            rec.case_id = None
+        else:
+            cid = as_int(data, "case_id")
+            from app.builddb.table_legal_cases import LegalCase
+
+            case = api_scope(LegalCase).filter_by(id=cid).first() if cid else None
+            if case is None:
+                db.session.rollback()
+                return api_error("No such case in this household.", 404, "not_found")
+            rec.case_id = case.id
+    uploads = _incoming_record_files()
+    saved_files = []
+    if uploads:
+        saved_files, err = _save_record_files(rec, uploads)
+        if err:
+            db.session.rollback()
+            return api_error(err, 400, "file_rejected")
     db.session.add(rec)
     db.session.commit()
+    db.session.refresh(rec)
     note_activity(
         "bot.record.update",
         f"A bot updated the record {rec.title}",
         target_table="legal_records",
         target_id=rec.id,
+        old=before,
     )
+    if saved_files:
+        note_activity(
+            "bot.record.file",
+            f"A bot attached a file to the record {rec.title}",
+            target_table="legal_files",
+            target_id=saved_files[0].id,
+            old={"undo": "trash", "ids": [row.id for row in saved_files]},
+        )
     return ok({"record": _record_json(rec)})
+
+
+@bot_api_bp.route("/records/<int:record_id>/files")
+@bot_api(BOT)
+def record_files_list(record_id):
+    blocked = gate("legal")
+    if blocked:
+        return blocked
+    from app.builddb.table_legal_files import LegalFile
+    from app.builddb.table_legal_records import LegalRecord
+
+    rec = api_scope(LegalRecord).filter_by(id=record_id).first()
+    if rec is None:
+        return api_error("No such record in this household.", 404, "not_found")
+    rows = (
+        api_scope(LegalFile)
+        .filter_by(record_id=rec.id)
+        .order_by(LegalFile.id.asc())
+        .all()
+    )
+    return ok({"files": [_record_file_json(rec.id, row) for row in rows]})
+
+
+@bot_api_bp.route("/records/<int:record_id>/files", methods=["POST"])
+@bot_api(BOT, write=True)
+def record_files_add(record_id):
+    blocked = gate("legal")
+    if blocked:
+        return blocked
+    from app.builddb.table_legal_records import LegalRecord
+
+    rec = api_scope(LegalRecord).filter_by(id=record_id).first()
+    if rec is None:
+        return api_error("No such record in this household.", 404, "not_found")
+    uploads = _incoming_record_files()
+    if not uploads:
+        return api_error(
+            "Attach a photo or PDF as the multipart field 'file'.", 400, "no_file"
+        )
+    saved, err = _save_record_files(rec, uploads)
+    if err:
+        db.session.rollback()
+        return api_error(err, 400, "file_rejected")
+    rec.updated_at = datetime.utcnow()
+    db.session.commit()
+    db.session.refresh(rec)
+    note_activity(
+        "bot.record.file",
+        f"A bot attached a file to the record {rec.title}",
+        target_table="legal_files",
+        target_id=saved[0].id,
+        old={"undo": "trash", "ids": [row.id for row in saved]},
+    )
+    return ok(
+        {
+            "file": _record_file_json(rec.id, saved[0]),
+            "files": [_record_file_json(rec.id, row) for row in saved],
+            "record": _record_json(rec),
+        },
+        201,
+    )
+
+
+@bot_api_bp.route("/records/<int:record_id>/files/<int:file_id>")
+@bot_api(BOT)
+def record_files_get(record_id, file_id):
+    blocked = gate("legal")
+    if blocked:
+        return blocked
+    from app.builddb.table_legal_files import LegalFile
+    from app.builddb.table_legal_records import LegalRecord
+    from app.routes.legal import resolve_legal_file
+    from app.utils.crypto import read_decrypted_file, send_bytes
+
+    rec = api_scope(LegalRecord).filter_by(id=record_id).first()
+    row = api_scope(LegalFile).filter_by(id=file_id, record_id=record_id).first()
+    if rec is None or row is None:
+        return api_error("No such file in this household.", 404, "not_found")
+    data = read_decrypted_file(str(resolve_legal_file(row)))
+    if not data:
+        return api_error("That file could not be read.", 404, "not_found")
+    return send_bytes(data, row.mime or "application/octet-stream", row.original_name or "file")

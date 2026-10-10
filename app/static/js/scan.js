@@ -189,14 +189,21 @@
     );
   }
 
+  function safeSrc(src) {
+    const s = String(src || "").trim();
+    if (!/^https?:\/\//i.test(s) && s.charAt(0) !== "/") return "";
+    if (/[\s"'<>]/.test(s)) return "";
+    return encode(s);
+  }
+
   function productPic(data) {
-    const src = (data && (data.image_url || data.thumb_url)) || "";
+    const src = safeSrc((data && (data.image_url || data.thumb_url)) || "");
     const letter = encode(((data && data.name) || "?").charAt(0).toUpperCase());
     return (
       '<span class="row-pic">' +
       (src
         ? '<img src="' +
-          encodeURI(src) +
+          src +
           '" alt="" referrerpolicy="no-referrer" onerror="this.remove()">'
         : "") +
       "<span>" +

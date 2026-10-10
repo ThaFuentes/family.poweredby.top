@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, redirect, url_for
-from flask_login import current_user
+from flask_login import current_user, login_required
 
 from app.utils.household import household_id
 from app.utils.needs import home_dashboard
@@ -15,6 +15,14 @@ def open_start():
     from app.utils.dashboard import start_url
 
     return redirect(start_url(current_user))
+
+
+@home_bp.route("/help")
+@login_required
+def help_page():
+    from app.utils.house_help import page_sections
+
+    return render_template("help.html", sections=page_sections())
 
 
 @home_bp.route("/about")

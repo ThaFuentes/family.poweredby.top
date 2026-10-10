@@ -28,10 +28,13 @@ and `account.can`. A turned-down ability is `403` with `code: forbidden`. A
 key prefix that cannot touch the route is `403` with `code: scope_denied`.
 
 House reads a member can use also include basket, reminders, tools, house,
-item logs, photos, find, people, cases, and that bot's own Ask history.
-Writes follow the same permissions as the page (a child can check the basket
-and cannot file a legal record or edit a vehicle). Leaders can read
-`GET /api/v1/activity`. There is still no delete.
+item logs, oil, parts, photos, find, people, cases, and that bot's own Ask
+history. Writes follow the same permissions as the page: a member can save a
+tool, a house thing, oil, a part, a reminder, and a case; a child can check
+the basket and cannot file a legal record or edit a vehicle. Leaders can read
+`GET /api/v1/activity`. There is still no delete. `GET /api/v1/helper` returns
+`data.lines` (the paths) and `data.guide` (the field-by-field help for this
+key).
 
 ## One login key, one 2FA key
 
@@ -74,6 +77,13 @@ presents the login key.
 **The bot itself**, from its own dashboard (`/`), proved by its current
 password or a fresh authenticator code — exactly like the password reset card.
 A bot can never see its own keys on that page; it can only ask for new ones.
+
+**What this key can do** is the same guide as `GET /api/v1/helper`, as a page.
+The bot opens `/bot-api/guide`. A leader opens `/members/<id>/bot-api/guide`
+from that bot's People sheet. House key and vault key are two views of the
+same page. Each call is marked from that account's role: this account can, or
+this account cannot. A person who is not that bot gets 404 on `/bot-api/guide`.
+The page shows no secrets.
 
 ## Using it
 
@@ -139,7 +149,7 @@ contain the new key. Sign in again with present, then exchange.
 |---|---|---|
 | `POST` | `/api/v1/auth/present` | Login key in. Emails a 2FA key that expires in 1 hour. |
 | `POST` | `/api/v1/auth/exchange` | Login key plus that 2FA key → session token. |
-| `GET` | `/api/v1/helper` | The route map for this key. `/api/v1/help` is the same call. JSON is `{ok, greeting, data:{lines, calls}}`, the same shape as AEGIS `/api/bot/help`. A path that is not listed is 404. |
+| `GET` | `/api/v1/helper` | The route map for this key. `/api/v1/help` is the same call. JSON is `{ok, greeting, data:{lines, calls, guide, examples}}`. `data.guide` is the field-by-field help. A path that is not listed is 404. |
 | `GET` | `/api/v1/whoami` | Bot, scope, `account.role`, `account.can`, session expiry, and routes. |
 | `GET` | `/api/v1/me` | Same as whoami. |
 | `GET` | `/api/v1/meta` | The documented v1 surface for both scopes. |
@@ -156,17 +166,20 @@ contain the new key. Sign in again with present, then exchange.
 | `GET` | `/api/v1/files/<id>` — decrypted attachment bytes |
 | `GET` | `/api/v1/inventory`, `/api/v1/inventory/<id>` |
 | `GET` | `/api/v1/records`, `/api/v1/records/<id>` — needs `legal` |
-| `GET` | `/api/v1/cases` — needs `legal` |
+| `GET` | `/api/v1/records/<id>/files`, `/api/v1/records/<id>/files/<file_id>` — needs `legal` |
+| `GET` | `/api/v1/cases`, `/api/v1/cases/<id>` — needs `legal` |
 | `GET` | `/api/v1/basket` |
 | `GET` | `/api/v1/reminders` |
-| `GET` | `/api/v1/tools`, `/api/v1/house` |
+| `GET` | `/api/v1/tools`, `/api/v1/tools/<id>` |
+| `GET` | `/api/v1/house`, `/api/v1/house/<id>` |
 | `GET` | `/api/v1/items/<id>/logs` |
+| `GET` | `/api/v1/items/<id>/parts` — vehicles only |
 | `GET` | `/api/v1/photos`, `/api/v1/photos/<id>` |
 | `GET` | `/api/v1/find?q=` — records and cases only when `legal` |
 | `GET` | `/api/v1/people` — not a child. No passwords or security inboxes |
 | `GET` | `/api/v1/ask` — this bot's own Ask history, not a child's |
 | `GET` | `/api/v1/activity` — leaders only |
-| `GET` | `/api/v1/vault`, `/api/v1/vault/<id>` — when this account can use the vault |
+| `GET` | `/api/v1/vault`, `/api/v1/vault/<id>` — when this account can use the vault. Names on the list, the open card on `<id>` |
 
 ### `fos_bot_` — write
 
@@ -176,10 +189,16 @@ contain the new key. Sign in again with present, then exchange.
 | `POST` | `/api/v1/notes` · `PATCH /api/v1/notes/<id>` |
 | `POST` | `/api/v1/notes/<id>/files` — multipart, field `file` |
 | `POST` | `/api/v1/inventory` · `PATCH /api/v1/inventory/<id>` |
-| `POST` | `/api/v1/records` · `PATCH /api/v1/records/<id>` — needs `legal` |
+| `POST` | `/api/v1/records` · `PATCH /api/v1/records/<id>` — needs `legal`. PATCH may also send multipart field `file` |
+| `POST` | `/api/v1/records/<id>/files` — multipart, field `file`. Adds a photo or PDF. Needs `legal` |
 | `POST` | `/api/v1/basket` · `POST /api/v1/basket/<id>/done` — scan or groceries |
-| `POST` | `/api/v1/reminders` · `POST /api/v1/reminders/<id>/done` — needs `maintain` |
+| `POST` | `/api/v1/reminders` · `PATCH /api/v1/reminders/<id>` · `POST /api/v1/reminders/<id>/done` — needs `maintain` |
+| `POST` | `/api/v1/tools` · `PATCH /api/v1/tools/<id>` — needs `maintain` |
+| `POST` | `/api/v1/house` · `PATCH /api/v1/house/<id>` — needs `maintain` |
 | `POST` | `/api/v1/items/<id>/logs` — needs `maintain` |
+| `POST` | `/api/v1/items/<id>/oil` — vehicle or tool, needs `maintain` |
+| `POST` | `/api/v1/items/<id>/parts` — vehicles only, needs `maintain` |
+| `POST` | `/api/v1/cases` — needs `legal` |
 
 `PATCH` is a whitelisted column update — a body key that is not a known field
 is ignored, never mass-assigned.
@@ -204,7 +223,137 @@ that does not exist.
 
 ### No delete in v1
 
-Nothing deletes. `DELETE` on any path is `405`.
+Nothing deletes. `DELETE` on any path is `405`. Check a basket line off, mark a reminder done, or `PATCH` a reminder's `status` to `done`.
+
+---
+
+## Doing the work
+
+`GET /api/v1/helper` is the help file for the key that is signed in. `data.guide` is the prose. `data.examples` is one JSON body per job. A vault key's guide only covers opening cards. The bodies below are the house key.
+
+Send `Content-Type: application/json`. A missing required field is `400`. An unknown field is ignored. The account still has to be allowed: `403` `forbidden` when the role cannot, `403` `scope_denied` when the prefix cannot.
+
+This key does not change people, passwords, leaders, the AI key, mail, or the Look theme. It does not write vault cards. Item photos (`GET /api/v1/photos`) are read-only. A photo or PDF on a legal record is added with `POST /api/v1/records/<id>/files`. `POST /api/v1/inventory` is for groceries. A tool or a house thing has its own route so it does not also become a grocery row.
+
+### Vehicle
+
+`POST /api/v1/vehicles` and `PATCH /api/v1/vehicles/<id>`. Needs `maintain`.
+
+```json
+{"name":"Tundra","year":2006,"make":"Toyota","model":"Tundra","current_mileage":78000,"oil_needs":"5W-30","oil_capacity":"6.5 qt"}
+```
+
+Also `vin`, `plate`, `color`, `trim`, `oil_type`, `filter_type`, `tire_size`, `notes`, `category`, `last_oil_change_date`, `next_oil_due_date` (`YYYY-MM-DD`), `oil_interval_miles`, `oil_interval_months`.
+
+### Tool
+
+`POST /api/v1/tools`, `GET /api/v1/tools/<id>`, `PATCH /api/v1/tools/<id>`. Needs `maintain`.
+
+```json
+{"name":"Gas generator","category":"power","type":"generator","model":"EU2200i","serial_number":"SN1","power_source":"gas","oil_needs":"10W-30","oil_capacity":"0.4 qt","notes":"shed"}
+```
+
+### House thing
+
+`POST /api/v1/house`, `GET /api/v1/house/<id>`, `PATCH /api/v1/house/<id>`. The reply key is `place`. Needs `maintain`.
+
+```json
+{"name":"Pool pump","category":"pool","notes":"Hayward"}
+```
+
+### Oil
+
+`POST /api/v1/items/<id>/oil` on a vehicle or a tool. A house thing is `400`. Needs `maintain`.
+
+```json
+{"needs":"5W-30","capacity":"6.5 qt","in_it":"5W-30"}
+```
+
+One other fluid, or several:
+
+```json
+{"fluid":"rear_diff","value":"75W-90"}
+```
+
+```json
+{"fluids":{"transmission":"WS","coolant":"pink","transfer_case":"75W-90"}}
+```
+
+Fluid keys: `rear_diff`, `front_diff`, `transmission`, `transfer_case`, `coolant`, `brake_fluid`, `power_steering`.
+
+### Part
+
+`GET` and `POST /api/v1/items/<id>/parts`. Vehicles only. A tool or a house thing is `404`. Needs `maintain`. `status` is `installed`, `spare`, or `retired`. `installed` replaces the current part in that system and slot.
+
+```json
+{"name":"Oil filter","system":"engine","slot":"oil_filter","brand":"Wix","part_number":"57060","status":"installed"}
+```
+
+`system` is `engine`, `electrical`, `electronics`, `exhaust`, `cooling`, `fuel`, `drivetrain`, `brakes`, `steering`, `tires`, `body`, `hvac`, or `other`. Also `spec`, `model`, `serial_number`, `asset_id`, `installed_on`, `installed_mileage`, `notes`, `source`, `cost`.
+
+### Grocery, basket, reminder, log, note
+
+```json
+{"name":"Oat milk","quantity":2,"location":"fridge","unit":"each"}
+```
+
+`POST /api/v1/inventory`. A child may change the count, not the name. `PATCH` can set `expires_on` (`YYYY-MM-DD`). A barcode already in the house is `409`.
+
+```json
+{"name":"Oat milk","quantity_needed":1,"reason":"want"}
+```
+
+`POST /api/v1/basket`. `POST /api/v1/basket/<id>/done` checks that line off. `POST /api/v1/basket/<id>/match` ties that line to stock (`item_id`).
+
+```json
+{"title":"Change the generator oil","type":"oil_change","due_at":"2026-11-01T09:00:00","item_id":123,"recurrence":"50h","notes":"after 50 hours"}
+```
+
+`POST /api/v1/reminders`. `type` is `bill`, `oil_change`, `filter`, `blades`, `hvac_filter`, `tires`, `battery`, `smoke`, or `custom`. `recurrence` is `30d`, `90d`, `180d`, `365d`, `3000mi`, `5000mi`, `50h`, or blank. `PATCH /api/v1/reminders/<id>` takes the same fields plus `status` `open` or `done`. Needs `maintain`.
+
+```json
+{"kind":"repair","title":"Spark plugs","notes":"gapped 0.044","happened_on":"2026-10-07","reading":78120,"cost":"24.00"}
+```
+
+`POST /api/v1/items/<id>/logs`. `kind` is `miles`, `hours`, `fillup`, `repair`, `note`, `code`, or `trip`. A fill-up can send `gallons`.
+
+`POST /api/v1/items/<id>/trips` starts or ends a trip on a vehicle. `action` is `start` or `end`. `reading` is the odometer. `start` also takes `origin` and `dest`.
+
+```json
+{"title":"Filter size","body":"16x20x1","visibility":"household","item_id":123}
+```
+
+`POST /api/v1/notes`. `visibility` is `personal` or `household`. Files are multipart, field `file`, on `POST /api/v1/notes/<id>/files`.
+
+### Legal paper and cases
+
+Needs `legal` on this account.
+
+```json
+{"title":"Speeding ticket","kind":"ticket","status":"open","agency":"City","due_on":"2026-11-01","amount":"150.00","body":"Main St"}
+```
+
+`POST /api/v1/records`. `kind` is `citation`, `notice`, `warning`, `ticket`, `court`, `letter`, or `other`. `status` is `open`, `paid`, `contested`, `appealed`, `dismissed`, or `closed`. Also `case_number`, `location`, `issued_on`, `outcome`.
+
+A later photo stays on that same record. `POST /api/v1/records/<id>/files` is multipart, field `file` (also `photo` or `image`). Optional `caption`, for example `Paid receipt`. Several files in one call are all kept. Nothing already on the record is replaced. `PATCH /api/v1/records/<id>` accepts the same file fields when the body is multipart, so a status change and a receipt can go together. `GET /api/v1/records/<id>/files` lists them. `GET /api/v1/records/<id>/files/<file_id>` returns the bytes.
+
+```json
+{"title":"The ticket","status":"open","summary":"Follow the paper."}
+```
+
+`POST /api/v1/cases`. `status` is `open` or `closed`. The number is assigned. `PATCH /api/v1/cases/<id>` takes the same fields. `POST /api/v1/cases/<id>/followups` adds a note, link, or email. A photo or PDF belongs on the record (`POST /api/v1/records/<id>/files`), not as a file follow-up. `PATCH /api/v1/records/<id>` with `case_id` ties a paper on. `GET /api/v1/cases/<id>` reads one.
+
+### Find, people, Ask, activity, vault
+
+`GET /api/v1/find?q=` searches the house. Records and cases are included only when this account has `legal`.
+
+`GET /api/v1/people` is names and roles. Not a child. No passwords and no security inboxes.
+
+`GET /api/v1/ask` is this bot's own Ask history. Not a child.
+
+`GET /api/v1/activity` is leaders and admins.
+
+`GET /api/v1/vault` is card names. `GET /api/v1/vault/<id>` opens one card when this account can use the vault. A child never can. A card this account cannot see is `404`.
 
 ---
 
@@ -262,7 +411,9 @@ workers and an in-process counter resets on every recycle.
 
 Every call writes one row to `bot_api_audit`: event, method, path, status,
 scope, key, session, IP, user agent. `event` is one of `exchange`, `call`,
-`denied`, `rate_limit`, `vault.read`.
+`denied`, `rate_limit`, `vault.read`. `scope` is one prefix, or
+`fos_bot_,fos_vault_` when the route accepts either key. That column is
+`VARCHAR(64)`.
 
 Denials are logged too — a wrong-scope or wrong-token attempt shows up
 alongside normal traffic.
@@ -286,7 +437,12 @@ they see a kid's tap. Those rows are not reversible from the UI.
 .venv/bin/python -m unittest tests.test_bot_api
 ```
 
-25 tests: pair delivery to two inboxes, hash-only storage, exchange, every
-resource route, scope separation both ways, cross-household isolation,
-reset/resend, swapped halves, mixed bots, self-pairing, HTTPS, rate limits,
-audit rows, revoke, no-delete, paging, and the leader + self-service UI.
+33 tests: pair delivery to two inboxes, hash-only storage, exchange, every
+resource route, the helper guide, a house key saving a tool, oil, a part, a
+house thing, a reminder, a case (including a follow-up, a status change, and
+tying on a paper), a trip, a use-by date, and a basket match, the same jobs
+through the Ask tools, a vault key refused on those routes,
+scope separation both ways, cross-household isolation, reset/resend, swapped
+halves, mixed bots, self-pairing, HTTPS, rate limits, audit rows, revoke,
+no-delete, paging, the leader + self-service UI, and the in-app key guide
+(a child can open Ask, and still cannot open the vault or records).

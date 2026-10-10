@@ -309,6 +309,11 @@ class StayPathTests(unittest.TestCase):
 
     def test_rejects_protocol_relative(self):
         self.assertIsNone(same_site_path("//evil.example/phish"))
+        self.assertIsNone(same_site_path("/%2f%2fevil.example/phish"))
+        self.assertIsNone(same_site_path("/\\evil.example"))
+        self.assertIsNone(same_site_path("/ok\r\nSet-Cookie:%20x"))
+        self.assertIsNone(same_site_path("javascript:alert(1)"))
+        self.assertIsNone(same_site_path("https://evil.example/phish"))
 
     def test_blank(self):
         self.assertIsNone(same_site_path(""))

@@ -95,6 +95,7 @@ def basket_add():
         target_table="grocery_list",
         target_id=row.id,
         item_id=row.item_id,
+        old={"undo": "trash", "ids": [row.id]},
     )
     return ok({"entry": _basket_json(row)}, 201)
 
@@ -110,6 +111,9 @@ def basket_done(entry_id):
     row = api_scope(GroceryListEntry).filter_by(id=entry_id).first()
     if row is None:
         return api_error("No such basket line in this household.", 404, "not_found")
+    from app.utils.activity_undo import fields_undo, snap_basket
+
+    before = fields_undo(basket=snap_basket(row))
     row.status = "done"
     row.completed_at = datetime.utcnow()
     db.session.commit()
@@ -118,8 +122,49 @@ def basket_done(entry_id):
         f"A bot checked off {row.name}",
         target_table="grocery_list",
         target_id=row.id,
+        old=before,
     )
     return ok({"entry": _basket_json(row)})
+
+
+@bot_api_bp.route("/basket/<int:entry_id>/match", methods=["POST"])
+@bot_api(BOT, write=True)
+def basket_match(entry_id):
+    from app.builddb.table_grocery_list import GroceryListEntry
+    from app.builddb.table_items import Item
+    from app.utils.basket_match import apply_match
+
+    blocked = gate("scan", "edit_grocery")
+    if blocked:
+        return blocked
+    row = api_scope(GroceryListEntry).filter_by(id=entry_id).first()
+    if row is None:
+        return api_error("No such basket line in this household.", 404, "not_found")
+    if row.status != "open":
+        return api_error("That line is already off the basket.", 400, "bad_request")
+    data = body()
+    item_id = as_int(data, "item_id")
+    if not item_id:
+        return api_error("item_id is required.", 400, "bad_request")
+    item = api_scope(Item).filter_by(id=item_id).first()
+    if item is None:
+        return api_error("No such item in this household.", 404, "not_found")
+    from app.utils.activity_undo import fields_undo, snap_basket
+
+    before = fields_undo(basket=snap_basket(row))
+    result = apply_match(row, item, getattr(api_user(), "id", None), restock=True)
+    if not result.get("ok"):
+        return api_error(result.get("error") or "Could not match that.", 400, "bad_request")
+    db.session.commit()
+    note_activity(
+        "bot.basket.match",
+        f"A bot matched {item.name} to the basket",
+        target_table="grocery_list",
+        target_id=row.id,
+        item_id=item.id,
+        old=before,
+    )
+    return ok({"match": result, "entry": _basket_json(row)})
 
 
 def _basket_json(row) -> dict:
@@ -214,6 +259,7 @@ def reminders_add():
         target_table="reminders",
         target_id=row.id,
         item_id=row.linked_item_id,
+        old={"undo": "trash", "ids": [row.id]},
     )
     return ok({"reminder": {"id": row.id, "title": row.title, "due_at": iso(row.due_at)}}, 201)
 
@@ -229,8 +275,18 @@ def reminders_done(reminder_id):
     row = api_scope(Reminder).filter_by(id=reminder_id).first()
     if row is None:
         return api_error("No such reminder in this household.", 404, "not_found")
+    from app.utils.activity_undo import fields_undo, snap_reminder
+
+    before = fields_undo(reminder=snap_reminder(row))
     row.status = "done"
     db.session.commit()
+    note_activity(
+        "bot.reminder.done",
+        f"A bot checked off the reminder {row.title}",
+        target_table="reminders",
+        target_id=row.id,
+        old=before,
+    )
     return ok({"reminder": {"id": row.id, "status": row.status}})
 
 
@@ -312,6 +368,9 @@ def logs_add(item_id):
     item = api_scope(Item).filter_by(id=item_id).first()
     if item is None:
         return api_error("No such item in this household.", 404, "not_found")
+    from app.utils.activity_undo import living_snap
+
+    before_living = living_snap(item)
     data = body()
     kind = (as_str(data, "kind", 20) or "note").lower()
     if kind not in LOG_KINDS:
@@ -336,6 +395,12 @@ def logs_add(item_id):
         target_table="item_logs",
         target_id=row.id,
         item_id=item.id,
+        old={
+            "undo": "trash",
+            "ids": [row.id],
+            "living": before_living,
+            "maintenance_id": row.maintenance_id,
+        },
     )
     return ok({"log": _log_json(row)}, 201)
 

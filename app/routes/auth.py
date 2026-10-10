@@ -17,13 +17,32 @@ auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
 
 def _stay_signed_in(user):
-    """PWA / phone: keep this device signed in unless they uncheck it."""
+    """PWA / phone: keep this device signed in unless they uncheck it.
+
+    Drop the anonymous session first. A cookie planted before the password
+    must not keep its CSRF token or anything else after the person is in.
+    The family-lock key, if this request just unlocked it, is the only keep.
+    """
+    from app.utils.household_vault import SESSION_HID, SESSION_KEY
+
+    vault_hid = session.get(SESSION_HID)
+    vault_key = session.get(SESSION_KEY)
+    session.clear()
+    if vault_hid is not None and vault_key:
+        session[SESSION_HID] = vault_hid
+        session[SESSION_KEY] = vault_key
     vals = request.form.getlist("remember")
     raw = (vals[-1] if vals else "1").strip().lower()
     remember = raw not in ("0", "false", "off", "no")
     session.permanent = True
     dur = timedelta(days=400) if remember else None
     login_user(user, remember=remember, duration=dur)
+    try:
+        from poweredbytop.security.csrf import rotate_csrf_token
+
+        rotate_csrf_token()
+    except Exception:
+        pass
 
 
 def _utcnow():
@@ -509,8 +528,10 @@ def vault():
         if ok:
             from app.utils.dashboard import start_url
 
-            nxt = (request.args.get("next") or "").strip() or start_url(current_user)
-            if not nxt.startswith("/"):
+            from app.utils.stay import same_site_path
+
+            nxt = same_site_path(request.args.get("next")) or start_url(current_user)
+            if nxt.startswith("/auth"):
                 nxt = start_url(current_user)
             return redirect(nxt)
     return render_template(

@@ -1453,11 +1453,31 @@ def set_mileage(item_id):
 
     if item.item_type not in ("vehicle", "tool") or not (item.vehicle or item.tool):
         abort(404)
+    from app.builddb.table_item_logs import ItemLog
+    from app.utils.activity import record
+    from app.utils.activity_undo import living_snap, trash_undo
+
     raw = request.form.get("mileage") or request.form.get("hours") or ""
+    before = living_snap(item)
     ok, msg = set_reading(item, raw, user_id=current_user.id)
     if not ok:
         flash(msg, "danger")
         return redirect(url_for("items.detail", item_id=item.id))
+    log = (
+        ItemLog.query.filter_by(household_id=item.household_id, item_id=item.id)
+        .order_by(ItemLog.id.desc())
+        .first()
+    )
+    if log is not None:
+        record(
+            action="reading",
+            summary=msg,
+            target_table="item_logs",
+            target_id=log.id,
+            item_id=item.id,
+            old_json=trash_undo(log.id, living=before),
+            reversible=True,
+        )
     db.session.commit()
     flash(msg, "success")
     nxt = (request.form.get("next") or "").strip()

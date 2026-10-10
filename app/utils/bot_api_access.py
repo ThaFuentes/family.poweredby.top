@@ -64,7 +64,7 @@ def inventory_write_allowed(item_type: str, data: dict, *, creating: bool) -> bo
             return True
         return False
     meta = {"name", "category", "notes", "barcode", "item_type"}
-    stock = {"quantity", "restock_threshold", "location", "brand", "size", "unit"}
+    stock = {"quantity", "restock_threshold", "location", "brand", "size", "unit", "expires_on"}
     touched = {key for key in (data or {}) if data.get(key) is not None or key in data}
     if touched & meta:
         if kind in ("grocery", "custom") and can("edit_grocery", user):

@@ -111,14 +111,14 @@
   <label>More photos or a PDF</label>
   <input type="file" name="file" accept="image/*,.pdf" multiple>
   <label>Caption (optional)</label>
-  <input name="caption" placeholder="Front of ticket, envelope, etc.">
+  <input name="caption" placeholder="Paid receipt, front of ticket, envelope">
   <div class="btn-row"><button class="btn" type="submit">Attach</button></div>
 </form>
 </details>
 
 <details class="card add-fold no-print" id="update-record">
 <summary>Update</summary>
-<form method="post" action="{{ url_for('legal.edit', record_id=row.id) }}">
+<form method="post" action="{{ url_for('legal.edit', record_id=row.id) }}" enctype="multipart/form-data">
   <div class="desk-form">
     <div>
       <label>Type of paper</label>
@@ -173,6 +173,12 @@
   <textarea name="body">{{ row.body or '' }}</textarea>
   <label>Outcome</label>
   <textarea name="outcome" placeholder="Paid, dismissed, still fighting, no reply…">{{ row.outcome or '' }}</textarea>
+  <label>Add a photo or receipt</label>
+  <input type="file" name="file" accept="image/*" capture="environment">
+  <label>More photos or a PDF</label>
+  <input type="file" name="file" accept="image/*,.pdf" multiple>
+  <label>Caption for the new files (optional)</label>
+  <input name="caption" placeholder="Paid receipt">
   <div class="btn-row"><button class="btn" type="submit">Save</button></div>
 </form>
 </details>
