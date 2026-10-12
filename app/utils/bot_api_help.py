@@ -19,6 +19,7 @@ HELP_CALLS = (
     ("POST", "/api/v1/auth/exchange", "login", "", "Login key as Bearer, 2FA key as X-FOS-2FA. Returns fos_s1_."),
     ("POST", "/api/v1/auth/revoke", "either", "", "End this session only. The login key stays."),
     ("POST", "/api/v1/auth/reset", "either", "", "End this session and replace the login key. The new key does not expire and is emailed to the login inbox. Call this when the session is finished."),
+    ("POST", "/api/v1/auth/recover", "none", "", "Signed out. Body email. If it is a bot's login inbox, a new login key that does not expire is emailed there, the old key and its sessions end. Always answers sent; 3 per hour per email and per IP."),
     ("GET", "/api/v1/vehicles", "fos_bot_", "view", "Vehicles. Query limit, offset."),
     ("GET", "/api/v1/vehicles/<id>", "fos_bot_", "view", "One vehicle."),
     ("POST", "/api/v1/vehicles", "fos_bot_", "maintain or edit_meta", "Body name, and optional year, make, model, category, notes, current_mileage, oil_needs."),
@@ -283,7 +284,7 @@ def call_allowed(user, needs: str) -> bool:
 
 
 def _for_this_key(scope: str, call_scope: str) -> bool:
-    if call_scope in ("either", "login"):
+    if call_scope in ("either", "login", "none"):
         return True
     return call_scope == (scope or "")
 

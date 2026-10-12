@@ -411,6 +411,55 @@ def reset_login_key():
     )
 
 
+RECOVER_DETAIL = "If that email matches a bot, a new login key was sent."
+RECOVER_PER_HOUR = 3
+
+
+@bot_api_bp.route("/auth/recover", methods=["POST"])
+def recover_login_key():
+    """Signed out. Body {"email"}. A matching bot gets a new login key by mail.
+
+    No key or session. The answer is the same whatever the email, so it
+    cannot be used to find out which addresses exist.
+    """
+    import hashlib
+
+    from app.utils.bot_api_auth import body as json_body, bump_hourly, client_ip, https_required
+    from app.utils.bot_api_keys import find_bot_by_login_inbox, recover_login_key as recover
+
+    g.bot_api_audited = True
+    if https_required():
+        audit(event="recover", status=403, outcome="https_required")
+        return api_error("HTTPS is required.", 403, "https_required")
+    generic = ok({"sent": True, "detail": RECOVER_DETAIL})
+    email = str((json_body() or {}).get("email") or "").strip().lower()[:254]
+    tag = hashlib.sha256(email.encode("utf-8")).hexdigest()[:16] if email else ""
+    ip = client_ip()
+    if not bump_hourly(f"rcv:ip:{ip}", RECOVER_PER_HOUR):
+        audit(event="recover", status=200, outcome="rate_ip", detail={"email_tag": tag})
+        return generic
+    if not email:
+        audit(event="recover", status=200, outcome="no_email")
+        return generic
+    if not bump_hourly(f"rcv:em:{tag}", RECOVER_PER_HOUR):
+        audit(event="recover", status=200, outcome="rate_email", detail={"email_tag": tag})
+        return generic
+    user = find_bot_by_login_inbox(email)
+    if user is None:
+        audit(event="recover", status=200, outcome="no_match", detail={"email_tag": tag})
+        return generic
+    mailed, _detail = recover(user, base_url=request.host_url.rstrip("/"))
+    audit(
+        event="recover",
+        status=200,
+        outcome="mailed" if mailed else "mail_failed",
+        user_id=getattr(user, "id", None),
+        household_id=getattr(user, "household_id", None),
+        detail={"email_tag": tag},
+    )
+    return generic
+
+
 @bot_api_bp.route("/meta")
 @bot_api_any(BOT, VAULT)
 def meta():

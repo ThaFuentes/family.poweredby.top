@@ -648,3 +648,52 @@ def reset_own_key(user, scope: str, *, household=None, base_url: str = "") -> tu
     except Exception:
         db.session.rollback()
         return False, "That login key could not be replaced."
+
+
+def find_bot_by_login_inbox(email: str):
+    """The bot whose login inbox is this address, or None. Case does not matter."""
+    from sqlalchemy import func
+
+    from app.builddb.table_users import User
+
+    addr = (email or "").strip().lower()
+    if not addr or "@" not in addr or len(addr) > 254:
+        return None
+    try:
+        return (
+            User.query.filter(func.lower(User.email) == addr, User.is_bot.is_(True))
+            .order_by(User.id.asc())
+            .first()
+        )
+    except Exception:
+        return None
+
+
+def recover_login_key(user, *, base_url: str = "") -> tuple[bool, str]:
+    """Signed out. Replace the bot's login key(s) and mail them to the login inbox.
+
+    Every scope with a live key is replaced; a bot with none gets fos_bot_.
+    mint_pair revokes the old key and ends its sessions. Nothing is kept
+    unless the mail sends. The raw key is never returned.
+    """
+    try:
+        scopes = sorted(
+            {
+                row.scope
+                for row in BotApiKey.query.filter_by(
+                    user_id=int(getattr(user, "id", 0) or 0),
+                    key_role="primary",
+                    revoked_at=None,
+                ).all()
+            }
+        ) or [SCOPE_ALL]
+    except Exception:
+        scopes = [SCOPE_ALL]
+    details = []
+    for scope in scopes:
+        ok, detail = reset_own_key(user, scope, base_url=base_url)
+        details.append(f"{scope}: {detail}")
+        if not ok:
+            return False, "; ".join(details)
+    return True, "; ".join(details)
+

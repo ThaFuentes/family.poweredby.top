@@ -808,6 +808,59 @@ class BotApiTests(unittest.TestCase):
         self.assertNotIn(fresh, failed.get_data(as_text=True))
         self.assertEqual(self._api(token2, "/api/v1/whoami").status_code, 200)
 
+    def test_17c_signed_out_bot_can_recover_its_login_key(self):
+        u = self._add_bot("recover")
+        primary, twofa_key = self._pair_of(u)
+        token = self._exchange(primary, twofa_key)
+        helper = self._api(token, "/api/v1/helper")
+        self.assertIn("POST /api/v1/auth/recover", helper.get_data(as_text=True))
+        sent: list[tuple[str, str, str]] = []
+
+        def fake_send(to, subject, body, **kw):
+            sent.append((to, subject, body))
+            return True, "ok"
+
+        generic = {"sent": True, "detail": "If that email matches a bot, a new login key was sent."}
+        ip = {"REMOTE_ADDR": f"10.9.{int(self.suffix[:2], 16)}.1"}
+        with patch("app.utils.mail.send_mail", side_effect=fake_send):
+            miss = self.client_noauth().post(
+                "/api/v1/auth/recover", json={"email": f"nobody_{self.suffix}@family.test"}, environ_base=ip
+            )
+            hit = self.client_noauth().post(
+                "/api/v1/auth/recover", json={"email": f"{u.upper()}@family.test"}, environ_base=ip
+            )
+        self.assertEqual(miss.status_code, 200, miss.data[:300])
+        self.assertEqual(hit.status_code, 200, hit.data[:300])
+        self.assertEqual(json.loads(miss.data).get("sent"), True)
+        for r in (miss, hit):
+            body = json.loads(r.data)
+            for k, v in generic.items():
+                self.assertEqual(body.get(k), v, body)
+        self.assertEqual(len(sent), 1, sent)
+        self.assertEqual(sent[0][0], f"{u}@family.test")
+        fresh = next(line.strip() for line in sent[0][2].splitlines() if line.strip().startswith("fos_bot_"))
+        self.assertNotEqual(fresh, primary)
+        self.assertNotIn(fresh, hit.get_data(as_text=True))
+        self.assertEqual(self._api(token, "/api/v1/whoami").status_code, 401)
+        with patch("app.utils.mail.send_mail", side_effect=fake_send):
+            old = self._get_post("/api/v1/auth/present", method="post", headers={"Authorization": f"Bearer {primary}"})
+        self.assertEqual(old.status_code, 401, old.data[:300])
+        with self.app.app_context():
+            row = BotApiKey.query.filter_by(key_hash=keys.hash_key(fresh)).one()
+            self.assertIsNone(row.expires_at)
+            self.assertIsNone(row.revoked_at)
+            self.assertGreaterEqual(BotApiAudit.query.filter_by(event="recover").count(), 2)
+        # Third call from this IP is fine, the fourth is quietly not sent.
+        with patch("app.utils.mail.send_mail", side_effect=fake_send):
+            for _ in range(2):
+                r = self.client_noauth().post("/api/v1/auth/recover", json={"email": f"{u}@family.test"}, environ_base=ip)
+                self.assertEqual(r.status_code, 200)
+                self.assertEqual(json.loads(r.data)["detail"], generic["detail"])
+        self.assertEqual(len(sent), 2, [s[0] for s in sent])
+
+    def client_noauth(self):
+        return self.app.test_client()
+
     def test_18_a_bot_without_its_inboxes_cannot_get_a_key(self):
         u = self._add_bot("noinbox")
         with self.app.app_context():

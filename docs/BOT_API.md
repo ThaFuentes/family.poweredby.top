@@ -155,6 +155,7 @@ contain the new key. Sign in again with present, then exchange.
 | `GET` | `/api/v1/meta` | The documented v1 surface for both scopes. |
 | `POST` | `/api/v1/auth/revoke` | Kills the calling session only. |
 | `POST` | `/api/v1/auth/reset` | Session only. Emails a new login key to the login inbox, kills the old key, and ends this session. The new key does not expire. |
+| `POST` | `/api/v1/auth/recover` | No key or session. Body `{"email": ...}`. If it is a bot's login inbox, a new login key (does not expire) is emailed there; the old key and its sessions end. Always answers `{"sent": true, ...}`. 3 per hour per email and per IP. |
 
 ### `fos_bot_` — read
 

@@ -222,6 +222,30 @@ def enforce_rate(*, subject: str, limit: int, scope: str, event: str = "rate") -
     return False, resp
 
 
+def bump_hourly(subject: str, limit: int) -> bool:
+    """Clock-hour window on the same rate table. True when the call is allowed."""
+    from app.builddb.table_bot_api_rate import BotApiRate
+
+    start = _utcnow().replace(minute=0, second=0, microsecond=0)
+    try:
+        row = (
+            BotApiRate.query.filter_by(subject=subject[:190], window_start=start)
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            row = BotApiRate(subject=subject[:190], window_start=start, count=1)
+            db.session.add(row)
+        else:
+            row.count = int(row.count or 0) + 1
+        db.session.commit()
+        count = int(row.count or 0)
+    except Exception:
+        db.session.rollback()
+        return True
+    return count <= max(1, int(limit or 1))
+
+
 # ----------------------------------------------------------------- https
 
 
