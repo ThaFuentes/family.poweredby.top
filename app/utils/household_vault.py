@@ -2,13 +2,19 @@
 
 Leaders may set a memorable master key at start: a word, a dash, then their
 secret — example FAMOS-ourphrase. We never store the phrase. Salt + a check
-token live on the household. Session holds the derived Fernet while unlocked.
+token live on the household. The session cookie holds a random ticket while
+unlocked. The derived Fernet stays in a file outside the document root.
 """
 from __future__ import annotations
 
 import base64
+import hashlib
+import json
 import os
 import re
+import secrets
+import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -24,6 +30,70 @@ CHECK_PLAIN = b"family-os-vault-v1"
 SESSION_HID = "family_vault_hid"
 SESSION_KEY = "family_vault_fernet"
 FORMAT_HINT = "Use a word, a dash, then your secret. Example: FAMOS-ourphrase"
+_UNLOCK_DAYS = 400
+
+
+def _unlock_dir() -> Path:
+    override = (os.getenv("FAMILY_VAULT_UNLOCK_DIR") or "").strip()
+    if override:
+        return Path(override)
+    return Path.home() / ".config" / "poweredbytop" / "family-vault-unlocks"
+
+
+def _ticket_path(ticket: str) -> Path:
+    digest = hashlib.sha256(ticket.encode("utf-8")).hexdigest()
+    return _unlock_dir() / digest
+
+
+def _save_unlock(household_id: int, key: str) -> str:
+    folder = _unlock_dir()
+    folder.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(folder, 0o700)
+    except OSError:
+        pass
+    ticket = secrets.token_urlsafe(32)
+    payload = json.dumps(
+        {
+            "hid": int(household_id),
+            "key": key,
+            "exp": int(time.time()) + _UNLOCK_DAYS * 86400,
+        }
+    )
+    path = _ticket_path(ticket)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(payload)
+    return ticket
+
+
+def _load_unlock(ticket: str, household_id: int) -> str | None:
+    if not ticket or not isinstance(ticket, str):
+        return None
+    path = _ticket_path(ticket)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    try:
+        if int(payload.get("hid") or 0) != int(household_id):
+            return None
+        if int(payload.get("exp") or 0) < int(time.time()):
+            path.unlink(missing_ok=True)
+            return None
+    except (TypeError, ValueError):
+        return None
+    key = payload.get("key") or ""
+    return key if isinstance(key, str) and key else None
+
+
+def _delete_unlock(ticket: str | None) -> None:
+    if not ticket or not isinstance(ticket, str):
+        return
+    try:
+        _ticket_path(ticket).unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def parse_lock(raw: str | None) -> tuple[str, str] | None:
@@ -114,7 +184,7 @@ def unlock_vault(household: Household, lock: str) -> tuple[bool, str]:
     except (InvalidToken, Exception):
         return False, "That lock does not open this household."
     session[SESSION_HID] = int(household.id)
-    session[SESSION_KEY] = key
+    session[SESSION_KEY] = _save_unlock(int(household.id), key)
     return True, "Household unlocked."
 
 
@@ -123,6 +193,7 @@ def lock_session() -> None:
 
     if not has_request_context():
         return
+    _delete_unlock(session.get(SESSION_KEY))
     session.pop(SESSION_HID, None)
     session.pop(SESSION_KEY, None)
 
@@ -135,8 +206,8 @@ def vault_unlocked(household) -> bool:
     if not has_request_context():
         return False
     try:
-        return int(session.get(SESSION_HID) or 0) == int(household.id) and bool(
-            session.get(SESSION_KEY)
+        return int(session.get(SESSION_HID) or 0) == int(household.id) and (
+            session_fernet() is not None
         )
     except Exception:
         return False
@@ -147,12 +218,14 @@ def session_fernet() -> Fernet | None:
 
     if not has_request_context():
         return None
-    raw = session.get(SESSION_KEY)
+    ticket = session.get(SESSION_KEY)
     hid = session.get(SESSION_HID)
-    if not raw or not hid:
+    if not ticket or not hid:
+        return None
+    key = _load_unlock(ticket, int(hid))
+    if not key:
         return None
     try:
-        key = raw.encode("ascii") if isinstance(raw, str) else raw
-        return Fernet(key)
+        return Fernet(key.encode("ascii"))
     except Exception:
         return None

@@ -21,7 +21,8 @@ def _stay_signed_in(user):
 
     Drop the anonymous session first. A cookie planted before the password
     must not keep its CSRF token or anything else after the person is in.
-    The family-lock key, if this request just unlocked it, is the only keep.
+    The family-lock ticket, if this request just unlocked it, is the only keep.
+    The ticket is not the vault key.
     """
     from app.utils.household_vault import SESSION_HID, SESSION_KEY
 

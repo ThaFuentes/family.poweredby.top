@@ -34,6 +34,55 @@ class LockFormatTests(unittest.TestCase):
         self.assertEqual(parse_lock("  FAMOS-family1  "), ("FAMOS", "family1"))
 
 
+class UnlockTicketTests(unittest.TestCase):
+    def test_cookie_holds_a_ticket_not_the_key(self):
+        import tempfile
+        from flask import Flask, session
+
+        from app.utils import household_vault as hv
+
+        tmp = tempfile.mkdtemp()
+        os.environ["FAMILY_VAULT_UNLOCK_DIR"] = tmp
+        try:
+            app = Flask("vault-ticket-test")
+            app.secret_key = "test-secret-key-for-cookie"
+            salt = os.urandom(16)
+            fernet, key = hv._derive("FAMOS-ourphrase", salt)
+            house = SimpleNamespace(
+                id=7,
+                settings_json={
+                    "vault": {
+                        "enabled": True,
+                        "salt": salt.hex(),
+                        "check": fernet.encrypt(hv.CHECK_PLAIN).decode("ascii"),
+                    }
+                },
+            )
+            with app.test_request_context():
+                ok, _msg = hv.unlock_vault(house, "FAMOS-ourphrase")
+                self.assertTrue(ok)
+                ticket = session[hv.SESSION_KEY]
+                self.assertNotEqual(ticket, key)
+                self.assertNotIn(key, ticket)
+                opened = hv.session_fernet()
+                self.assertIsNotNone(opened)
+                self.assertEqual(
+                    opened.decrypt(house.settings_json["vault"]["check"].encode("ascii")),
+                    hv.CHECK_PLAIN,
+                )
+                raw = app.session_interface.get_signing_serializer(app).dumps(dict(session))
+                loaded = app.session_interface.get_signing_serializer(app).loads(raw)
+                self.assertNotEqual(loaded.get(hv.SESSION_KEY), key)
+                self.assertNotIn(key, str(loaded))
+                session[hv.SESSION_KEY] = key
+                self.assertIsNone(hv.session_fernet())
+                session[hv.SESSION_KEY] = ticket
+                hv.lock_session()
+                self.assertIsNone(hv.session_fernet())
+        finally:
+            os.environ.pop("FAMILY_VAULT_UNLOCK_DIR", None)
+
+
 class VaultBlobTests(unittest.TestCase):
     def test_missing_is_off(self):
         h = SimpleNamespace(settings_json=None)

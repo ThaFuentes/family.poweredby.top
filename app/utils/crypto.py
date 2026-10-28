@@ -54,32 +54,65 @@ def _fernet_from_secret(secret: str) -> Fernet:
     return Fernet(base64.urlsafe_b64encode(material))
 
 
-def _shared_key_path() -> Path:
+def _outside_key_path() -> Path:
+    override = (os.getenv("FAMILY_DATA_KEY_FILE") or "").strip()
+    if override:
+        return Path(override)
+    return Path.home() / ".config" / "poweredbytop" / "family_data_key"
+
+
+def _legacy_key_path() -> Path:
+    # Older installs wrote this under the document root. Read it, do not write it.
     return _project_root() / "uploads" / ".family_data_key"
 
 
 def _read_shared_key() -> str:
-    try:
-        p = _shared_key_path()
-        if p.is_file():
-            return p.read_text(encoding="utf-8").strip()
-    except Exception:
-        pass
+    for path in (_outside_key_path(), _legacy_key_path()):
+        try:
+            if path.is_file():
+                text = path.read_text(encoding="utf-8").strip()
+                if text:
+                    return text
+        except OSError:
+            continue
     return ""
 
 
 def _write_shared_key(key: str) -> None:
+    """Save the data key outside the document root. Never under uploads/."""
+    cleaned = (key or "").strip()
+    if not cleaned:
+        return
     try:
-        p = _shared_key_path()
-        p.parent.mkdir(parents=True, exist_ok=True)
-        if p.is_file() and p.read_text(encoding="utf-8").strip():
-            return
-        p.write_text(key.strip() + "\n", encoding="utf-8")
+        path = _outside_key_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            os.chmod(p, 0o600)
-        except Exception:
+            os.chmod(path.parent, 0o700)
+        except OSError:
             pass
-    except Exception:
+        if path.is_file() and path.read_text(encoding="utf-8").strip():
+            _retire_legacy(cleaned)
+            return
+        descriptor = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(cleaned + "\n")
+        _retire_legacy(cleaned)
+    except OSError:
+        pass
+
+
+def _retire_legacy(key: str) -> None:
+    legacy = _legacy_key_path()
+    outside = _outside_key_path()
+    try:
+        if not legacy.is_file() or not outside.is_file():
+            return
+        if outside.read_text(encoding="utf-8").strip() != (key or "").strip():
+            return
+        if legacy.read_text(encoding="utf-8").strip() != (key or "").strip():
+            return
+        legacy.unlink()
+    except OSError:
         pass
 
 
