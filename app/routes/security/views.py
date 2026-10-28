@@ -16,6 +16,7 @@ from .utils import (
     clear_account_login_lock,
 )
 from . import queries as q
+from app.utils.stay import same_site_path
 
 
 def security_required(f):
@@ -240,7 +241,7 @@ def unlock_account():
         _audit("security.unlock", {"user_id": uid})
     else:
         flash("Could not unlock that account.", "danger")
-    nxt = request.form.get("next") or ""
+    nxt = same_site_path(request.form.get("next") or "") or ""
     if nxt.startswith("/security"):
         return redirect(nxt)
     return redirect(url_for("security.dashboard"))

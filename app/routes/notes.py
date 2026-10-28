@@ -24,6 +24,7 @@ from app.builddb.table_note_files import NoteFile
 from app.builddb.table_notes import Note, VISIBILITY
 from app.builddb.table_users import User
 from app.utils.crypto import read_decrypted_file, send_bytes, write_encrypted_file
+from app.utils.stay import same_site_path
 from app.utils.household import household_id, scoped
 
 notes_bp = Blueprint("notes", __name__, url_prefix="/notes")
@@ -213,7 +214,7 @@ def add():
     )
     if err:
         flash(err, "danger")
-        return redirect(request.referrer or url_for("notes.index"))
+        return redirect(same_site_path(request.referrer) or url_for("notes.index"))
     n_files = _save_uploads(note, request.form.get("caption"))
     db.session.commit()
     if n_files:
@@ -241,7 +242,7 @@ def edit(note_id):
     )
     if err:
         flash(err, "danger")
-        return redirect(request.referrer or url_for("notes.index"))
+        return redirect(same_site_path(request.referrer) or url_for("notes.index"))
     n_files = _save_uploads(note, request.form.get("caption"))
     db.session.commit()
     flash("Note updated." if not n_files else "Note updated, files saved.", "success")
