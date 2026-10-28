@@ -3,6 +3,9 @@ PassengerAppRoot "/home/ua882038/public_html/family.poweredby.top"
 PassengerBaseURI "/"
 PassengerPython "/home/ua882038/virtualenv/public_html/family.poweredby.top/3.13/bin/python"
 
+# Never list folder contents.
+Options -Indexes
+
 # Maya 2026-10-04: deny repo files in the public docroot (review C1).
 <IfModule mod_rewrite.c>
   RewriteEngine On
@@ -16,4 +19,13 @@ PassengerPython "/home/ua882038/virtualenv/public_html/family.poweredby.top/3.13
   RewriteCond %{REQUEST_URI} !^/app/static/ [NC]
   RewriteCond %{REQUEST_FILENAME} -f
   RewriteRule \.(?:log|jsonl|json|md|txt|bak|zip|sql|db|sqlite3?|env|ini|cfg|toml|ya?ml|sh|py|pyc|patch|tgz|gz|tar|apk)$ - [F,L,NC]
+  # BEGIN PBT DOCROOT FILE RULE 2026-10-28
+  # Any real file outside static and ACME is refused. Flask still
+  # serves a route when no file exists at that URL.
+  RewriteCond %{REQUEST_URI} !^/static/ [NC]
+  RewriteCond %{REQUEST_URI} !^/app/static/ [NC]
+  RewriteCond %{REQUEST_URI} !^/\.well-known/ [NC]
+  RewriteCond %{REQUEST_FILENAME} -f
+  RewriteRule ^ - [F,L]
+  # END PBT DOCROOT FILE RULE 2026-10-28
 </IfModule>
