@@ -1,6 +1,7 @@
 """Deliver a household reminder by email and/or calendar. Never crosses tenants."""
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timedelta, timezone
 
 from app.builddb.builddb import db
@@ -21,6 +22,23 @@ ADULT_ROLES = frozenset({"admin", "member"})
 
 def _utcnow():
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _due_clock(row, household=None) -> str:
+    """Household-local clock for a stored UTC due time."""
+    from app.utils.tz import format_local_clock, zone
+
+    if row is None or not getattr(row, "due_at", None):
+        return "soon"
+    name = getattr(household, "timezone", None) if household is not None else None
+    if not name:
+        hid = getattr(row, "household_id", None)
+        if hid:
+            from app.utils.tz import tz_for_household_id
+
+            name = tz_for_household_id(hid)
+    _zi, name = zone(name)
+    return format_local_clock(row.due_at, name)
 
 
 def _adults(household_id: int) -> list[User]:
@@ -80,7 +98,7 @@ def push_calendar_invites(row: Reminder) -> int:
         ics = reminder_invite_ics(
             row, household, target["cal_email"], organizer_email=organizer
         ).encode("utf-8")
-        when = row.due_at.strftime("%Y-%m-%d") if row.due_at else "soon"
+        when = _due_clock(row, household)
         body = (
             f"Hi {person.name or person.username},\n\n"
             f"{row.title}\n"
@@ -126,7 +144,7 @@ def email_reminder(row: Reminder) -> None:
         row.email_sent_at = _utcnow()
         db.session.commit()
         return
-    when = row.due_at.strftime("%Y-%m-%d %H:%M") if row.due_at else "soon"
+    when = _due_clock(row, household)
     subject = f"{row.title} — due {when}"
     any_ok = False
     for person in people:
@@ -152,6 +170,12 @@ def email_reminder(row: Reminder) -> None:
 def flush_due_emails(household_id: int) -> int:
     from sqlalchemy import and_, or_
 
+    household = Household.query.get(household_id)
+    if household is None or not bool(getattr(household, "is_active", True)):
+        return 0
+    if not _mail_ready(household):
+        return 0
+
     now = _utcnow()
     rows = (
         Reminder.query.filter_by(household_id=household_id, status="open")
@@ -176,16 +200,76 @@ def flush_due_emails(household_id: int) -> int:
     return n
 
 
+_flush_lock = threading.Lock()
+_flush_inflight: set[int] = set()
+
+
+def _mail_ready(household) -> bool:
+    try:
+        from app.utils.household_mail import household_mail_config
+        from app.utils.mail import mail_config
+
+        cfg = household_mail_config(household)
+        if cfg is None:
+            cfg = mail_config()
+        return bool(cfg and cfg.get("ready"))
+    except Exception:
+        return False
+
+
 def maybe_flush_due_emails(household_id: int, *, ttl: int = 60) -> int:
-    """Home used to SMTP-scan on every load. Once a minute per house is enough."""
+    """Queue reminder delivery; never SMTP from a page request.
+
+    This used to scan and send inside the request. In console mode (or with a
+    slow SMTP host) it retried every due reminder on each home visit and held
+    the Passenger worker until Cloudflare timed out with a 522. One background
+    pass per house per minute is enough.
+    """
     from app.utils.hot_cache import get as cache_get, put as cache_put
 
-    key = f"flush:{int(household_id)}"
+    hid = int(household_id)
+    key = f"flush:{hid}"
     if cache_get(key) is not None:
         return 0
-    n = flush_due_emails(household_id)
+    # Set before the work so a burst of page loads cannot stampede SMTP.
     cache_put(key, 1, ttl)
-    return n
+
+    household = Household.query.get(hid)
+    if household is None or not bool(getattr(household, "is_active", True)):
+        return 0
+    if not _mail_ready(household):
+        return 0
+
+    with _flush_lock:
+        if hid in _flush_inflight:
+            return 0
+        _flush_inflight.add(hid)
+
+    try:
+        from flask import current_app
+
+        app = current_app._get_current_object()
+    except Exception:
+        with _flush_lock:
+            _flush_inflight.discard(hid)
+        return 0
+
+    def _run():
+        with app.app_context():
+            try:
+                flush_due_emails(hid)
+            except Exception:
+                pass
+            finally:
+                try:
+                    db.session.remove()
+                except Exception:
+                    pass
+                with _flush_lock:
+                    _flush_inflight.discard(hid)
+
+    threading.Thread(target=_run, name=f"due-mail-{hid}", daemon=True).start()
+    return 0
 
 
 def announce_flash(user, row: Reminder | None) -> str:
