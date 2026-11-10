@@ -65,7 +65,8 @@ def mail_config() -> dict:
         "smtp_encryption": enc,
         "smtp_username": get_setting("smtp_username"),
         "smtp_password": get_setting("smtp_password"),
-        "ready": mode == "console" or bool(get_setting("smtp_host") and from_email),
+        # Console mode prints to the server log, so it is never "ready" to send.
+        "ready": mode == "smtp" and bool(get_setting("smtp_host") and from_email),
     }
 
 

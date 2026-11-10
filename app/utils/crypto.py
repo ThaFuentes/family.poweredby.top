@@ -14,6 +14,9 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from sqlalchemy.types import Text, TypeDecorator
 
 _FILE_MAGIC = b"FAMENC1\n"
+# Multi-GB uploads are encrypted a chunk at a time so nothing huge is held in RAM.
+_CHUNK_MAGIC = b"FAMENC2\n"
+CHUNK_BYTES = 4 * 1024 * 1024
 _fernet: Fernet | None = None
 
 
@@ -289,6 +292,126 @@ def read_decrypted_file(path: str) -> bytes:
     return decrypt_bytes(raw)
 
 
+def write_encrypted_stream(path: str, fileobj, chunk_bytes: int = CHUNK_BYTES) -> int:
+    """Encrypt an open stream in chunks. Returns plaintext bytes written."""
+    out = encrypted_upload_path(path)
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    f = get_platform_fernet()
+    written = 0
+    with open(out, "wb") as dst:
+        if f is None:
+            while True:
+                block = fileobj.read(chunk_bytes)
+                if not block:
+                    return written
+                written += len(block)
+                dst.write(block)
+        dst.write(_CHUNK_MAGIC)
+        while True:
+            block = fileobj.read(chunk_bytes)
+            if not block:
+                break
+            written += len(block)
+            token = f.encrypt(block)
+            dst.write(len(token).to_bytes(8, "big"))
+            dst.write(token)
+    return written
+
+
+def start_chunked_upload(path: str) -> str:
+    """Create an empty FAMENC2 file that chunks can be appended to."""
+    if get_platform_fernet() is None:
+        raise RuntimeError("no data key")
+    out = encrypted_upload_path(path)
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    with open(out, "wb") as dst:
+        dst.write(_CHUNK_MAGIC)
+    return out
+
+
+def append_chunk(path: str, data: bytes) -> int:
+    """Encrypt one plaintext chunk and append it. Returns bytes received."""
+    if not data:
+        return 0
+    if len(data) > CHUNK_BYTES:
+        raise ValueError("chunk too large")
+    f = get_platform_fernet()
+    if f is None:
+        raise RuntimeError("no data key")
+    token = f.encrypt(data)
+    out = encrypted_upload_path(path)
+    with open(out, "ab") as dst:
+        dst.write(len(token).to_bytes(8, "big"))
+        dst.write(token)
+        dst.flush()
+        os.fsync(dst.fileno())
+    return len(data)
+
+
+def iter_decrypted_file(path: str):
+    """Yield plaintext chunks from a chunked file (or an older single-token one)."""
+    with open(path, "rb") as fh:
+        head = fh.read(len(_CHUNK_MAGIC))
+        if head == _CHUNK_MAGIC:
+            keys = _fernets_to_try()
+            while True:
+                raw_len = fh.read(8)
+                if len(raw_len) != 8:
+                    return
+                size = int.from_bytes(raw_len, "big")
+                if size <= 0 or size > 256 * 1024 * 1024:
+                    return
+                token = fh.read(size)
+                if len(token) != size:
+                    return
+                plain = b""
+                for f in keys:
+                    try:
+                        plain = f.decrypt(token)
+                        break
+                    except Exception:
+                        continue
+                if not plain:
+                    return
+                yield plain
+        rest = fh.read()
+    data = decrypt_bytes(head + rest)
+    if data:
+        yield data
+
+
+def _safe_filename(filename: str) -> str:
+    name = os.path.basename(filename or "file")
+    name = "".join(ch for ch in name if ch.isprintable() and ch not in '"\\;')
+    return name.strip()[:180] or "file"
+
+
+def _disposition_for(mimetype: str) -> str:
+    """Pictures and PDFs open in the page. Anything else is a download."""
+    mime = mimetype or ""
+    return "inline" if mime.startswith("image/") or mime == "application/pdf" else "attachment"
+
+
+def send_file_stream(path: str, mimetype: str, filename: str = "file", length=None):
+    """Stream a big decrypted file without loading it into memory."""
+    from flask import Response
+
+    mime = mimetype or "application/octet-stream"
+    resp = Response(iter_decrypted_file(path), mimetype=mime, direct_passthrough=True)
+    try:
+        size = int(length or 0)
+    except (TypeError, ValueError):
+        size = 0
+    if size > 0:
+        resp.headers["Content-Length"] = str(size)
+    resp.headers["Content-Disposition"] = (
+        f'{_disposition_for(mime)}; filename="{_safe_filename(filename)}"'
+    )
+    resp.headers["Cache-Control"] = "private, no-store"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    return resp
+
+
 def send_bytes(data: bytes, mimetype: str, filename: str = "file"):
     """Passenger stdout is not a real file — never send_file(BytesIO) (fileno)."""
     from flask import Response, abort
@@ -298,14 +421,11 @@ def send_bytes(data: bytes, mimetype: str, filename: str = "file"):
     if data.startswith(_FILE_MAGIC) or looks_encrypted(data):
         abort(404)
     mime = mimetype or "application/octet-stream"
-    name = os.path.basename(filename or "file")
-    name = "".join(ch for ch in name if ch.isprintable() and ch not in '"\\;')
-    name = name.strip()[:180] or "file"
-    # Pictures and PDFs open in the page. Anything else is a download.
-    disp = "inline" if mime.startswith("image/") or mime == "application/pdf" else "attachment"
     resp = Response(data, mimetype=mime)
     resp.headers["Content-Length"] = str(len(data))
-    resp.headers["Content-Disposition"] = f'{disp}; filename="{name}"'
+    resp.headers["Content-Disposition"] = (
+        f'{_disposition_for(mime)}; filename="{_safe_filename(filename)}"'
+    )
     resp.headers["Cache-Control"] = "private, no-store"
     resp.headers["X-Content-Type-Options"] = "nosniff"
     return resp

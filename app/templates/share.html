@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}Share files · Family OS{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Share files</h1>
+    <p>Upload once, then copy or email the link. Family links need a household sign-in; link and password links work for anyone you send them to.</p>
+  </div>
+  <a class="btn sm" href="#add-file" data-open-fold="add-file">Upload</a>
+</div>
+
+{% if people %}
+<datalist id="family-emails">
+  {% for p in people %}{% if p.email %}<option value="{{ p.email }}">{{ p.name or p.username }}</option>{% endif %}{% endfor %}
+</datalist>
+{% endif %}
+
+<details class="card add-fold" id="add-file" {% if not cards %}open{% endif %}>
+<summary>Upload a file</summary>
+<form method="post" action="{{ url_for('share.upload') }}" enctype="multipart/form-data"
+      data-resumable-upload data-init-url="{{ url_for('share.upload_init') }}"
+      data-session-url="{{ url_for('share.upload_status', upload_id='UPLOAD_ID') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label>File</label>
+  <input type="file" name="file" required>
+  <p class="muted" style="margin:.25rem 0 .6rem">One file at a time, up to {{ upload_limit }}. Big files go up in pieces, so a dropped connection picks up where it left off. Leave the page open until it says uploaded.</p>
+  <label>Name (optional)</label>
+  <input name="title" maxlength="200" placeholder="Insurance card, school form, vacation photos…">
+  <label>Who can open it</label>
+  <select name="share_mode">
+    {% for value, label in mode_labels.items() %}
+      <option value="{{ value }}" {% if value == 'family' %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  {% if people %}
+  <label>Only these people (for “Only certain people”)</label>
+  <div style="display:grid;gap:.3rem;margin:.2rem 0 .7rem">
+    {% for p in people %}
+    <label style="display:flex;gap:.45rem;align-items:center;font-weight:normal">
+      <input type="checkbox" name="people" value="{{ p.id }}">
+      <span>{{ p.name or p.username }}</span>
+    </label>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <label>Password (for “Link + password”)</label>
+  <input type="password" name="password" autocomplete="new-password" placeholder="At least 4 characters">
+  <label>Link ends</label>
+  <select name="expires_days">
+    {% for value, label in expiry_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+  </select>
+  <div class="btn-row"><button class="btn" type="submit">Upload</button></div>
+  <div data-upload-live hidden style="margin-top:.8rem">
+    <progress max="100" value="0" style="width:100%;height:14px" data-upload-bar></progress>
+    <p class="muted" data-upload-note aria-live="polite" style="margin:.35rem 0 0"></p>
+    <div class="btn-row"><button type="button" class="btn sm secondary" data-upload-cancel>Cancel upload</button></div>
+  </div>
+</form>
+</details>
+
+{% for c in cards %}
+<div class="card" id="f{{ c.row.id }}">
+  <div class="row" style="border:0;padding:0 0 .4rem">
+    <div>
+      <strong>{{ c.title }}</strong>
+      <div class="muted">
+        {{ c.filename }} · {{ c.size }} · {{ c.short_mode }}
+        {% if c.revoked %} · link off{% endif %}
+        {% if c.expired %} · expired{% elif c.expiry_label %} · {{ c.expiry_label }}{% endif %}
+        {% if c.downloads %} · downloaded {{ c.downloads }} time{% if c.downloads != 1 %}s{% endif %}{% endif %}
+      </div>
+      {% if c.row.expires_at %}
+      <div class="muted">Link ends {{ c.row.expires_at|local_due }}</div>
+      {% endif %}
+      {% if c.people_names %}
+      <div class="muted">For {{ c.people_names|join(', ') }}</div>
+      {% endif %}
+    </div>
+    <span class="badge{% if c.row.share_mode in ('link', 'password') %} want{% endif %}">{{ c.short_mode }}</span>
+  </div>
+
+  <label>Link</label>
+  <div class="row" style="border:0;padding:0">
+    <input readonly value="{{ c.url }}" onclick="this.select()">
+    <button type="button" class="btn sm secondary" data-copy="{{ c.url }}">Copy</button>
+  </div>
+  <div class="btn-row">
+    <a class="btn sm secondary" href="{{ c.url }}" target="_blank" rel="noopener">Open</a>
+  </div>
+
+  {% if c.can_manage %}
+  <details style="margin-top:.7rem">
+    <summary>Email the link</summary>
+    {% if mail_sender.ready %}
+    <p class="muted" style="margin:.3rem 0 .5rem">Sends from {{ mail_sender.label }}.</p>
+    {% else %}
+    <p class="muted" style="margin:.3rem 0 .5rem">
+      No mailbox is set up yet, so this only lands in the server log.
+      {% if mail_sender.can_setup %}<a href="{{ mail_sender.setup_url }}">Add this house's SMTP</a>.{% else %}Ask a leader to add one in People → Mailbox.{% endif %}
+    </p>
+    {% endif %}
+    <form method="post" action="{{ url_for('share.send_link', file_id=c.row.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>Send to</label>
+      <input type="email" name="email" {% if people %}list="family-emails"{% endif %} required placeholder="name@example.com">
+      <label>Note (optional)</label>
+      <input name="note" maxlength="500" placeholder="Photos from the weekend">
+      <div class="btn-row"><button class="btn sm" type="submit">Send email</button></div>
+    </form>
+  </details>
+
+  {% if c.log %}
+  <details style="margin-top:.7rem">
+    <summary>Download log ({{ c.downloads }})</summary>
+    <ul style="margin:.4rem 0 0;padding-left:1.1rem">
+      {% for d in c.log %}
+      <li class="muted">{{ d.who }} · {{ d.when|local_due }}{% if d.ip %} · {{ d.ip }}{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+  <div class="btn-row" style="margin-top:.5rem">
+    <a class="btn sm secondary" href="{{ url_for('share.activity', file_id=c.row.id) }}">Activity</a>
+  </div>
+
+  <details style="margin-top:.7rem">
+    <summary>Change who can open it</summary>
+    <form method="post" action="{{ url_for('share.set_access', file_id=c.row.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>Who can open it</label>
+      <select name="share_mode">
+        {% for value, label in mode_labels.items() %}
+          <option value="{{ value }}" {% if value == c.row.share_mode %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      {% if people %}
+      <label>Only these people</label>
+      <div style="display:grid;gap:.3rem;margin:.2rem 0 .7rem">
+        {% for p in people %}
+        <label style="display:flex;gap:.45rem;align-items:center;font-weight:normal">
+          <input type="checkbox" name="people" value="{{ p.id }}" {% if p.id in c.people_ids %}checked{% endif %}>
+          <span>{{ p.name or p.username }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <label>Password {% if c.row.password_hash %}(leave blank to keep the current one){% endif %}</label>
+      <input type="password" name="password" autocomplete="new-password" placeholder="At least 4 characters">
+      <label>Link ends</label>
+      <select name="expires_days">
+        <option value="keep" selected>{% if c.row.expires_at %}Keep {{ c.row.expires_at|local_due }}{% else %}Keep it never ending{% endif %}</option>
+        {% for value, label in expiry_choices %}{% if value != '0' %}<option value="{{ value }}">{{ label }} from now</option>{% endif %}{% endfor %}
+        <option value="0">Never (clear the end date)</option>
+      </select>
+      <div class="btn-row"><button class="btn sm" type="submit">Save</button></div>
+    </form>
+    <div class="btn-row" style="margin-top:.5rem">
+      <form method="post" action="{{ url_for('share.revoke', file_id=c.row.id) }}" onsubmit="return confirm('Turn this link off?')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="btn sm secondary" type="submit">Turn link off</button>
+      </form>
+      <form method="post" action="{{ url_for('share.delete', file_id=c.row.id) }}" onsubmit="return confirm('Delete this file for good?')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="btn sm secondary" type="submit">Delete file</button>
+      </form>
+    </div>
+  </details>
+  {% endif %}
+</div>
+{% else %}
+<div class="card"><div class="empty"><strong>Nothing shared yet</strong>Upload a file above and send the link.</div></div>
+{% endfor %}
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/share-upload.js') }}?v=shareup1" defer></script>
+{% endblock %}

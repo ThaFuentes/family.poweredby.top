@@ -18,6 +18,7 @@
     <a href="{{ url_for('house.index') }}" class="{% if request.endpoint and 'house' in request.endpoint %}active{% endif %}">House</a>
     <a href="{{ url_for('notes.index') }}" class="{% if request.endpoint and 'note' in request.endpoint %}active{% endif %}">Notes</a>
     {% if current_user.role != 'child' %}
+    <a href="{{ url_for('share.index') }}" class="{% if request.endpoint and request.endpoint.startswith('share.') %}active{% endif %}">Share files</a>
     <a href="{{ url_for('vault.index') }}" class="{% if request.endpoint and request.endpoint.startswith('vault.') %}active{% endif %}">Vault</a>
     <a href="{{ url_for('sort.index') }}" class="{% if request.endpoint and request.endpoint.startswith('sort.') %}active{% endif %}">Sort</a>
     <a href="{{ url_for('legal.index') }}" class="{% if request.endpoint and request.endpoint.startswith('legal.') %}active{% endif %}">Records</a>

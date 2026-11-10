@@ -42,11 +42,30 @@ def create_app():
     if not app.config["SECRET_KEY"]:
         raise ValueError("SECRET_KEY is not set in your .env file!")
     try:
-        app.config["MAX_CONTENT_LENGTH"] = int(
+        other_upload_limit = int(
             os.getenv("UPLOAD_MAX_BYTES") or str(20 * 1024 * 1024)
         )
     except Exception:
-        app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
+        other_upload_limit = 20 * 1024 * 1024
+    # Share files takes up to 3 GB per upload (streamed, never held in RAM).
+    # Every other route keeps the normal small cap - enforced below before CSRF
+    # reads the request body, so a big POST elsewhere cannot fill the disk.
+    share_upload_limit = 3 * 1024 * 1024 * 1024
+    app.config["MAX_CONTENT_LENGTH"] = max(share_upload_limit, other_upload_limit)
+    app.config["SHARE_UPLOAD_MAX_BYTES"] = share_upload_limit
+
+    @app.before_request
+    def _cap_request_bodies():
+        from flask import abort, request
+
+        if request.method not in ("POST", "PUT", "PATCH"):
+            return None
+        if (request.path or "").startswith("/share/upload"):
+            return None
+        length = request.content_length
+        if length is not None and length > other_upload_limit:
+            abort(413)
+        return None
 
     from dbconnector import DATABASE_URI
 
@@ -260,10 +279,24 @@ def create_app():
     from app.utils.part_icons import icon_for as _part_icon_filter
     from app.utils.lots import summary_line as _lots_line_filter
 
+    def _local_due_filter(dt):
+        from flask_login import current_user
+
+        from app.utils.tz import format_local, tz_for_household_id
+
+        hid = None
+        try:
+            if getattr(current_user, "is_authenticated", False):
+                hid = getattr(current_user, "household_id", None)
+        except Exception:
+            hid = None
+        return format_local(dt, tz_for_household_id(hid) if hid else None)
+
     app.jinja_env.filters["item_thumb"] = _item_thumb_filter
     app.jinja_env.filters["qty_label"] = _qty_label_filter
     app.jinja_env.filters["part_icon"] = _part_icon_filter
     app.jinja_env.filters["lots_line"] = _lots_line_filter
+    app.jinja_env.filters["local_due"] = _local_due_filter
 
     from app.routes.auth import auth_bp
     from app.routes.home import home_bp
@@ -285,6 +318,7 @@ def create_app():
     from app.routes.security import security_bp
     from app.routes.vault import vault_bp
     from app.routes.ask import ask_bp
+    from app.routes.share import share_bp
     from app.routes.bot_api import bot_api_bp
     from app.routes.bot_api_page import bot_guide_bp
     from app.routes import bot_api_house  # noqa: F401  registers fos_bot_ routes
@@ -314,6 +348,7 @@ def create_app():
     app.register_blueprint(security_bp)
     app.register_blueprint(vault_bp)
     app.register_blueprint(ask_bp)
+    app.register_blueprint(share_bp)
     app.register_blueprint(bot_api_bp)
     app.register_blueprint(bot_guide_bp)
     app.register_blueprint(maya_admin_bp)
@@ -396,6 +431,19 @@ def create_app():
         from flask import render_template
 
         return render_template("error.html", code=403, message="You cannot do that in this household."), 403
+
+    @app.errorhandler(413)
+    def _too_large(_e):
+        from flask import render_template
+
+        return (
+            render_template(
+                "error.html",
+                code=413,
+                message="That upload is bigger than 3 GB. Split it into smaller files.",
+            ),
+            413,
+        )
 
     @app.errorhandler(404)
     def _not_found(_e):

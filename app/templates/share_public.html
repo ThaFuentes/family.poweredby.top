@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ c.title if c else 'Shared file' }} · Family OS{% endblock %}
+{% block head %}<meta name="robots" content="noindex, nofollow">{% endblock %}
+{% block content %}
+<div class="card" style="max-width:560px;margin:1.5rem auto">
+  {% if gone %}
+    <h1>This link is off</h1>
+    <p class="muted">The household turned this link off. Ask them for a new one.</p>
+  {% elif expired %}
+    <h1>This link has ended</h1>
+    <p class="muted">
+      {% if c and c.row.expires_at %}It was set to end {{ c.row.expires_at|local_due }}.{% endif %}
+      Ask the household for a fresh link.
+    </p>
+  {% elif denied %}
+    <h1>This one is for the household</h1>
+    <p class="muted">{{ c.title }} is shared with the household that uploaded it. Sign in with that household to download it.</p>
+    <a class="btn" href="{{ url_for('auth.login', next=request.path) }}">Sign in</a>
+  {% elif needs_password %}
+    <h1>{{ c.title }}</h1>
+    <p class="muted">{{ c.filename }} · {{ c.size }} · password needed</p>
+    {% if error %}<div class="flash danger">{{ error }}</div>{% endif %}
+    <form method="post" action="{{ url_for('share.unlock', token=c.token) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>Password</label>
+      <input type="password" name="password" required autofocus autocomplete="current-password">
+      <div class="btn-row"><button class="btn" type="submit">Unlock</button></div>
+    </form>
+  {% else %}
+    <h1>{{ c.title }}</h1>
+    <p class="muted">{{ c.filename }} · {{ c.size }}</p>
+    <a class="btn" href="{{ url_for('share.download', token=c.token) }}">Download</a>
+    {% if c.row.expires_at %}
+    <p class="muted" style="margin-top:1rem">This link ends {{ c.row.expires_at|local_due }}.</p>
+    {% endif %}
+    <p class="muted" style="margin-top:1rem">Shared from a Family OS household. The link can be turned off at any time.</p>
+  {% endif %}
+</div>
+{% endblock %}
