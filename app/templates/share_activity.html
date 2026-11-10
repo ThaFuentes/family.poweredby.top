@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Activity · {{ row.title }} · Family OS{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Activity</h1>
+    <p>{{ row.title }} · {{ size }} · {{ mode_label }}</p>
+  </div>
+  <a class="btn sm secondary" href="{{ url_for('share.index') }}#f{{ row.id }}">Back to Share files</a>
+</div>
+
+<div class="card">
+  <p class="muted" style="margin:0 0 .4rem">
+    {{ counts.downloads }} download{% if counts.downloads != 1 %}s{% endif %} ·
+    {{ counts.emails }} email{% if counts.emails != 1 %}s{% endif %} ·
+    {{ counts.changes }} link change{% if counts.changes != 1 %}s{% endif %}
+    {% if row.revoked_at %} · link off{% elif expired %} · expired{% elif row.expires_at %} · {{ expiry_label }}{% endif %}
+  </p>
+  <p class="muted" style="margin:0 0 .6rem">
+    Link: <a href="{{ url_for('share.public', token=row.token) }}" target="_blank" rel="noopener">{{ url_for('share.public', token=row.token, _external=True) }}</a>
+  </p>
+
+  {% if items %}
+  <ul style="list-style:none;margin:.4rem 0 0;padding:0;display:grid;gap:.65rem">
+    {% for e in items %}
+    <li style="border-top:1px solid var(--line, #e5e5e5);padding-top:.6rem">
+      <span class="badge{% if e.kind == 'download' %} want{% endif %}">{{ e.label }}</span>
+      <div class="muted" style="margin-top:.25rem">
+        {{ e.who }}{% if e.detail %} · {{ e.detail }}{% endif %}
+        {% if e.ip %} · {{ e.ip }}{% endif %}
+        {% if e.when %} · {{ e.when|local_due }}{% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="empty"><strong>No activity yet</strong>Downloads, emails sent, and link changes show up here.</div>
+  {% endif %}
+</div>
+{% endblock %}

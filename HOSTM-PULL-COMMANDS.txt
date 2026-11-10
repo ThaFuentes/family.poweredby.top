@@ -1,24 +1,52 @@
 HostM update commands
 =====================
 
-Run these in the HostM shell. The application directory is:
-/home/ua882038/public_html/family.poweredby.top
+Branch: task/family-ask-vault-local
+App directory: /home/ua882038/public_html/family.poweredby.top
 
-First check for local changes. Do not overwrite them; resolve or back them up before switching branches.
+Laptop push (one-off URL; never save it as a remote)
+----------------------------------------------------
+
+    cd /home/clarkkent/pyprojects/family.poweredby.top
+    git push "https://x-access-token:YOUR_PAT@github.com/ThaFuentes/family.poweredby.top.git" HEAD:task/family-ask-vault-local
+
+HostM pull
+----------
+
+Run these in the HostM shell. Check for local changes first and back them up;
+do not let an update overwrite work you need.
 
     cd /home/ua882038/public_html/family.poweredby.top
     git status --short
-    git fetch origin task/family-ask-vault-local
+    git fetch "https://x-access-token:YOUR_PAT@github.com/ThaFuentes/family.poweredby.top.git" task/family-ask-vault-local
 
-If this branch is not already checked out locally:
-
-    git switch --track -c task/family-ask-vault-local origin/task/family-ask-vault-local
-
-If it is already checked out locally:
+If the host clone is on this branch and is clean:
 
     git switch task/family-ask-vault-local
-    git pull --ff-only origin task/family-ask-vault-local
+    git merge --ff-only FETCH_HEAD
 
-Git may ask for GitHub HTTPS credentials if the repository is private. Enter your GitHub username when asked for a username and a valid, unexpired PAT only at the password prompt. Do not put a PAT in the remote URL, shell command, or this file.
+If it is on another branch or has local edits, update only the app files
+(this keeps .env, .htaccess, passenger_wsgi.py, and uploads/ untouched):
 
-Keep the HostM-only .env, .htaccess, passenger_wsgi.py, and uploads/ data intact. Review git status after the update. No restart/deploy command is included; use the host's established app-restart procedure only if needed.
+    git checkout FETCH_HEAD -- \
+      app/ \
+      docs/ \
+      HOSTM-PULL-COMMANDS.txt \
+      AGENTS.md \
+      README.md \
+      LICENSE \
+      main.py \
+      dbconnector.py \
+      requirements.txt \
+      poweredbytop/
+
+Restart the Python app:
+
+    mkdir -p tmp
+    touch tmp/restart.txt
+
+New database tables are created automatically on the next boot.
+
+Do not commit or store a live PAT anywhere. The token from chat goes only into
+the two commands above; after HostM confirms the site, revoke it at
+https://github.com/settings/tokens.

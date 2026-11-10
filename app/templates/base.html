@@ -31,6 +31,7 @@
       {% if current_user.role != 'child' %}
       <a href="{{ url_for('sort.index') }}">Sort</a>
       <a href="{{ url_for('legal.index') }}">Records</a>
+      <a href="{{ url_for('share.index') }}">Share files</a>
       <a href="{{ url_for('vault.index') }}">Vault</a>
       <a href="{{ url_for('members.index') }}">Household</a>
       {% endif %}
@@ -106,6 +107,7 @@
     <a href="{{ url_for('house.index') }}">House</a>
     <a href="{{ url_for('notes.index') }}">Notes</a>
     {% if current_user.role != 'child' %}
+    <a href="{{ url_for('share.index') }}">Share files</a>
     <a href="{{ url_for('vault.index') }}">Vault</a>
     {% endif %}
     <a href="{{ url_for('find.index') }}">Find</a>

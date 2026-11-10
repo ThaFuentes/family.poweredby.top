@@ -108,13 +108,19 @@ def evolve_table(table_name, columns, indexes=None):
         have = {i["name"] for i in inspect(db.engine).get_indexes(table_name)}
     except Exception:
         have = set()
-    for idx_name, idx_cols in indexes:
+    for spec in indexes:
+        if len(spec) == 3:
+            idx_name, idx_cols, unique = spec
+        else:
+            idx_name, idx_cols = spec
+            unique = False
         if idx_name in have:
             continue
+        kind = "UNIQUE INDEX" if unique else "INDEX"
         try:
             with db.engine.begin() as conn:
                 conn.execute(
-                    text(f"CREATE INDEX `{idx_name}` ON `{table_name}` ({idx_cols})")
+                    text(f"CREATE {kind} `{idx_name}` ON `{table_name}` ({idx_cols})")
                 )
             _say(f"[BUILD-DB] added index {idx_name}")
         except Exception as idx_e:
@@ -176,6 +182,14 @@ def _schema_ready() -> bool:
         if "vault_access" not in names:
             return False
         if "note_files" not in names:
+            return False
+        if not {"shared_files", "shared_file_people"} <= names:
+            return False
+        if "shared_file_downloads" not in names:
+            return False
+        if "share_upload_sessions" not in names:
+            return False
+        if "shared_file_events" not in names:
             return False
         if "ask_turns" not in names:
             return False
@@ -256,6 +270,11 @@ def init_tenant_system(app):
                 "table_photo_notes",
                 "table_notes",
                 "table_note_files",
+                "table_shared_files",
+                "table_shared_file_people",
+                "table_shared_file_downloads",
+                "table_shared_upload_sessions",
+                "table_shared_file_events",
             "table_ask_turns",
             "table_bot_api_keys",
             "table_bot_api_sessions",
