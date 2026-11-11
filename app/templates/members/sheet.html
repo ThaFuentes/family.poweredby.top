@@ -595,24 +595,6 @@
   <div class="btn-row"><button class="btn" type="submit">Save</button></div>
 </form>
 
-{% elif sheet_panel == 'vehicles' %}
-<h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">Vehicle modules</h1>
-<p class="muted">Off until you turn one on. A vehicle can override these.</p>
-{% if can('settings') or current_user.is_leader %}
-<form method="post" action="{{ url_for('members.save_vehicle_modules') }}">
-  {% for key in module_keys %}
-  <label class="btn-row">
-    <input type="hidden" name="{{ key }}" value="0">
-    <input type="checkbox" name="{{ key }}" value="1" {% if module_defaults.get(key) %}checked{% endif %}>
-    {{ key }}
-  </label>
-  {% endfor %}
-  <div class="btn-row"><button class="btn" type="submit">Save</button></div>
-</form>
-{% else %}
-<p class="muted">A leader or an admin changes these.</p>
-{% endif %}
-
 {% elif sheet_panel == 'danger' %}
 <h1 style="margin:.2rem 0 .5rem;font-size:1.2rem">Delete this household</h1>
 <div class="card danger-card">
