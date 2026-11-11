@@ -36,7 +36,13 @@ from poweredbytop.config.settings import (
     TRAFFIC_LOG_NORMAL_DB_FREQUENCY,
     CRITICAL_STATUSES_FORCE_DB,
 )
-from poweredbytop.models.connect_db import get_security_db, close_security_db
+from poweredbytop.models.connect_db import (
+    get_security_db,
+    close_security_db,
+    begin_request_db_budget,
+    end_request_db_budget,
+    request_db_seconds_left,
+)
 from poweredbytop.utils.helpers import (
     logger, get_real_ip, is_internal_request, is_suspicious_user_agent,
     apply_stagger, run_background_safe, is_trusted_ip,
@@ -111,7 +117,11 @@ def is_suspicious_attack_path(path: str) -> bool:
     return False
 
 # ====================== FIXED DB GUARD ======================
+# Per process only. On a one-request Passenger worker this rarely fills.
+# When it does fill, waiting with no limit held the page until Cloudflare
+# returned 522. Skip the log. Do not 403 the request.
 _db_semaphore = threading.BoundedSemaphore(DB_BULKHEAD_MAX_CONCURRENT)
+DB_GUARD_ACQUIRE_SECONDS = 2
 
 def _exponential_backoff(attempt: int) -> float:
     backoff = min(DB_BASE_BACKOFF_SECONDS * (2 ** attempt), DB_MAX_BACKOFF_SECONDS)
@@ -122,23 +132,44 @@ def with_db_guard(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
         for attempt in range(DB_MAX_RETRIES):
+            left = request_db_seconds_left()
+            if left is not None and left < 0.5:
+                logger("DB_GUARD_BUDGET_SPENT - skipped log so the request can continue")
+                return None
+            wait = DB_GUARD_ACQUIRE_SECONDS
+            if left is not None:
+                wait = min(wait, max(0.0, left))
+            if not _db_semaphore.acquire(timeout=wait):
+                logger("DB_GUARD_BUSY - skipped log so the request can continue")
+                return None
+            retry = False
+            err = None
             try:
-                with _db_semaphore:
-                    result = func(*args, **kwargs)
-                    if attempt > 0:
-                        logger(f"DB_GUARD_RECOVERED after {attempt} retries")
-                    return result
+                result = func(*args, **kwargs)
+                if attempt > 0:
+                    logger(f"DB_GUARD_RECOVERED after {attempt} retries")
+                return result
             except Exception as e:
                 error_str = str(e).lower()
                 transient_phrases = ["gone away", "connection reset", "broken pipe", "name or service not known", "104", "32", "2006", "2003"]
-                if any(phrase in error_str for phrase in transient_phrases):
-                    backoff = _exponential_backoff(attempt)
-                    logger(f"DB_GUARD_TRANSIENT_ERROR (attempt {attempt+1}/{DB_MAX_RETRIES}): {str(e)}")
-                    time.sleep(backoff)
-                    continue
-                else:
+                if not any(phrase in error_str for phrase in transient_phrases):
                     logger(f"DB_GUARD_PERMANENT_ERROR: {str(e)}")
                     raise
+                retry = True
+                err = e
+            finally:
+                _db_semaphore.release()
+            if retry:
+                backoff = _exponential_backoff(attempt)
+                left = request_db_seconds_left()
+                if left is not None:
+                    if left < 0.5:
+                        logger("DB_GUARD_BUDGET_SPENT - skipped log so the request can continue")
+                        return None
+                    backoff = min(backoff, left)
+                logger(f"DB_GUARD_TRANSIENT_ERROR (attempt {attempt+1}/{DB_MAX_RETRIES}): {err}")
+                time.sleep(backoff)
+                continue
         logger("DB_GUARD_ALL_RETRIES_FAILED - MariaDB unreachable")
         return None
     return wrapper
@@ -813,6 +844,9 @@ def run_full_security_pipeline():
 
 
 def before_request_security():
+    # Device, reputation, and traffic each open a security connection.
+    # They share one short budget so a slow log cannot become a 522.
+    begin_request_db_budget()
     start = time.time()
     try:
         ok = run_full_security_pipeline()
@@ -849,6 +883,13 @@ def before_request_security():
     return None
 
 def teardown_security(exception=None):
+    try:
+        return _finish_teardown_security(exception)
+    finally:
+        end_request_db_budget()
+
+
+def _finish_teardown_security(exception=None):
     if getattr(g, "pbt_bot_api", False):
         return
     if hasattr(g, "rate_limited") and g.rate_limited:

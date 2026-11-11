@@ -103,13 +103,33 @@
     root.innerHTML = html;
   }
 
-  async function refresh() {
-    try {
-      const res = await fetch("/groceries/list.json", { headers: { Accept: "application/json" } });
-      if (!res.ok) return;
-      const data = await res.json();
-      render(data.rows || []);
-    } catch (e) {}
+  let refreshFlight = null;
+
+  function refresh() {
+    if (refreshFlight) return refreshFlight;
+    const ctrl = new AbortController();
+    const timer = setTimeout(function () {
+      ctrl.abort();
+    }, 8000);
+    refreshFlight = fetch("/groceries/list.json", {
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+      cache: "no-store",
+    })
+      .then(function (res) {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then(function (data) {
+        if (!data || !Array.isArray(data.rows)) return;
+        render(data.rows);
+      })
+      .catch(function () {})
+      .finally(function () {
+        clearTimeout(timer);
+        refreshFlight = null;
+      });
+    return refreshFlight;
   }
 
   async function runBulk(action, ids) {
@@ -125,12 +145,12 @@
         },
         body: JSON.stringify({ action: action, ids: ids }),
       });
-      await refresh();
+      await refreshAfterChange();
       if (window.parent && window.parent !== window) {
         window.parent.postMessage({ family: "sheet-saved" }, "*");
       }
     } catch (e) {
-      await refresh();
+      await refreshAfterChange();
     }
   }
 
@@ -174,6 +194,20 @@
     });
   }
 
-  window.addEventListener("family-basket-refresh", refresh);
-  setInterval(refresh, 5000);
+  function refreshAfterChange() {
+    const pending = refreshFlight;
+    if (!pending) return refresh();
+    return pending.then(function () { return refresh(); }, function () { return refresh(); });
+  }
+
+  window.addEventListener("family-basket-refresh", function () {
+    refresh();
+  });
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) refresh();
+  });
+  setInterval(function () {
+    if (document.hidden) return;
+    refresh();
+  }, 30000);
 })();

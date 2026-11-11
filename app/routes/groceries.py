@@ -1,7 +1,7 @@
 from datetime import datetime
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session
 from flask_login import login_required, current_user
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.builddb.builddb import db
 from app.builddb.table_items import Item
@@ -299,7 +299,7 @@ def _basket_payload(rows):
     if ids:
         hid = rows[0].household_id
         found = (
-            Item.query.options(joinedload(Item.grocery))
+            Item.query.options(joinedload(Item.grocery), selectinload(Item.photos))
             .filter(Item.household_id == hid, Item.id.in_(ids))
             .all()
         )
