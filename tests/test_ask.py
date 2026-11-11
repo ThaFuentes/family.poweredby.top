@@ -2225,7 +2225,7 @@ class AgentUxTests(AskHttpSupport, unittest.TestCase):
         self.assertIn("/help", say)
         self.assertIn("/reminders", say)
         self.assertIn("/notes", say)
-        self.assertIn("/vault", say)
+        self.assertIn("/my-vault", say)
         self.assertIn("/people", say)
         self.assertIn("/ask/vault", say)
         self.assertIn("search online", say)

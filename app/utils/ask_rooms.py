@@ -132,7 +132,7 @@ _ROOM_RULES_BASE = {
 ROOM_RULES = dict(
     _ROOM_RULES_BASE,
     **{
-        "vault": "This thread is local-only. Vault card lookup is handled by the app, never by an AI provider. Unlock on /vault/ first. Add or edit cards on the vault page.",
+        "vault": "This thread is local-only. Vault card lookup is handled by the app, never by an AI provider. Unlock on /my-vault/ first. Add or edit cards on the vault page.",
         "people": "This thread is people: member_add, member_list, member_role, member_password, member_remove, and person_update for name/email/phone changes.",
         "notes": "This thread is notes: note_save to add or update, find to locate, note_delete to remove. Household notes show to everyone.",
         "reminders": "This thread is reminders: reminder_save to add, reminder_list to show open ones, reminder_done to mark one done, due for the combined view.",
@@ -207,7 +207,7 @@ def help_text(room: str | None = None) -> str:
         "/oil — oil specs saved on machines\n"
         "/reminders — open reminders\n"
         "/notes — saved notes\n"
-        "/vault — what is in the vault (unlock first)\n"
+        "/my-vault — what is in the vault (unlock first)\n"
         "/people — who is in this house\n"
         "/allow and /confirm — switch run-free and ask-first\n\n"
         "Things to say:\n"
@@ -243,7 +243,7 @@ def _speak_member_list(result: dict) -> str:
 def _speak_vault_list(result: dict) -> str:
     entries = result.get("entries") or []
     if not entries:
-        return "Vault is empty or locked. Unlock it on /vault/ first. Never paste your login password in chat."
+        return "Vault is empty or locked. Unlock it on /my-vault/ first. Never paste your login password in chat."
     return "Vault:\n" + "\n".join(f"· {e}" for e in entries)
 
 
@@ -319,7 +319,7 @@ def local_list(kind: str) -> str:
         from app.utils.ask import tool_vault_list
 
         body = _speak_vault_list(tool_vault_list(""))
-        return body + "\n/vault/"
+        return body + "\n/my-vault/"
     return help_text(key)
 
 

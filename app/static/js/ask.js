@@ -463,7 +463,7 @@
           return;
         }
         addBubble(data.ok ? "them" : "them err", say, "", !data.ok && canRetry(say) ? retry : null, data.ok && data.confirm);
-        if (data.vault_locked) addBubble("them", "Open /vault/ with this login, then ask again.");
+        if (data.vault_locked) addBubble("them", "Open /my-vault/ with this login, then ask again.");
         if (data.ok) cacheWrite(turnsFromLog());
       })
       .catch(function () {

@@ -1297,7 +1297,7 @@ class BotApiTests(unittest.TestCase):
         home = kid.get("/")
         self.assertEqual(home.status_code, 200, home.data[:300])
         self.assertIn(b'href="/ask/"', home.data)
-        self.assertNotIn(b'href="/vault/"', home.data)
+        self.assertNotIn(b'href="/my-vault/"', home.data)
         self.assertNotIn(b'href="/legal/"', home.data)
         desk = kid.get("/ask/")
         self.assertEqual(desk.status_code, 200, desk.data[:300])
