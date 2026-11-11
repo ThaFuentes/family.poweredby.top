@@ -311,10 +311,10 @@ class VaultHttpTests(unittest.TestCase):
         return self.client.post("/auth/register", data=data, follow_redirects=True)
 
     def _unlock(self, username):
-        page = self.client.get("/vault/")
+        page = self.client.get("/my-vault/")
         token = self._csrf(page.data)
         return self.client.post(
-            "/vault/unlock",
+            "/my-vault/unlock",
             data={
                 "username": username,
                 "password": "FamilyTest1!",
@@ -331,7 +331,7 @@ class VaultHttpTests(unittest.TestCase):
         member = f"vault_m_{self.suffix}"
         kid = f"vault_k_{self.suffix}"
         self._register(admin, household=f"Vault {self.suffix}", name="Pat")
-        locked = self.client.get("/vault/")
+        locked = self.client.get("/my-vault/")
         self.assertEqual(locked.status_code, 200)
         self.assertIn(b"Open vault", locked.data)
         self.assertNotIn(b"Household handle", locked.data)
@@ -339,7 +339,7 @@ class VaultHttpTests(unittest.TestCase):
 
         token = self._csrf(locked.data)
         pw_only = self.client.post(
-            "/vault/unlock",
+            "/my-vault/unlock",
             data={"password": "FamilyTest1!", "csrf_token": token},
             headers={"X-CSRF-Token": token},
             follow_redirects=True,
@@ -354,7 +354,7 @@ class VaultHttpTests(unittest.TestCase):
         self.assertNotIn(b'name="secret"', opened.data)
         token = self._csrf(opened.data)
         stay = self.client.post(
-            "/vault/stay",
+            "/my-vault/stay",
             data={"csrf_token": token},
             headers={"X-CSRF-Token": token},
         )
@@ -362,7 +362,7 @@ class VaultHttpTests(unittest.TestCase):
         self.assertTrue(stay.get_json().get("ok"))
         token = self._csrf(opened.data)
         added = self.client.post(
-            "/vault/add",
+            "/my-vault/add",
             data={
                 "title": "Netflix house",
                 "login": "family@house.test",
@@ -392,7 +392,7 @@ class VaultHttpTests(unittest.TestCase):
             self.assertNotIn("netflix.com", (row.url or "").lower())
             self.assertTrue((row.title or "").startswith("gAAAAA"))
             netflix_id = row.id
-        sheet = self.client.get(f"/vault/{netflix_id}")
+        sheet = self.client.get(f"/my-vault/{netflix_id}")
         self.assertEqual(sheet.status_code, 200)
         self.assertIn(b"family@house.test", sheet.data)
         self.assertIn(b"WatchIt-99", sheet.data)
@@ -408,7 +408,7 @@ class VaultHttpTests(unittest.TestCase):
         self.assertIn("no-store", sheet.headers.get("Cache-Control", ""))
         token = self._csrf(sheet.data)
         shared = self.client.post(
-            f"/vault/{netflix_id}/share",
+            f"/my-vault/{netflix_id}/share",
             data={"share_mode": "household", "next": "sheet", "csrf_token": token},
             headers={"X-CSRF-Token": token},
             follow_redirects=True,
@@ -434,7 +434,7 @@ class VaultHttpTests(unittest.TestCase):
         m = re.search(r"Family key ([A-Z0-9-]+)", inv.data.decode("utf-8", "replace"))
         self.assertIsNotNone(m, inv.data[-800:])
         self._register(member, invite=m.group(1), name="Spouse")
-        member_locked = self.client.get("/vault/")
+        member_locked = self.client.get("/my-vault/")
         self.assertEqual(member_locked.status_code, 200)
         self.assertNotIn(b"WatchIt-99", member_locked.data)
         member_open = self._unlock(member)
@@ -447,7 +447,7 @@ class VaultHttpTests(unittest.TestCase):
             follow_redirects=True,
         )
         self._unlock(admin)
-        token = self._csrf(self.client.get("/vault/").data)
+        token = self._csrf(self.client.get("/my-vault/").data)
         with self.app.app_context():
             from app.builddb.table_users import User
 
@@ -455,7 +455,7 @@ class VaultHttpTests(unittest.TestCase):
             self.assertIsNotNone(spouse)
             spouse_id = spouse.id
         water = self.client.post(
-            "/vault/add",
+            "/my-vault/add",
             data={
                 "title": "Water bill",
                 "login": "water-user",
@@ -476,7 +476,7 @@ class VaultHttpTests(unittest.TestCase):
             water_id = water_row.id
         token = self._csrf(water.data)
         water_share = self.client.post(
-            f"/vault/{water_id}/grant",
+            f"/my-vault/{water_id}/grant",
             data={
                 "person": str(spouse_id),
                 "for": "1h",
@@ -490,9 +490,9 @@ class VaultHttpTests(unittest.TestCase):
         self.assertIn(b"Spouse", water_share.data)
         self.assertIn(b"left", water_share.data)
 
-        token = self._csrf(self.client.get("/vault/").data)
+        token = self._csrf(self.client.get("/my-vault/").data)
         private = self.client.post(
-            "/vault/add",
+            "/my-vault/add",
             data={
                 "title": "Only Pat bank",
                 "login": "pat-bank",
@@ -538,16 +538,16 @@ class VaultHttpTests(unittest.TestCase):
         km = re.search(r"Family key ([A-Z0-9-]+)", kid_inv.data.decode("utf-8", "replace"))
         self.assertIsNotNone(km)
         self._register(kid, invite=km.group(1), name="Kid")
-        blocked = self.client.get("/vault/")
+        blocked = self.client.get("/my-vault/")
         self.assertEqual(blocked.status_code, 403)
-        sneak = self.client.get(f"/vault/{netflix_id}")
+        sneak = self.client.get(f"/my-vault/{netflix_id}")
         self.assertEqual(sneak.status_code, 403)
 
     def test_add_bill_form_has_fields(self):
         admin = f"vault_bf_{self.suffix}"
         self._register(admin, household=f"BillForm {self.suffix}", name="Pat")
         self._unlock(admin)
-        page = self.client.get("/vault/new/billing")
+        page = self.client.get("/my-vault/new/billing")
         self.assertEqual(page.status_code, 200, page.data[-400:])
         body = page.data
         self.assertIn(b'name="title"', body)
@@ -557,16 +557,16 @@ class VaultHttpTests(unittest.TestCase):
         self.assertIn(b"Account / member number", body)
         self.assertIn(b'value="billing"', body)
         self.assertIn(b"Save in vault", body)
-        self.assertIn(b"/vault/add/billing", body)
+        self.assertIn(b"/my-vault/add/billing", body)
 
     def test_kinds_and_access_clock(self):
         admin = f"vault_b_{self.suffix}"
         member = f"vault_s_{self.suffix}"
         self._register(admin, household=f"VaultB {self.suffix}", name="Pat")
         self._unlock(admin)
-        token = self._csrf(self.client.get("/vault/").data)
+        token = self._csrf(self.client.get("/my-vault/").data)
         added = self.client.post(
-            "/vault/add",
+            "/my-vault/add",
             data={
                 "kind": "billing",
                 "title": "City water",
@@ -583,10 +583,10 @@ class VaultHttpTests(unittest.TestCase):
             follow_redirects=True,
         )
         self.assertEqual(added.status_code, 200)
-        billing = self.client.get("/vault/?kind=billing")
+        billing = self.client.get("/my-vault/?kind=billing")
         self.assertIn(b"City water", billing.data)
         self.assertNotIn(b"Pipe-Secret", billing.data)
-        passwords = self.client.get("/vault/?kind=password")
+        passwords = self.client.get("/my-vault/?kind=password")
         self.assertNotIn(b"City water", passwords.data)
         with self.app.app_context():
             from app.builddb.table_vault_entries import VaultEntry
@@ -594,7 +594,7 @@ class VaultHttpTests(unittest.TestCase):
             row = VaultEntry.query.order_by(VaultEntry.id.desc()).first()
             self.assertEqual(row.kind, "billing")
             bill_id = row.id
-        sheet = self.client.get(f"/vault/{bill_id}")
+        sheet = self.client.get(f"/my-vault/{bill_id}")
         self.assertIn(b"555-0199", sheet.data)
         self.assertIn(b"W-441", sheet.data)
         self.assertIn(b"PIN 4410", sheet.data)
@@ -633,9 +633,9 @@ class VaultHttpTests(unittest.TestCase):
 
             spouse = User.query.filter_by(username=member).first()
             spouse_id = spouse.id
-        token = self._csrf(self.client.get(f"/vault/{bill_id}").data)
+        token = self._csrf(self.client.get(f"/my-vault/{bill_id}").data)
         given = self.client.post(
-            f"/vault/{bill_id}/grant",
+            f"/my-vault/{bill_id}/grant",
             data={
                 "person": str(spouse_id),
                 "for": "1h",
@@ -661,11 +661,11 @@ class VaultHttpTests(unittest.TestCase):
             follow_redirects=True,
         )
         self._unlock(member)
-        opened = self.client.get(f"/vault/{bill_id}")
+        opened = self.client.get(f"/my-vault/{bill_id}")
         self.assertEqual(opened.status_code, 200)
         self.assertIn(b"Pipe-Secret", opened.data)
         self.client.post(
-            f"/vault/{bill_id}/seen",
+            f"/my-vault/{bill_id}/seen",
             data={"action": "copy_secret"},
             headers={"X-CSRF-Token": self._csrf(opened.data)},
         )
@@ -677,7 +677,7 @@ class VaultHttpTests(unittest.TestCase):
             follow_redirects=True,
         )
         self._unlock(admin)
-        after = self.client.get(f"/vault/{bill_id}")
+        after = self.client.get(f"/my-vault/{bill_id}")
         after_body = after.data.decode("utf-8", "replace")
         self.assertIn("Opened", after_body)
         self.assertIn("copied the password", after_body)
@@ -691,7 +691,7 @@ class VaultHttpTests(unittest.TestCase):
             from app.builddb.builddb import db
 
             db.session.commit()
-        expired = self.client.get(f"/vault/{bill_id}")
+        expired = self.client.get(f"/my-vault/{bill_id}")
         exp_body = expired.data.decode("utf-8", "replace")
         self.assertIn("Ended", exp_body)
         self.assertIn("time ran out", exp_body)
@@ -705,7 +705,7 @@ class VaultHttpTests(unittest.TestCase):
             follow_redirects=True,
         )
         self._unlock(member)
-        gone = self.client.get("/vault/")
+        gone = self.client.get("/my-vault/")
         self.assertNotIn(b"City water", gone.data)
 
 

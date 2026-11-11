@@ -201,7 +201,7 @@ item_remove takes a tool, vehicle, or grocery out of the house. Call it with the
 reminder type: bill, oil_change, filter, custom. every: 30d, 90d, 180d, 365d, 3000mi, 5000mi, 50h, or monthly/yearly.
 
 If they name a store run (Sam's, Costco) put those names on the basket with store set — no barcode yet. When they later scan a product that fits (french vanilla creamer vs coffee creamer), call basket_match so it links and comes off the list.
-Vault credentials are never model tools. Vault lookups are handled locally by the app after this login reauthenticates on /vault/. Never ask them to paste their Family OS login password in chat.
+Vault credentials are never model tools. Vault lookups are handled locally by the app after this login reauthenticates on /my-vault/. Never ask them to paste their Family OS login password in chat.
 Look up a UPC/VIN before creating a tool, vehicle, or grocery when they gave a code.
 A saved vehicle or tool already has its year, make, model, color, VIN, plate, serial, and oil. Call item_inspect or vehicle_card before you ask for any of those.
 Trips: start a trip with trip_save action start (odometer + from/to). End it with action end and the new miles. That updates the truck's miles and the Log tab. "I'm home with 81650 miles" is an end.
@@ -4356,7 +4356,7 @@ def _vault_guard() -> dict | None:
         return {
             "ok": False,
             "need": "vault_unlock",
-            "error": "Vault is locked. Open /vault/ with this login first, then ask again.",
+            "error": "Vault is locked. Open /my-vault/ with this login first, then ask again.",
         }
     return None
 
@@ -4462,12 +4462,12 @@ def tool_vault_list(q: str = "") -> dict:
                 "kind": kind_label(row),
                 "share": share_label(row.share_mode),
                 "site": (fields.get("url") or "")[:120],
-                "href": _path("vault.detail", entry_id=row.id) or f"/vault/{row.id}",
+                "href": _path("vault.detail", entry_id=row.id) or f"/my-vault/{row.id}",
             }
         )
         if len(out) >= 12:
             break
-    return {"ok": True, "entries": out, "vault": "/vault/"}
+    return {"ok": True, "entries": out, "vault": "/my-vault/"}
 
 
 def tool_vault_open(entry_id) -> dict:
@@ -4512,7 +4512,7 @@ def tool_vault_open(entry_id) -> dict:
         "call_info": f.get("call_info") or "",
         "purpose": f.get("purpose") or "",
         "details": f.get("details") or "",
-        "href": _path("vault.detail", entry_id=row.id) or f"/vault/{row.id}",
+        "href": _path("vault.detail", entry_id=row.id) or f"/my-vault/{row.id}",
     }
 
 
@@ -4577,7 +4577,7 @@ def tool_vault_save(args: dict) -> dict:
         )
         db.session.add(row)
     db.session.commit()
-    href = _path("vault.detail", entry_id=row.id) or f"/vault/{row.id}"
+    href = _path("vault.detail", entry_id=row.id) or f"/my-vault/{row.id}"
     return {
         "ok": True,
         "id": row.id,
@@ -6321,7 +6321,7 @@ def run_ask(
         clear_ask_photo()
         return {
             "ok": True,
-            "say": "That looks like a password or access code. I did not send or save it. To unlock the vault, enter your sign-in details on /vault/.",
+            "say": "That looks like a password or access code. I did not send or save it. To unlock the vault, enter your sign-in details on /my-vault/.",
             "did": [],
             "vault_locked": False,
             "volatile": True,

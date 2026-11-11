@@ -78,7 +78,7 @@
     if (
       reload &&
       (location.pathname.indexOf("/items/") === 0 ||
-        location.pathname.indexOf("/vault") === 0 ||
+        location.pathname.indexOf("/my-vault") === 0 ||
         location.pathname.indexOf("/groceries") === 0 ||
         location.pathname === "/" ||
         location.pathname.indexOf("/home") === 0)
@@ -314,7 +314,7 @@
       var now = Date.now();
       if (now - last < 8000) return;
       last = now;
-      fetch("/vault/stay", {
+      fetch("/my-vault/stay", {
         method: "POST",
         headers: {
           Accept: "application/json",

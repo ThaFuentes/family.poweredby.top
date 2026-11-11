@@ -106,7 +106,7 @@ class AskVaultLocalTests(unittest.TestCase):
         )
         self.assertTrue(result["vault_locked"])
         self.assertTrue(result["volatile"])
-        self.assertEqual(result["redirect_url"], "/vault/?next=%2Fask%2Fvault")
+        self.assertEqual(result["redirect_url"], "/my-vault/?next=%2Fask%2Fvault")
         self.assertNotIn("password", result["say"].lower())
         list_cards.assert_not_called()
         open_card.assert_not_called()
@@ -114,8 +114,8 @@ class AskVaultLocalTests(unittest.TestCase):
     def test_unlocked_password_lookup_is_local_and_volatile(self):
         result, _clear, list_cards, open_card = self._run(
             "What is the Netflix password?",
-            entries=[{"id": 17, "title": "Netflix", "href": "/vault/17"}],
-            card={"ok": True, "title": "Netflix", "secret": "Local-Secret-99", "href": "/vault/17"},
+            entries=[{"id": 17, "title": "Netflix", "href": "/my-vault/17"}],
+            card={"ok": True, "title": "Netflix", "secret": "Local-Secret-99", "href": "/my-vault/17"},
         )
         self.assertIn("Local-Secret-99", result["say"])
         self.assertTrue(result["volatile"])
@@ -126,8 +126,8 @@ class AskVaultLocalTests(unittest.TestCase):
     def test_login_request_does_not_return_password(self):
         result, _clear, _list, _open = self._run(
             "What is the Netflix login?",
-            entries=[{"id": 17, "title": "Netflix", "href": "/vault/17"}],
-            card={"ok": True, "title": "Netflix", "login": "family@example.test", "secret": "Local-Secret-99", "href": "/vault/17"},
+            entries=[{"id": 17, "title": "Netflix", "href": "/my-vault/17"}],
+            card={"ok": True, "title": "Netflix", "login": "family@example.test", "secret": "Local-Secret-99", "href": "/my-vault/17"},
         )
         self.assertIn("family@example.test", result["say"])
         self.assertNotIn("Local-Secret-99", result["say"])

@@ -154,7 +154,7 @@ def local_vault_say(text: str, room: str = "house", *, has_photo: bool = False) 
             try:
                 destination = url_for("vault.index", next="/ask/vault")
             except Exception:
-                destination = "/vault/?next=%2Fask%2Fvault"
+                destination = "/my-vault/?next=%2Fask%2Fvault"
             return _volatile(
                 "Opening the vault so you can sign in there. Do not enter your sign-in details in chat.",
                 locked=True,
@@ -163,9 +163,9 @@ def local_vault_say(text: str, room: str = "house", *, has_photo: bool = False) 
         return _volatile(error or "You cannot use the vault from this login.")
 
     if _SAVE_SECRET.search(raw):
-        return _volatile("I won’t repeat or save a password pasted into chat. Add it directly on the vault page: /vault/")
+        return _volatile("I won’t repeat or save a password pasted into chat. Add it directly on the vault page: /my-vault/")
     if _WRITE_INTENT.search(raw):
-        return _volatile("For safety, add or change vault cards on the vault page, not in chat. /vault/")
+        return _volatile("For safety, add or change vault cards on the vault page, not in chat. /my-vault/")
     try:
         from flask import session
 
@@ -183,40 +183,40 @@ def local_vault_say(text: str, room: str = "house", *, has_photo: bool = False) 
     if wants_list or (is_vault_room and _LIST_INTENT.fullmatch(raw)):
         query = ""
     elif not query and re.search(r"\b(?:my|our|their)\b.{0,25}\b(?:password|passcode|login|username|pin)\b", raw, re.I):
-        return _volatile("Which vault card do you mean? Name the service or card title. /vault/")
+        return _volatile("Which vault card do you mean? Name the service or card title. /my-vault/")
     if wants_list:
         result = tool_vault_list("")
         if not result.get("ok", True):
-            return _volatile(str(result.get("error") or "I couldn’t open the vault. /vault/"))
+            return _volatile(str(result.get("error") or "I couldn’t open the vault. /my-vault/"))
         entries = result.get("entries") or []
         if not entries:
-            return _volatile("No vault cards are visible to you. /vault/")
+            return _volatile("No vault cards are visible to you. /my-vault/")
         lines = [
             "· " + str(entry.get("title") or "Vault card")
             + (" · " + str(entry.get("site")) if entry.get("site") else "")
             + (" · " + str(entry.get("href")) if entry.get("href") else "")
             for entry in entries
         ]
-        return _volatile("Vault cards:\n" + "\n".join(lines) + "\n/vault/")
+        return _volatile("Vault cards:\n" + "\n".join(lines) + "\n/my-vault/")
 
     if not query:
-        return _volatile("Name the vault card you want me to look up. /vault/")
+        return _volatile("Name the vault card you want me to look up. /my-vault/")
     result = tool_vault_list(query)
     if not result.get("ok", True):
-        return _volatile(str(result.get("error") or "I couldn’t open the vault. /vault/"))
+        return _volatile(str(result.get("error") or "I couldn’t open the vault. /my-vault/"))
     entries = result.get("entries") or []
     if not entries:
-        return _volatile(f"I couldn’t find a vault card matching “{query}”. /vault/")
+        return _volatile(f"I couldn’t find a vault card matching “{query}”. /my-vault/")
     if len(entries) > 1:
         names = ", ".join(str(row.get("title") or "Untitled") for row in entries[:8])
-        return _volatile(f"Which vault card do you mean: {names}? /vault/")
+        return _volatile(f"Which vault card do you mean: {names}? /my-vault/")
 
     card = tool_vault_open(entries[0].get("id"))
     if not card.get("ok"):
-        return _volatile(str(card.get("error") or "I couldn’t open that vault card. /vault/"))
+        return _volatile(str(card.get("error") or "I couldn’t open that vault card. /my-vault/"))
 
     title = str(card.get("title") or entries[0].get("title") or "Vault card")
-    href = str(card.get("href") or entries[0].get("href") or "/vault/")
+    href = str(card.get("href") or entries[0].get("href") or "/my-vault/")
     lines = [f"{title} · {href}"]
     if _LOGIN_INTENT.search(raw) and card.get("login"):
         lines.append("Login: " + str(card["login"]))

@@ -515,7 +515,7 @@ class FamilySecurityTests(unittest.TestCase):
             "/tools/",
             "/vehicles/",
             "/notes/",
-            "/vault/",
+            "/my-vault/",
             "/reminders/",
             "/members/",
             "/appearance/",

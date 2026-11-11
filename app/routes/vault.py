@@ -59,7 +59,9 @@ from app.utils.password_vault import (
     two_factor_label,
 )
 
-vault_bp = Blueprint("vault", __name__, url_prefix="/vault")
+# HostM's edge refuses the literal /vault path before Flask (one-byte 403).
+# Keep the product name "Vault" but serve it under /my-vault.
+vault_bp = Blueprint("vault", __name__, url_prefix="/my-vault")
 
 _LIMITS = {
     "title": 200,
